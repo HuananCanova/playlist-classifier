@@ -23,7 +23,9 @@ playlist-classifier/
 │       ├── lastfm_client.py   # tags de artista e de faixa (a fonte de gênero)
 │       ├── genre_analysis.py  # combina as duas fontes e agrega distribuições
 │       ├── playlists.py       # rotas /api/playlists
-│       ├── ai_chat.py         # agente Claude + tools (streaming SSE)
+│       ├── ai_tools.py        # as ferramentas do agente (neutras de provedor)
+│       ├── ai_chat.py         # adaptador Claude + streaming SSE
+│       ├── ai_chat_groq.py    # adaptador Groq (testes sem custo)
 │       ├── chat.py            # rotas /api/chat
 │       ├── models.py          # schemas Pydantic
 │       └── cache.py           # cache em memória (TTL) pra não estourar rate limit
@@ -68,6 +70,10 @@ Por que assim:
   o resultado avisa ao modelo que é uma amostra — em vez de despejar as 300.
 - **Credencial fora do alcance do modelo**: o token do Spotify fica capturado no
   closure das ferramentas, não como parâmetro delas.
+- **Troca de provedor**: as ferramentas vivem em `ai_tools.py`, neutras. Os
+  adaptadores só traduzem para cada API — o Claude (alvo real) e o Groq (que é
+  compatível com OpenAI, não com a Anthropic, e serve para testar sem custo).
+  Ambos emitem os mesmos eventos SSE, então o frontend não sabe qual respondeu.
 
 O chat é opcional: sem `ANTHROPIC_API_KEY`, o `/api/chat/status` responde
 `available: false` e a interface esconde a aba, com o resto do app intacto.
@@ -102,11 +108,19 @@ nenhum, então o Last.fm deixou de ser complemento e virou a única fonte.
 1. Acesse https://www.last.fm/api/account/create e crie uma "aplicação".
 2. Copie a **API key** (não precisa da secret, só fazemos leitura pública).
 
-### 3. (Opcional) Chave da Anthropic, para o chat
+### 3. (Opcional) Chave de IA, para o chat
 
-Crie uma em https://console.anthropic.com/settings/keys e coloque em
-`ANTHROPIC_API_KEY` no `backend/.env`. Sem ela o app funciona normalmente, só
-sem a aba de chat.
+Sem chave nenhuma o app funciona normalmente, só sem a aba de chat.
+
+```bash
+# Claude (padrão)
+CHAT_PROVIDER=anthropic
+ANTHROPIC_API_KEY=...   # https://console.anthropic.com/settings/keys
+
+# ou Groq, que tem camada gratuita — útil para testar
+CHAT_PROVIDER=groq
+GROQ_API_KEY=...        # https://console.groq.com/keys
+```
 
 ### 4. Configurar o backend
 

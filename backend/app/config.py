@@ -13,8 +13,12 @@ class Settings(BaseSettings):
 
     lastfm_api_key: str
 
-    # Opcional: sem ela o app funciona normalmente, só sem o chat com IA.
+    # Provedor do chat: "anthropic" (alvo real) ou "groq" (testes sem custo).
+    # Sem chave nenhuma, o app funciona normalmente e o chat some da interface.
+    chat_provider: str = "anthropic"
     anthropic_api_key: str = ""
+    groq_api_key: str = ""
+    groq_model: str = "llama-3.3-70b-versatile"
 
     frontend_url: str = "http://127.0.0.1:5173"
     session_secret: str = "dev-only-insecure-secret-change-me"

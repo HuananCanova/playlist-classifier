@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from .ai_chat import stream_chat
+from .ai_chat import active_provider, stream_chat
 from .auth import get_valid_access_token
 from .config import get_settings
 
@@ -26,17 +26,18 @@ class ChatRequest(BaseModel):
 @router.get("/status")
 async def chat_status():
     """Diz ao frontend se o chat está disponível, para ele esconder a UI se não estiver."""
-    return {"available": bool(get_settings().anthropic_api_key)}
+    provider = active_provider()
+    return {"available": provider is not None, "provider": provider}
 
 
 @router.post("")
 async def chat(payload: ChatRequest, request: Request):
     token = await get_valid_access_token(request)
 
-    if not get_settings().anthropic_api_key:
+    if active_provider() is None:
         raise HTTPException(
             status_code=503,
-            detail="Chat indisponível: configure ANTHROPIC_API_KEY no backend/.env.",
+            detail="Chat indisponível: configure ANTHROPIC_API_KEY ou GROQ_API_KEY no backend/.env.",
         )
 
     messages = [{"role": m.role, "content": m.content} for m in payload.messages]
