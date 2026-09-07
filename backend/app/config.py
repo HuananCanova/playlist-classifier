@@ -13,6 +13,9 @@ class Settings(BaseSettings):
 
     lastfm_api_key: str
 
+    # Opcional: sem ela o app funciona normalmente, só sem o chat com IA.
+    anthropic_api_key: str = ""
+
     frontend_url: str = "http://127.0.0.1:5173"
     session_secret: str = "dev-only-insecure-secret-change-me"
 

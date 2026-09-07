@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from .auth import router as auth_router
+from .chat import router as chat_router
 from .config import get_settings
 from .playlists import router as playlists_router
 
@@ -29,6 +30,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(playlists_router)
+app.include_router(chat_router)
 
 
 @app.get("/api/health")

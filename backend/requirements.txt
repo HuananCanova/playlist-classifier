@@ -6,3 +6,4 @@ pydantic-settings==2.5.2
 itsdangerous==2.2.0
 cachetools==5.5.0
 python-dotenv==1.0.1
+anthropic>=1.4.0

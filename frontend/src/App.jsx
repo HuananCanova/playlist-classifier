@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from "./AuthContext.jsx";
 import Login from "./pages/Login.jsx";
 import PlaylistList from "./pages/PlaylistList.jsx";
 import PlaylistDetail from "./pages/PlaylistDetail.jsx";
+import Chat from "./pages/Chat.jsx";
 
 function Navbar() {
   const { user, logout } = useAuth();
@@ -31,6 +32,12 @@ function Navbar() {
               className={({ isActive }) => `nav-link${isActive ? " nav-link-active" : ""}`}
             >
               Playlists
+            </NavLink>
+            <NavLink
+              to="/chat"
+              className={({ isActive }) => `nav-link${isActive ? " nav-link-active" : ""}`}
+            >
+              Chat
             </NavLink>
           </nav>
         )}
@@ -74,6 +81,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <PlaylistList />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/chat"
+            element={
+              <RequireAuth>
+                <Chat />
               </RequireAuth>
             }
           />

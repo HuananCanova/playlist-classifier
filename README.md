@@ -7,6 +7,8 @@ gênero e subgênero — por playlist e por música.
 - **Last.fm API**: as tags da comunidade, que são a fonte de gênero do projeto —
   tags do **artista** dão o gênero amplo (`techno`, `mpb`), tags da **faixa** dão o
   subgênero (`minimal techno`, `bossa nova`), com granularidade por música.
+- **Claude API**: um chat que responde perguntas sobre as suas playlists
+  consultando os dados reais por meio de ferramentas (opcional).
 
 ## Arquitetura
 
@@ -21,12 +23,14 @@ playlist-classifier/
 │       ├── lastfm_client.py   # tags de artista e de faixa (a fonte de gênero)
 │       ├── genre_analysis.py  # combina as duas fontes e agrega distribuições
 │       ├── playlists.py       # rotas /api/playlists
+│       ├── ai_chat.py         # agente Claude + tools (streaming SSE)
+│       ├── chat.py            # rotas /api/chat
 │       ├── models.py          # schemas Pydantic
 │       └── cache.py           # cache em memória (TTL) pra não estourar rate limit
 └── frontend/         React + Vite — login, lista de playlists, gráficos (Recharts)
     └── src/
         ├── App.jsx / AuthContext.jsx
-        ├── pages/    Login, PlaylistList, PlaylistDetail
+        ├── pages/    Login, PlaylistList, PlaylistDetail, Chat
         └── components/  gráficos de barras, tabela de faixas, loader da análise
 ```
 
@@ -38,6 +42,35 @@ React porque os gráficos são interativos e há navegação entre telas
 **Segurança:** os tokens do Spotify nunca chegam ao navegador — ficam num cookie
 de sessão assinado (`SessionMiddleware`); só o backend fala com a API do Spotify.
 O login usa PKCE.
+
+## O chat com IA
+
+Um agente Claude (`claude-opus-5`) que responde sobre as playlists do usuário.
+O ponto central do desenho: **o agente não recebe os dados prontos no prompt** —
+ele os busca através de ferramentas.
+
+```
+pergunta do usuário
+      ↓
+  agente Claude ──chama──> listar_playlists()    ──> Spotify
+      ↓                    analisar_playlist(id) ──> Spotify + Last.fm
+  resposta em streaming (SSE)
+```
+
+Por que assim:
+
+- **Extensibilidade**: adicionar busca ou recomendação é registrar uma ferramenta
+  nova em `build_tools()`. Nada mais no arquivo muda.
+- **Sem alucinação de dados**: o modelo não tem como inventar uma playlist que
+  não existe, porque os nomes e números vêm da ferramenta.
+- **Custo controlado**: cada ferramenta tem teto de tamanho. Uma playlist de 300
+  faixas devolve ~1.300 tokens (15 gêneros, 10 artistas, amostra de 40 faixas), e
+  o resultado avisa ao modelo que é uma amostra — em vez de despejar as 300.
+- **Credencial fora do alcance do modelo**: o token do Spotify fica capturado no
+  closure das ferramentas, não como parâmetro delas.
+
+O chat é opcional: sem `ANTHROPIC_API_KEY`, o `/api/chat/status` responde
+`available: false` e a interface esconde a aba, com o resto do app intacto.
 
 ## A migração da API do Spotify (2026)
 
@@ -69,7 +102,13 @@ nenhum, então o Last.fm deixou de ser complemento e virou a única fonte.
 1. Acesse https://www.last.fm/api/account/create e crie uma "aplicação".
 2. Copie a **API key** (não precisa da secret, só fazemos leitura pública).
 
-### 3. Configurar o backend
+### 3. (Opcional) Chave da Anthropic, para o chat
+
+Crie uma em https://console.anthropic.com/settings/keys e coloque em
+`ANTHROPIC_API_KEY` no `backend/.env`. Sem ela o app funciona normalmente, só
+sem a aba de chat.
+
+### 4. Configurar o backend
 
 ```bash
 cd backend
@@ -84,7 +123,7 @@ cp .env.example .env
 uvicorn app.main:app --port 8000
 ```
 
-### 4. Configurar o frontend
+### 5. Configurar o frontend
 
 Em outro terminal:
 
@@ -95,7 +134,7 @@ npm install
 npm run dev
 ```
 
-### 5. Usar
+### 6. Usar
 
 Abra **`http://127.0.0.1:5173`** e clique em **Entrar com Spotify**.
 
@@ -125,8 +164,11 @@ Abra **`http://127.0.0.1:5173`** e clique em **Entrar com Spotify**.
 - **Cobertura de gênero**: artistas independentes ou pouco conhecidos podem não
   ter tags no Last.fm — isso aparece no contador de "músicas sem gênero
   identificado".
-- **Ideias de evolução**: classificação por IA para as faixas que o Last.fm não
-  cobre; comparar playlists entre si; exportar a análise.
+- **Chat**: o histórico vive no estado do React; recarregar a página zera a
+  conversa. Não há persistência entre sessões.
+- **Ideias de evolução**: ferramentas de busca e recomendação no agente;
+  classificação por IA para as faixas que o Last.fm não cobre; comparar playlists
+  entre si; exportar a análise.
 
 ## Testando rapidamente
 
