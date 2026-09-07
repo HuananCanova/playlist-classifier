@@ -18,7 +18,8 @@ class Settings(BaseSettings):
     chat_provider: str = "anthropic"
     anthropic_api_key: str = ""
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    # Precisa suportar tool calling — o agente funciona chamando ferramentas.
+    groq_model: str = "openai/gpt-oss-120b"
 
     frontend_url: str = "http://127.0.0.1:5173"
     session_secret: str = "dev-only-insecure-secret-change-me"

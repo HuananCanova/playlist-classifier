@@ -54,10 +54,16 @@ ele os busca através de ferramentas.
 ```
 pergunta do usuário
       ↓
-  agente Claude ──chama──> listar_playlists()    ──> Spotify
-      ↓                    analisar_playlist(id) ──> Spotify + Last.fm
+  agente ──chama──> visao_geral(limite)     ──> N playlists EM PARALELO
+      ↓             listar_playlists()      ──> Spotify
+      ↓             analisar_playlist(id)   ──> Spotify + Last.fm
   resposta em streaming (SSE)
 ```
+
+Existe em dois lugares: a aba **Chat**, que enxerga a conta toda, e um painel na
+página da playlist, restrito a ela. O escopo é aplicado no servidor — com
+`playlist_id` na requisição, o agente recebe só a ferramenta daquela playlist e
+não tem como alcançar as outras.
 
 Por que assim:
 
@@ -68,6 +74,15 @@ Por que assim:
 - **Custo controlado**: cada ferramenta tem teto de tamanho. Uma playlist de 300
   faixas devolve ~1.300 tokens (15 gêneros, 10 artistas, amostra de 40 faixas), e
   o resultado avisa ao modelo que é uma amostra — em vez de despejar as 300.
+- **O fan-out caro mora na ferramenta, não no laço do modelo.** Perguntas amplas
+  levavam o modelo a analisar uma playlist por turno: 59s e nenhuma resposta,
+  porque estourava o limite de chamadas. A `visao_geral` analisa várias em
+  paralelo numa chamada só — o mesmo cenário caiu para 3,9s. Vale registrar que
+  o `gpt-oss-120b` ignora a instrução de agrupar chamadas num mesmo turno, então
+  a solução não podia depender da colaboração do modelo.
+- **Amostragem honesta**: a visão geral pega as *maiores* playlists (mais faixas,
+  mais sinal) em vez das primeiras da lista, e devolve a cobertura real em faixas
+  e porcentagem, que o modelo é instruído a declarar na resposta.
 - **Credencial fora do alcance do modelo**: o token do Spotify fica capturado no
   closure das ferramentas, não como parâmetro delas.
 - **Troca de provedor**: as ferramentas vivem em `ai_tools.py`, neutras. Os

@@ -7,6 +7,7 @@ traduzem estas funções para o formato de cada API.
 Para adicionar busca ou recomendação, escreva a função e registre em
 `build_tools()` — os dois provedores ganham a capacidade de uma vez.
 """
+import asyncio
 import json
 from dataclasses import dataclass
 from typing import Any, Awaitable, Callable
@@ -21,6 +22,8 @@ from .spotify_client import SpotifyClient
 MAX_PLAYLISTS = 60
 MAX_TRACK_SAMPLE = 40
 MAX_GENRES = 15
+# Teto de playlists numa visão geral: cada uma custa segundos, mesmo em paralelo.
+MAX_OVERVIEW = 12
 
 
 @dataclass(frozen=True)
@@ -33,11 +36,14 @@ class Tool:
     run: Callable[..., Awaitable[str]]
 
 
-def build_tools(access_token: str) -> list[Tool]:
+def build_tools(access_token: str, playlist_id: str | None = None) -> list[Tool]:
     """Cria as ferramentas ligadas à sessão do usuário.
 
     O token do Spotify fica capturado no closure, não como parâmetro de
     ferramenta: o modelo nem vê a credencial nem consegue passá-la errada.
+
+    Com `playlist_id`, devolve só a ferramenta daquela playlist — o chat da
+    página de detalhe não deve poder listar nem analisar as outras.
     """
 
     async def listar_playlists() -> str:
@@ -99,7 +105,113 @@ def build_tools(access_token: str) -> list[Tool]:
             ensure_ascii=False,
         )
 
+    def _track_total(p: dict) -> int:
+        return (p.get("items") or p.get("tracks") or {}).get("total", 0) or 0
+
+    async def visao_geral(limite: int = 6) -> str:
+        spotify = SpotifyClient(access_token)
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            raw = await spotify.get_all_playlists(client)
+
+        # As maiores primeiro: numa conta com dezenas de playlists, as primeiras
+        # da lista são uma amostra arbitrária, enquanto as maiores concentram a
+        # maior parte das faixas — e portanto do sinal sobre o gosto.
+        candidatas = sorted(
+            (p for p in raw if p and p.get("id")), key=_track_total, reverse=True
+        )
+        alvo = candidatas[: max(1, min(limite, MAX_OVERVIEW))]
+
+        async def resumir(p: dict) -> dict:
+            try:
+                a = await build_playlist_analysis(access_token, p["id"])
+            except Exception:
+                # Uma playlist ilegível não pode derrubar a visão geral inteira.
+                return {"playlist": p.get("name"), "erro": "não foi possível analisar"}
+            return {
+                "playlist": a.playlist.name,
+                "faixas": a.playlist.track_count,
+                "generos": [
+                    {"genero": g.label, "faixas": g.count}
+                    for g in a.genre_distribution[:5]
+                ],
+            }
+
+        # O fan-out caro fica aqui, em paralelo: o modelo gasta um turno só, em
+        # vez de um turno por playlist.
+        resumos = await asyncio.gather(*(resumir(p) for p in alvo))
+
+        # Agregado da coleção, que é o que perguntas amplas realmente querem.
+        totais: dict[str, int] = {}
+        for r in resumos:
+            for g in r.get("generos", []):
+                totais[g["genero"]] = totais.get(g["genero"], 0) + g["faixas"]
+        ranking = sorted(totais.items(), key=lambda kv: kv[1], reverse=True)[:MAX_GENRES]
+
+        faixas_analisadas = sum(r.get("faixas", 0) for r in resumos)
+        faixas_totais = sum(_track_total(p) for p in raw)
+        cobertura = round(100 * faixas_analisadas / faixas_totais) if faixas_totais else 0
+
+        return json.dumps(
+            {
+                "playlists_analisadas": len(resumos),
+                "total_de_playlists_na_conta": len(raw),
+                "faixas_analisadas": faixas_analisadas,
+                "faixas_na_conta": faixas_totais,
+                "cobertura_percentual": cobertura,
+                "generos_somados": [{"genero": g, "faixas": n} for g, n in ranking],
+                "por_playlist": resumos,
+                "observacao": (
+                    f"Amostra: as {len(resumos)} maiores playlists de {len(raw)}, "
+                    f"cobrindo {faixas_analisadas} de {faixas_totais} faixas "
+                    f"(~{cobertura}% da conta). Diga isso ao usuário: com uma conta "
+                    "grande, a amostra pode não representar toda a coleção. Se ele "
+                    "quiser mais abrangência, ofereça repetir com um `limite` maior "
+                    f"(até {MAX_OVERVIEW})."
+                ),
+            },
+            ensure_ascii=False,
+        )
+
+    if playlist_id is not None:
+        async def analisar_esta() -> str:
+            return await analisar_playlist(playlist_id)
+
+        return [
+            Tool(
+                name="analisar_esta_playlist",
+                description=(
+                    "Analisa a playlist que o usuário está vendo: gêneros, "
+                    "subgêneros, artistas mais frequentes e uma amostra das "
+                    "faixas com suas tags. Chame antes de responder qualquer "
+                    "pergunta sobre ela."
+                ),
+                parameters={"type": "object", "properties": {}, "required": []},
+                run=analisar_esta,
+            )
+        ]
+
     return [
+        Tool(
+            name="visao_geral",
+            description=(
+                "Panorama da coleção numa chamada só: analisa várias playlists em "
+                "paralelo e devolve o ranking de gêneros somado mais o gênero "
+                "principal de cada uma. Use SEMPRE que a pergunta for ampla ('meu "
+                "gosto', 'minhas playlists no geral', 'gênero dominante'), em vez "
+                "de chamar analisar_playlist várias vezes."
+            ),
+            parameters={
+                "type": "object",
+                "properties": {
+                    "limite": {
+                        "type": "integer",
+                        "description": f"Quantas playlists analisar (1 a {MAX_OVERVIEW}). Padrão 5.",
+                    }
+                },
+                "required": [],
+            },
+            run=visao_geral,
+        ),
         Tool(
             name="listar_playlists",
             description=(
@@ -150,6 +262,25 @@ aproximados: trate-os como indício, não como verdade absoluta, e diga isso qua
 for relevante.
 - Se as ferramentas não trouxerem dado suficiente para responder, diga o que \
 faltou em vez de especular.
+- Em perguntas amplas ("minhas playlists no geral"), NÃO analise todas: escolha \
+até 4 que representem bem a coleção, analise-as e diga na resposta quais você \
+usou. Uma resposta honesta sobre uma amostra vale mais do que esgotar o limite \
+de chamadas sem responder nada.
+- Quando for analisar várias playlists, peça todas as chamadas de uma vez, no \
+mesmo turno — elas rodam em paralelo. Uma por vez é muito mais lento.
 
 Sobre o tom: você pode ter opinião sobre música e comentar padrões interessantes \
 que aparecerem nos dados, mas fundamente no que as ferramentas retornaram."""
+
+
+PLAYLIST_SYSTEM_PROMPT = """Você é o assistente do Playlist Classifier e está respondendo sobre UMA playlist específica, que o usuário tem aberta na tela.
+
+Responda sempre em português do Brasil, de forma direta e conversacional.
+
+Como trabalhar:
+- Chame `analisar_esta_playlist` antes de responder qualquer coisa sobre o conteúdo dela. Nunca invente faixas, artistas ou números.
+- Você só tem acesso a esta playlist. Se o usuário perguntar sobre outras ou sobre a coleção inteira, diga que aqui o assunto é só esta playlist e sugira a aba Chat, que enxerga todas.
+- Os gêneros vêm de tags da comunidade do Last.fm, não do Spotify. São aproximados: trate-os como indício, não como verdade absoluta.
+- A análise traz uma amostra das faixas, não todas — não conclua que uma faixa não existe só porque não apareceu na amostra.
+
+Sobre o tom: pode ter opinião sobre música e apontar padrões interessantes, mas fundamente no que a ferramenta retornou."""

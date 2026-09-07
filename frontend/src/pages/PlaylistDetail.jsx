@@ -5,6 +5,7 @@ import DistributionBarChart from "../components/DistributionBarChart.jsx";
 import TopArtistsChart from "../components/TopArtistsChart.jsx";
 import TrackTable from "../components/TrackTable.jsx";
 import AnalysisLoader from "../components/AnalysisLoader.jsx";
+import ChatPanel from "../components/ChatPanel.jsx";
 
 function Stat({ value, label }) {
   return (
@@ -19,6 +20,7 @@ export default function PlaylistDetail() {
   const { id } = useParams();
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState(null);
+  const [chatAvailable, setChatAvailable] = useState(false);
 
   useEffect(() => {
     setAnalysis(null);
@@ -28,6 +30,13 @@ export default function PlaylistDetail() {
       .then(setAnalysis)
       .catch(() => setError("Não foi possível analisar essa playlist."));
   }, [id]);
+
+  useEffect(() => {
+    api
+      .chatStatus()
+      .then((s) => setChatAvailable(s.available))
+      .catch(() => setChatAvailable(false));
+  }, []);
 
   if (error) {
     return (
@@ -108,6 +117,25 @@ export default function PlaylistDetail() {
       </div>
 
       <TopArtistsChart data={top_artists} />
+
+      {chatAvailable && (
+        <section className="panel">
+          <header className="panel-head">
+            <h3>Perguntar sobre esta playlist</h3>
+            <p className="panel-sub">
+              A IA responde só sobre “{playlist.name}” — para comparar com outras, use a aba Chat.
+            </p>
+          </header>
+          <ChatPanel
+            playlistId={id}
+            compact
+            suggestions={[
+              "Como você descreveria o clima desta playlist?",
+              "Que faixas aqui fogem do padrão?",
+            ]}
+          />
+        </section>
+      )}
 
       <TrackTable tracks={tracks} />
     </div>

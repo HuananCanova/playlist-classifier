@@ -21,6 +21,8 @@ class ChatMessage(BaseModel):
 
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=MAX_HISTORY)
+    # Quando presente, o agente só enxerga esta playlist.
+    playlist_id: str | None = Field(default=None, max_length=64)
 
 
 @router.get("/status")
@@ -43,7 +45,7 @@ async def chat(payload: ChatRequest, request: Request):
     messages = [{"role": m.role, "content": m.content} for m in payload.messages]
 
     return StreamingResponse(
-        stream_chat(token, messages),
+        stream_chat(token, messages, payload.playlist_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",

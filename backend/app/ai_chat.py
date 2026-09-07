@@ -14,7 +14,7 @@ import logging
 import anthropic
 from anthropic import beta_async_tool
 
-from .ai_tools import SYSTEM_PROMPT, build_tools
+from .ai_tools import PLAYLIST_SYSTEM_PROMPT, SYSTEM_PROMPT, build_tools
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -39,14 +39,14 @@ def active_provider() -> str | None:
     return "anthropic" if settings.anthropic_api_key else None
 
 
-def _anthropic_tools(access_token: str) -> list:
+def _anthropic_tools(access_token: str, playlist_id: str | None) -> list:
     """Traduz as ferramentas neutras para o formato do SDK da Anthropic.
 
     O schema vem do registro em vez da inferência por assinatura, então as duas
     APIs enxergam exatamente os mesmos argumentos.
     """
     tools = []
-    for tool in build_tools(access_token):
+    for tool in build_tools(access_token, playlist_id):
 
         async def call(_run=tool.run, **kwargs) -> str:
             return await _run(**kwargs)
@@ -62,15 +62,17 @@ def _anthropic_tools(access_token: str) -> list:
     return tools
 
 
-async def _run_anthropic(access_token: str, messages: list[dict], emit) -> None:
+async def _run_anthropic(
+    access_token: str, messages: list[dict], emit, playlist_id: str | None
+) -> None:
     settings = get_settings()
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
 
     runner = client.beta.messages.tool_runner(
         model=MODEL,
         max_tokens=MAX_TOKENS,
-        system=SYSTEM_PROMPT,
-        tools=_anthropic_tools(access_token),
+        system=PLAYLIST_SYSTEM_PROMPT if playlist_id else SYSTEM_PROMPT,
+        tools=_anthropic_tools(access_token, playlist_id),
         messages=messages,
         stream=True,
         # A conversa envolve raciocinar sobre os dados que voltam das ferramentas.
@@ -89,7 +91,9 @@ async def _run_anthropic(access_token: str, messages: list[dict], emit) -> None:
                     await emit({"type": "text", "delta": delta.text})
 
 
-async def stream_chat(access_token: str, messages: list[dict]):
+async def stream_chat(
+    access_token: str, messages: list[dict], playlist_id: str | None = None
+):
     """Roda o agente e emite eventos SSE conforme eles acontecem.
 
     O agente roda numa task própria e publica numa fila; este gerador consome a
@@ -119,9 +123,9 @@ async def stream_chat(access_token: str, messages: list[dict]):
             if provider == "groq":
                 from .ai_chat_groq import stream_chat as run_groq
 
-                await run_groq(access_token, messages, emit)
+                await run_groq(access_token, messages, emit, playlist_id)
             else:
-                await _run_anthropic(access_token, messages, emit)
+                await _run_anthropic(access_token, messages, emit, playlist_id)
 
         except AIUnavailable as exc:
             await queue.put({"type": "error", "message": str(exc)})

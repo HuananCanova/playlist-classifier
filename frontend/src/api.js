@@ -25,12 +25,12 @@ export const api = {
   chatStatus: () => request("/api/chat/status"),
 
   // Não passa por request(): precisamos do corpo como stream, não como JSON.
-  chatStream: async (messages) => {
+  chatStream: async (messages, playlistId = null) => {
     const res = await fetch(`${API_URL}/api/chat`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ messages }),
+      body: JSON.stringify(playlistId ? { messages, playlist_id: playlistId } : { messages }),
     });
     if (!res.ok) throw new Error(`Chat failed: ${res.status}`);
     return res;
