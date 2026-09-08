@@ -7,6 +7,7 @@ from .auth import router as auth_router
 from .chat import router as chat_router
 from .config import get_settings
 from .playlists import router as playlists_router
+from .spotify_client import throttle_state
 
 settings = get_settings()
 
@@ -38,4 +39,7 @@ app.include_router(chat_router)
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    # `spotify_throttled` mostra os segundos restantes por endpoint bloqueado.
+    # Sem isso, um 429 longo só aparece como erro na tela, sem forma de saber
+    # quanto falta nem se já passou.
+    return {"status": "ok", "spotify_throttled": throttle_state()}

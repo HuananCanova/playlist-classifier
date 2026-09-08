@@ -1,10 +1,12 @@
 """Routes for listing the user's playlists and analyzing one in detail."""
+import hashlib
 import logging
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from .auth import get_valid_access_token
+from .cache import user_playlists_cache
 from .genre_analysis import build_playlist_analysis
 from .models import PlaylistAnalysis, PlaylistSummary
 from .spotify_client import SpotifyClient
@@ -40,10 +42,28 @@ def _spotify_error(exc: httpx.HTTPStatusError) -> HTTPException:
     return HTTPException(status_code=502, detail="Erro ao falar com o Spotify.")
 
 
+def _user_cache_key(request: Request) -> str:
+    """Chave estável por usuário, sem guardar o token em lugar nenhum.
+
+    Usa o refresh token porque o access token muda a cada renovação e jogaria
+    o cache fora sem motivo.
+    """
+    seed = request.session.get("refresh_token") or request.session.get("access_token") or ""
+    return hashlib.sha256(seed.encode()).hexdigest()[:32]
+
+
 @router.get("", response_model=list[PlaylistSummary])
 async def list_playlists(request: Request):
     token = await get_valid_access_token(request)
     spotify = SpotifyClient(token)
+
+    # A lista muda pouco e a página é recarregada muito (o StrictMode do React
+    # sozinho já dobra as chamadas em dev). Sem este cache, cada visita
+    # repaginava tudo — foi o que estourou o rate limit do Spotify.
+    cache_key = _user_cache_key(request)
+    cached = user_playlists_cache.get(cache_key)
+    if cached is not None:
+        return cached
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -51,7 +71,7 @@ async def list_playlists(request: Request):
     except httpx.HTTPStatusError as exc:
         raise _spotify_error(exc) from exc
 
-    return [
+    summaries = [
         PlaylistSummary(
             id=p["id"],
             name=p.get("name") or "Sem nome",
@@ -63,6 +83,8 @@ async def list_playlists(request: Request):
         for p in raw_playlists
         if p is not None
     ]
+    user_playlists_cache[cache_key] = summaries
+    return summaries
 
 
 def _track_count(playlist: dict) -> int:

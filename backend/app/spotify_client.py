@@ -1,6 +1,8 @@
 """Thin async wrapper around the bits of the Spotify Web API this app needs."""
 import asyncio
 import logging
+import time
+import urllib.parse
 
 import httpx
 
@@ -17,14 +19,65 @@ MAX_RETRIES = 2
 MAX_RETRY_WAIT_SECONDS = 8.0
 
 
+# Até quando cada endpoint está bloqueado, por caminho ("/v1/me/playlists").
+# O Spotify limita por endpoint, então bloquear o app inteiro seria exagero.
+_throttled_until: dict[str, float] = {}
+
+
+def _throttle_key(url: str) -> str:
+    return urllib.parse.urlparse(str(url)).path
+
+
+def _remember_throttle(url: str, resp: httpx.Response) -> None:
+    try:
+        wait = float(resp.headers.get("Retry-After", 1))
+    except ValueError:
+        wait = 1.0
+    _throttled_until[_throttle_key(url)] = time.time() + wait
+    logger.warning("Spotify bloqueou %s por %.0fs", _throttle_key(url), wait)
+
+
+def _raise_if_throttled(url: str) -> None:
+    """Falha na hora, sem chamar o Spotify, enquanto o bloqueio não expira."""
+    remaining = _throttled_until.get(_throttle_key(url), 0) - time.time()
+    if remaining <= 0:
+        return
+
+    request = httpx.Request("GET", url)
+    response = httpx.Response(
+        429, headers={"Retry-After": str(int(remaining))}, request=request
+    )
+    raise httpx.HTTPStatusError(
+        f"Bloqueado localmente por mais {int(remaining)}s", request=request, response=response
+    )
+
+
+def throttle_state() -> dict[str, int]:
+    """Segundos restantes por endpoint — usado pelo /api/health para diagnóstico."""
+    now = time.time()
+    return {
+        path: int(until - now)
+        for path, until in _throttled_until.items()
+        if until > now
+    }
+
+
 class SpotifyClient:
     def __init__(self, access_token: str):
         self._headers = {"Authorization": f"Bearer {access_token}"}
 
     async def _get(self, client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
         """GET com repetição em 429, respeitando o Retry-After do Spotify."""
+        # Se já sabemos que este endpoint está bloqueado, nem tenta: continuar
+        # batendo numa API que respondeu 429 é justamente o que faz o Spotify
+        # esticar o bloqueio de segundos para horas.
+        _raise_if_throttled(url)
+
         for attempt in range(MAX_RETRIES + 1):
             resp = await client.get(url, headers=self._headers, **kwargs)
+
+            if resp.status_code == 429:
+                _remember_throttle(url, resp)
 
             if resp.status_code != 429 or attempt == MAX_RETRIES:
                 resp.raise_for_status()
