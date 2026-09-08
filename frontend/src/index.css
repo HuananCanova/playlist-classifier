@@ -1129,3 +1129,226 @@ tbody tr:hover {
 .chat-compact .chat-suggestions {
   justify-content: flex-start;
 }
+
+/* ── BPM, prévia e player ───────────────────────────────────────────── */
+
+.col-play {
+  width: 40px;
+  text-align: center;
+}
+
+.col-bpm {
+  width: 64px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.play-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-elevated);
+  color: var(--text);
+  font-size: 10px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s, transform 0.15s;
+}
+
+.play-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06210f;
+  transform: scale(1.08);
+}
+
+.play-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Faixa sem prévia no Deezer: presente mas visivelmente inativa, para a coluna
+   não "pular" e para a ausência ficar explícita em vez de silenciosa. */
+.play-btn-off {
+  cursor: default;
+  opacity: 0.32;
+  border-style: dashed;
+}
+
+.play-btn-off:hover {
+  background: var(--bg-elevated);
+  border-color: var(--border-strong);
+  color: var(--text);
+  transform: none;
+}
+
+.row-active {
+  background: rgba(29, 185, 84, 0.07);
+}
+
+.row-active .track-name a,
+.row-active .track-name {
+  color: var(--accent);
+}
+
+.panel-foot {
+  margin: 10px 2px 0;
+  font-size: 12px;
+}
+
+/* ── Barra "tocando agora" ──────────────────────────────────────────── */
+
+.now-playing {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 18px;
+  background: rgba(18, 18, 26, 0.96);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, 0.45);
+}
+
+.np-art {
+  width: 42px;
+  height: 42px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex: none;
+}
+
+.np-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 190px;
+  flex: none;
+}
+
+.np-title,
+.np-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.np-title {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.np-artist {
+  font-size: 12px;
+}
+
+.np-play {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  border-radius: 50%;
+  border: none;
+  background: var(--accent);
+  color: #06210f;
+  font-size: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.np-play:hover {
+  background: #22c55e;
+}
+
+.np-play:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 2px;
+}
+
+.np-wave {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.waveform {
+  width: 100%;
+  height: 40px;
+  cursor: pointer;
+}
+
+.waveform:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.waveform-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.np-error {
+  font-size: 12px;
+}
+
+.np-time {
+  font-size: 12px;
+  flex: none;
+}
+
+.np-bpm {
+  flex: none;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: var(--card);
+  white-space: nowrap;
+}
+
+.np-source {
+  flex: none;
+  font-size: 12px;
+  text-decoration: none;
+  border-bottom: 1px dotted var(--border-strong);
+}
+
+.np-close {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 4px 2px;
+}
+
+.np-close:hover {
+  color: var(--text);
+}
+
+/* A barra é fixa: sem esta folga ela cobriria as últimas linhas da tabela. */
+body:has(.now-playing) .container {
+  padding-bottom: 104px;
+}
+
+@media (max-width: 720px) {
+  .np-meta {
+    width: 110px;
+  }
+  .np-time,
+  .np-source {
+    display: none;
+  }
+}

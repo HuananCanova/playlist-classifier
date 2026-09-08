@@ -11,6 +11,7 @@ from collections import Counter
 
 import httpx
 
+from .deezer_client import get_many as get_deezer_many
 from .lastfm_client import get_artist_tags, get_track_tags
 from .models import GenreCount, PlaylistAnalysis, PlaylistSummary, TrackGenreInfo
 from .spotify_client import SpotifyClient, gather_with_concurrency
@@ -53,16 +54,24 @@ async def build_playlist_analysis(
             primary_artist = ((track.get("artists") or [{}])[0] or {}).get("name") or ""
             return await get_track_tags(client, primary_artist, track.get("name") or "")
 
+        # Deezer roda junto com o Last.fm: são serviços diferentes, então uma
+        # espera não precisa custar a outra.
+        deezer_pairs = [
+            (((t.get("artists") or [{}])[0] or {}).get("name") or "", t.get("name") or "")
+            for t in tracks
+        ]
+
         lastfm_started = time.perf_counter()
-        artist_genre_pairs, all_tags = await asyncio.gather(
+        artist_genre_pairs, all_tags, all_deezer = await asyncio.gather(
             gather_with_concurrency(LASTFM_CONCURRENCY, *(genre_for(n) for n in artist_names)),
             gather_with_concurrency(LASTFM_CONCURRENCY, *(tags_for(t) for t in tracks)),
+            get_deezer_many(client, deezer_pairs),
         )
         artist_genres = dict(artist_genre_pairs)
         lastfm_seconds = time.perf_counter() - lastfm_started
 
     logger.info(
-        "Analysed %s: %d tracks / %d artists — Spotify %.2fs, Last.fm %.2fs",
+        "Analysed %s: %d tracks / %d artists — Spotify %.2fs, Last.fm+Deezer %.2fs",
         playlist_id, len(tracks), len(artist_names), spotify_seconds, lastfm_seconds,
     )
 
@@ -71,8 +80,9 @@ async def build_playlist_analysis(
     subgenre_counter: Counter = Counter()
     artist_counter: Counter = Counter()
     missing_genre = 0
+    bpm_values: list[float] = []
 
-    for track, lastfm_tags in zip(tracks, all_tags):
+    for track, lastfm_tags, deezer in zip(tracks, all_tags, all_deezer):
         track_artist_names = [
             a["name"] for a in (track.get("artists") or []) if a and a.get("name")
         ]
@@ -93,6 +103,9 @@ async def build_playlist_analysis(
         for name in track_artist_names:
             artist_counter[name] += 1
 
+        if deezer["bpm"] is not None:
+            bpm_values.append(deezer["bpm"])
+
         album = track.get("album") or {}
         images = album.get("images") or []
         urls = track.get("external_urls") or {}
@@ -108,7 +121,9 @@ async def build_playlist_analysis(
                 popularity=track.get("popularity"),
                 genres=track_genres,
                 subgenre_tags=subgenre_tags,
-                preview_url=track.get("preview_url"),
+                bpm=deezer["bpm"],
+                preview_url=deezer["preview_url"],
+                deezer_url=deezer["deezer_url"],
                 spotify_url=urls.get("spotify"),
             )
         )
@@ -132,5 +147,41 @@ async def build_playlist_analysis(
         genre_distribution=top_counts(genre_counter),
         subgenre_distribution=top_counts(subgenre_counter),
         top_artists=top_counts(artist_counter, limit=15),
+        bpm_histogram=_bpm_histogram(bpm_values),
+        average_bpm=round(sum(bpm_values) / len(bpm_values), 1) if bpm_values else None,
         tracks_missing_genre=missing_genre,
+        tracks_missing_bpm=len(track_infos) - len(bpm_values),
     )
+
+
+# Faixas de 20 BPM: largas o bastante para não virar ruído numa playlist de 40
+# músicas, estreitas o bastante para separar balada de dance.
+BPM_BUCKETS = [(0, 80), (80, 100), (100, 120), (120, 140), (140, 160), (160, 180), (180, 10_000)]
+
+
+def _bpm_histogram(values: list[float]) -> list[GenreCount]:
+    """Contagem por faixa de BPM, em ordem crescente.
+
+    Diferente das outras distribuições, esta NÃO é ordenada por contagem: BPM é
+    uma escala contínua, e reordenar por frequência destruiria a leitura de
+    "onde esta playlist se concentra".
+    """
+    if not values:
+        return []
+
+    counts = []
+    for low, high in BPM_BUCKETS:
+        n = sum(1 for v in values if low <= v < high)
+        if low == 0:
+            label = f"< {high}"
+        elif high == 10_000:
+            label = f"{low}+"
+        else:
+            label = f"{low}–{high - 1}"
+        counts.append(GenreCount(label=label, count=n))
+
+    # Corta as faixas vazias das pontas para o gráfico não começar e terminar
+    # com barras zeradas, mantendo os buracos internos (que são informação).
+    first = next((i for i, c in enumerate(counts) if c.count), 0)
+    last = len(counts) - next((i for i, c in enumerate(reversed(counts)) if c.count), 0)
+    return counts[first:last]

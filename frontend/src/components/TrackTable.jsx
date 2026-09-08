@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { usePlayer } from "../PlayerContext.jsx";
 
 function formatDuration(ms) {
   const totalSeconds = Math.round(ms / 1000);
@@ -9,6 +10,7 @@ function formatDuration(ms) {
 
 export default function TrackTable({ tracks }) {
   const [query, setQuery] = useState("");
+  const { track: current, playing, play } = usePlayer();
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -42,16 +44,33 @@ export default function TrackTable({ tracks }) {
         <table>
           <thead>
             <tr>
+              <th className="col-play" />
               <th className="col-art" />
               <th>Faixa</th>
               <th>Artista(s)</th>
+              <th className="col-bpm">BPM</th>
               <th className="col-duration">Duração</th>
               <th>Gêneros / subgêneros</th>
             </tr>
           </thead>
           <tbody>
             {filtered.map((t) => (
-              <tr key={t.track_id}>
+              <tr key={t.track_id} className={current?.track_id === t.track_id ? "row-active" : ""}>
+                <td className="col-play">
+                  {t.preview_url ? (
+                    <button
+                      className="play-btn"
+                      onClick={() => play(t)}
+                      aria-label={`Tocar prévia de ${t.name}`}
+                    >
+                      {current?.track_id === t.track_id && playing ? "❚❚" : "▶"}
+                    </button>
+                  ) : (
+                    <span className="play-btn play-btn-off" title="Sem prévia no Deezer">
+                      ▷
+                    </span>
+                  )}
+                </td>
                 <td className="col-art">
                   {t.image && <img className="track-art" src={t.image} alt="" loading="lazy" />}
                 </td>
@@ -65,6 +84,9 @@ export default function TrackTable({ tracks }) {
                   )}
                 </td>
                 <td className="muted">{t.artists.join(", ")}</td>
+                <td className="col-bpm tabular">
+                  {t.bpm != null ? Math.round(t.bpm) : <span className="muted">—</span>}
+                </td>
                 <td className="muted col-duration tabular">{formatDuration(t.duration_ms)}</td>
                 <td>
                   {t.subgenre_tags.length === 0 ? (

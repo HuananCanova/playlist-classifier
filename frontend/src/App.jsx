@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, Route, Routes, Link, NavLink } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthContext.jsx";
+import { PlayerProvider } from "./PlayerContext.jsx";
+import NowPlayingBar from "./components/NowPlayingBar.jsx";
 import Login from "./pages/Login.jsx";
 import PlaylistList from "./pages/PlaylistList.jsx";
 import PlaylistDetail from "./pages/PlaylistDetail.jsx";
@@ -72,37 +74,40 @@ function RequireAuth({ children }) {
 export default function App() {
   return (
     <AuthProvider>
-      <Navbar />
-      <main>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route
-            path="/playlists"
-            element={
-              <RequireAuth>
-                <PlaylistList />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/chat"
-            element={
-              <RequireAuth>
-                <Chat />
-              </RequireAuth>
-            }
-          />
-          <Route
-            path="/playlists/:id"
-            element={
-              <RequireAuth>
-                <PlaylistDetail />
-              </RequireAuth>
-            }
-          />
-          <Route path="*" element={<Navigate to="/playlists" replace />} />
-        </Routes>
-      </main>
+      <PlayerProvider>
+        <Navbar />
+        <main>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/playlists"
+              element={
+                <RequireAuth>
+                  <PlaylistList />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/chat"
+              element={
+                <RequireAuth>
+                  <Chat />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/playlists/:id"
+              element={
+                <RequireAuth>
+                  <PlaylistDetail />
+                </RequireAuth>
+              }
+            />
+            <Route path="*" element={<Navigate to="/playlists" replace />} />
+          </Routes>
+        </main>
+        <NowPlayingBar />
+      </PlayerProvider>
     </AuthProvider>
   );
 }

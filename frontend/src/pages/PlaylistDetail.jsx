@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import DistributionBarChart from "../components/DistributionBarChart.jsx";
 import TopArtistsChart from "../components/TopArtistsChart.jsx";
 import TrackTable from "../components/TrackTable.jsx";
+import BpmChart from "../components/BpmChart.jsx";
 import AnalysisLoader from "../components/AnalysisLoader.jsx";
 import ChatPanel from "../components/ChatPanel.jsx";
 
@@ -66,7 +67,10 @@ export default function PlaylistDetail() {
     genre_distribution,
     subgenre_distribution,
     top_artists,
+    bpm_histogram,
+    average_bpm,
     tracks_missing_genre,
+    tracks_missing_bpm,
   } = analysis;
 
   const identified = playlist.track_count - tracks_missing_genre;
@@ -92,6 +96,9 @@ export default function PlaylistDetail() {
             <Stat value={genre_distribution.length} label="gêneros" />
             <Stat value={subgenre_distribution.length} label="subgêneros" />
             <Stat value={identified} label="classificadas" />
+            {average_bpm != null && (
+              <Stat value={Math.round(average_bpm)} label="BPM médio" />
+            )}
           </div>
         </div>
       </section>
@@ -115,6 +122,12 @@ export default function PlaylistDetail() {
           subtitle="Tags da faixa no Last.fm, por música"
         />
       </div>
+
+      <BpmChart
+        data={bpm_histogram}
+        averageBpm={average_bpm}
+        missing={tracks_missing_bpm}
+      />
 
       <TopArtistsChart data={top_artists} />
 

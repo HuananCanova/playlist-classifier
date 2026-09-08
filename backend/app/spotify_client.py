@@ -34,8 +34,11 @@ class SpotifyClient:
         """
         tracks: list[dict] = []
         url = (
+            # Sem preview_url: o Spotify parou de preencher esse campo para apps
+            # criados depois de 27/11/2024, e ele voltava None em toda faixa.
+            # As prévias agora vêm do Deezer (deezer_client.py).
             f"{BASE_URL}/playlists/{playlist_id}/items"
-            "?limit=100&fields=next,items(item(id,name,duration_ms,popularity,preview_url,"
+            "?limit=100&fields=next,items(item(id,name,duration_ms,popularity,"
             "external_urls,album(name,images),artists(id,name)))"
         )
         while url:
