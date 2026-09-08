@@ -1352,3 +1352,18 @@ body:has(.now-playing) .container {
     display: none;
   }
 }
+
+/* Banner de erro com ação: o 429 do Spotify passa sozinho, então oferecer
+   "tentar de novo" ali resolve sem o usuário ter que recarregar a página. */
+.error-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.btn-inline {
+  padding: 5px 12px;
+  font-size: 12px;
+  white-space: nowrap;
+}

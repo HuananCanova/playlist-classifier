@@ -11,7 +11,18 @@ async function request(path, options = {}) {
     throw err;
   }
   if (!res.ok) {
-    throw new Error(`Request failed: ${res.status}`);
+    // O backend manda uma explicação em `detail` (limite do Spotify, playlist
+    // inexistente...). Sem repassar isso, toda falha vira a mesma frase genérica.
+    let detail = null;
+    try {
+      detail = (await res.json())?.detail;
+    } catch {
+      // resposta sem corpo JSON — segue com a mensagem padrão
+    }
+    const err = new Error(detail || `Request failed: ${res.status}`);
+    err.status = res.status;
+    err.retryAfter = Number(res.headers.get("Retry-After")) || null;
+    throw err;
   }
   return res.json();
 }

@@ -14,13 +14,42 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/playlists", tags=["playlists"])
 
 
+def _spotify_error(exc: httpx.HTTPStatusError) -> HTTPException:
+    """Traduz uma falha do Spotify em algo que a interface consiga explicar.
+
+    Antes disso qualquer erro subia como 500 com stack trace — inclusive o 429,
+    que é temporário e não é culpa do usuário.
+    """
+    status = exc.response.status_code
+    logger.error(
+        "Spotify returned %s for %s: %s", status, exc.request.url, exc.response.text[:500]
+    )
+
+    if status == 429:
+        retry_after = exc.response.headers.get("Retry-After", "")
+        return HTTPException(
+            status_code=429,
+            detail="O Spotify limitou as requisições temporariamente. Tente de novo em instantes.",
+            # Repassado para o front conseguir dizer quantos segundos faltam.
+            headers={"Retry-After": retry_after} if retry_after else None,
+        )
+    if status == 404:
+        return HTTPException(status_code=404, detail="Playlist não encontrada.")
+    if status in (401, 403):
+        return HTTPException(status_code=401, detail="Sessão expirada, entre de novo.")
+    return HTTPException(status_code=502, detail="Erro ao falar com o Spotify.")
+
+
 @router.get("", response_model=list[PlaylistSummary])
 async def list_playlists(request: Request):
     token = await get_valid_access_token(request)
     spotify = SpotifyClient(token)
 
-    async with httpx.AsyncClient(timeout=20.0) as client:
-        raw_playlists = await spotify.get_all_playlists(client)
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            raw_playlists = await spotify.get_all_playlists(client)
+    except httpx.HTTPStatusError as exc:
+        raise _spotify_error(exc) from exc
 
     return [
         PlaylistSummary(
@@ -55,12 +84,4 @@ async def analyze_playlist(playlist_id: str, request: Request):
     try:
         return await build_playlist_analysis(token, playlist_id)
     except httpx.HTTPStatusError as exc:
-        # Log the upstream status and body — without this, every Spotify failure looks
-        # like an opaque 502 and there's nothing to debug from.
-        logger.error(
-            "Spotify returned %s for %s: %s",
-            exc.response.status_code, exc.request.url, exc.response.text[:500],
-        )
-        if exc.response.status_code == 404:
-            raise HTTPException(status_code=404, detail="Playlist not found") from exc
-        raise HTTPException(status_code=502, detail="Spotify API error") from exc
+        raise _spotify_error(exc) from exc

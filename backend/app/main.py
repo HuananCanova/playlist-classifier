@@ -26,6 +26,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Retry-After não está na lista segura do CORS: sem expor explicitamente, o
+    # navegador esconde o cabeçalho e o front não consegue dizer quanto falta.
+    expose_headers=["Retry-After"],
 )
 
 app.include_router(auth_router)
