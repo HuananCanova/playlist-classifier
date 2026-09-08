@@ -1,5 +1,23 @@
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
+// Requisições GET idênticas ainda em voo, por caminho.
+//
+// O StrictMode dispara cada efeito duas vezes em desenvolvimento, então toda
+// tela fazia duas chamadas iguais — e cada abertura de playlist custa várias
+// chamadas ao Spotify, que tem rate limit severo. Voltar a mesma promessa
+// resolve na origem, sem desligar o StrictMode (que existe justamente para
+// expor efeitos não idempotentes).
+const inFlight = new Map();
+
+function dedupe(key, run) {
+  const existing = inFlight.get(key);
+  if (existing) return existing;
+
+  const promise = run().finally(() => inFlight.delete(key));
+  inFlight.set(key, promise);
+  return promise;
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${API_URL}${path}`, {
     credentials: "include", // send the session cookie
@@ -27,13 +45,18 @@ async function request(path, options = {}) {
   return res.json();
 }
 
+// Só os GETs entram no dedupe: logout é uma ação, e reaproveitar a promessa de
+// uma ação em andamento esconderia um segundo clique de propósito diferente.
+const get = (path) => dedupe(path, () => request(path));
+
 export const api = {
-  me: () => request("/api/auth/me"),
+  me: () => get("/api/auth/me"),
   logout: () => request("/api/auth/logout", { method: "POST" }),
   loginUrl: () => `${API_URL}/api/auth/login`,
-  listPlaylists: () => request("/api/playlists"),
-  getPlaylistAnalysis: (id) => request(`/api/playlists/${id}/analysis`),
-  chatStatus: () => request("/api/chat/status"),
+  listPlaylists: ({ refresh = false } = {}) =>
+    get(`/api/playlists${refresh ? "?refresh=true" : ""}`),
+  getPlaylistAnalysis: (id) => get(`/api/playlists/${id}/analysis`),
+  chatStatus: () => get("/api/chat/status"),
 
   // Não passa por request(): precisamos do corpo como stream, não como JSON.
   chatStream: async (messages, playlistId = null) => {

@@ -19,11 +19,11 @@ export default function PlaylistList() {
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
 
-  const load = useCallback(() => {
+  const load = useCallback((refresh = false) => {
     setError(null);
     setPlaylists(null);
     api
-      .listPlaylists()
+      .listPlaylists({ refresh })
       .then(setPlaylists)
       .catch((e) =>
         setError({
@@ -66,6 +66,15 @@ export default function PlaylistList() {
             placeholder="Filtrar por nome…"
             aria-label="Filtrar playlists por nome"
           />
+        )}
+        {playlists && (
+          <button
+            className="btn btn-secondary btn-inline"
+            onClick={() => load(true)}
+            title="Busca de novo no Spotify, ignorando o cache de 5 minutos"
+          >
+            Atualizar
+          </button>
         )}
       </div>
 

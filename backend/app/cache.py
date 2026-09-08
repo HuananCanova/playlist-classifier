@@ -18,5 +18,7 @@ deezer_track_cache: TTLCache = TTLCache(maxsize=10000, ttl=60 * 60 * 24)
 # É a única API do app com rate limit severo, e era a única sem cache.
 user_playlists_cache: TTLCache = TTLCache(maxsize=64, ttl=60 * 5)
 
-# Faixas e metadados de uma playlist, para reanalisar sem repaginar tudo.
-playlist_tracks_cache: TTLCache = TTLCache(maxsize=256, ttl=60 * 15)
+# A análise pronta de uma playlist. Guardar o resultado final (e não só as
+# faixas) economiza também o trabalho de Last.fm e Deezer, e é o que evita que
+# reabrir a mesma playlist repagine tudo no Spotify de novo.
+playlist_analysis_cache: TTLCache = TTLCache(maxsize=128, ttl=60 * 15)

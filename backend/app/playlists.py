@@ -6,7 +6,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from .auth import get_valid_access_token
-from .cache import user_playlists_cache
+from .cache import playlist_analysis_cache, user_playlists_cache
 from .genre_analysis import build_playlist_analysis
 from .models import PlaylistAnalysis, PlaylistSummary
 from .spotify_client import SpotifyClient
@@ -53,7 +53,9 @@ def _user_cache_key(request: Request) -> str:
 
 
 @router.get("", response_model=list[PlaylistSummary])
-async def list_playlists(request: Request):
+async def list_playlists(request: Request, refresh: bool = False):
+    """`refresh=true` ignora o cache — é a saída para quem acabou de mexer nas
+    playlists no Spotify e não quer esperar o TTL expirar."""
     token = await get_valid_access_token(request)
     spotify = SpotifyClient(token)
 
@@ -61,9 +63,10 @@ async def list_playlists(request: Request):
     # sozinho já dobra as chamadas em dev). Sem este cache, cada visita
     # repaginava tudo — foi o que estourou o rate limit do Spotify.
     cache_key = _user_cache_key(request)
-    cached = user_playlists_cache.get(cache_key)
-    if cached is not None:
-        return cached
+    if not refresh:
+        cached = user_playlists_cache.get(cache_key)
+        if cached is not None:
+            return cached
 
     try:
         async with httpx.AsyncClient(timeout=20.0) as client:
@@ -101,9 +104,26 @@ def _track_count(playlist: dict) -> int:
 
 
 @router.get("/{playlist_id}/analysis", response_model=PlaylistAnalysis)
-async def analyze_playlist(playlist_id: str, request: Request):
+async def analyze_playlist(playlist_id: str, request: Request, refresh: bool = False):
     token = await get_valid_access_token(request)
+
+    # Abrir uma playlist custa 1 chamada de metadados + 1 por página de 100
+    # faixas, e o StrictMode do React dispara o efeito duas vezes em dev — ou
+    # seja, reabrir a mesma playlist saía caro no orçamento do Spotify.
+    # A chave inclui o usuário: sem isso, uma análise de playlist privada já
+    # em cache seria devolvida a outra conta sem passar pela permissão do
+    # Spotify. Este app é de um usuário só, mas o cache não deveria ser o
+    # lugar onde essa garantia se perde.
+    cache_key = f"{_user_cache_key(request)}:{playlist_id}"
+    if not refresh:
+        cached = playlist_analysis_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
     try:
-        return await build_playlist_analysis(token, playlist_id)
+        analysis = await build_playlist_analysis(token, playlist_id)
     except httpx.HTTPStatusError as exc:
         raise _spotify_error(exc) from exc
+
+    playlist_analysis_cache[cache_key] = analysis
+    return analysis
