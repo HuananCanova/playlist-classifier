@@ -23,6 +23,11 @@ MAX_RETRY_WAIT_SECONDS = 8.0
 # O Spotify limita por endpoint, então bloquear o app inteiro seria exagero.
 _throttled_until: dict[str, float] = {}
 
+# Quantas chamadas realmente saíram para o Spotify desde que o processo subiu.
+# Serve para o health check dizer se o "não há bloqueio" é uma informação ou
+# apenas ausência de informação.
+_calls_since_boot = 0
+
 
 def _throttle_key(url: str) -> str:
     return urllib.parse.urlparse(str(url)).path
@@ -52,13 +57,30 @@ def _raise_if_throttled(url: str) -> None:
     )
 
 
-def throttle_state() -> dict[str, int]:
-    """Segundos restantes por endpoint — usado pelo /api/health para diagnóstico."""
+def throttle_state() -> dict:
+    """Diagnóstico do rate limit para o /api/health.
+
+    `checked` existe porque um dicionário de bloqueios vazio é ambíguo: pode
+    significar "não está bloqueado" ou "ainda não falamos com o Spotify desde
+    que o processo subiu". Sem distinguir os dois, o health check não responde
+    a pergunta que importa — já passou?
+    """
     now = time.time()
-    return {
+    blocked = {
         path: int(until - now)
         for path, until in _throttled_until.items()
         if until > now
+    }
+    return {
+        "checked": _calls_since_boot > 0,
+        "calls_since_boot": _calls_since_boot,
+        "blocked": blocked,
+        "summary": (
+            "sem contato com o Spotify desde o restart — recarregue a página para descobrir"
+            if _calls_since_boot == 0
+            else f"bloqueado: {blocked}" if blocked
+            else "liberado"
+        ),
     }
 
 
@@ -73,8 +95,11 @@ class SpotifyClient:
         # esticar o bloqueio de segundos para horas.
         _raise_if_throttled(url)
 
+        global _calls_since_boot
+
         for attempt in range(MAX_RETRIES + 1):
             resp = await client.get(url, headers=self._headers, **kwargs)
+            _calls_since_boot += 1
 
             if resp.status_code == 429:
                 _remember_throttle(url, resp)
