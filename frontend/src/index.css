@@ -12,6 +12,14 @@
   --border-strong: #3a3a48;
   --radius: 14px;
   --shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.45);
+  /* Elevacao em camadas: sombra de contato curta + sombra ampla e difusa.
+     Junto com o anel claro no topo, e o que faz a superficie parecer
+     flutuar acima da pagina em vez de estar colada nela. */
+  --shadow-float:
+    0 1px 2px rgba(0, 0, 0, 0.32),
+    0 8px 20px rgba(0, 0, 0, 0.38),
+    0 28px 64px -14px rgba(0, 0, 0, 0.72);
+  --ring-top: inset 0 1px 0 rgba(255, 255, 255, 0.07);
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
@@ -1148,14 +1156,18 @@ tbody tr:hover {
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(29, 185, 84, 0.25);
+  box-shadow: var(--shadow-float), 0 0 0 1px rgba(29, 185, 84, 0.25);
   transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
 }
 
 .chat-fab:hover {
   transform: translateY(-2px);
   background: #22c55e;
-  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 0 5px rgba(29, 185, 84, 0.18);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.34),
+    0 14px 30px rgba(0, 0, 0, 0.44),
+    0 36px 76px -14px rgba(0, 0, 0, 0.76),
+    0 0 0 5px rgba(29, 185, 84, 0.18);
 }
 
 .chat-fab:active {
@@ -1175,25 +1187,56 @@ tbody tr:hover {
   line-height: 1;
 }
 
+/* Sombra ambiente projetada na pagina, nao um scrim modal: escurece so o
+   entorno do painel, com queda suave, e nunca intercepta clique nem scroll.
+   O conteudo da pagina continua legivel e utilizavel com o chat aberto. */
+.chat-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 54;
+  pointer-events: none;
+  background: radial-gradient(
+    120% 105% at 100% 100%,
+    rgba(3, 3, 6, 0.5) 0%,
+    rgba(3, 3, 6, 0.28) 34%,
+    rgba(3, 3, 6, 0.08) 62%,
+    transparent 82%
+  );
+  opacity: 0;
+  transition: opacity 0.28s ease;
+}
+
+.chat-scrim.is-open {
+  opacity: 1;
+}
+
 .chat-drawer {
   position: fixed;
-  top: 0;
-  right: 0;
+  right: 20px;
+  bottom: 20px;
   z-index: 55;
-  width: min(440px, 100vw);
-  height: 100dvh;
+  width: min(430px, calc(100vw - 40px));
+  height: min(660px, calc(100dvh - 40px));
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  border-radius: 20px;
   background: var(--bg-elevated);
-  border-left: 1px solid var(--border);
-  box-shadow: -20px 0 50px rgba(0, 0, 0, 0.5);
-  transform: translateX(100%);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-float), var(--ring-top);
+  transform: translateY(16px) scale(0.97);
+  transform-origin: 100% 100%;
+  opacity: 0;
   visibility: hidden;
-  transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1), visibility 0.28s;
+  transition:
+    transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1),
+    opacity 0.2s ease,
+    visibility 0.28s;
 }
 
 .chat-drawer.is-open {
-  transform: translateX(0);
+  transform: translateY(0) scale(1);
+  opacity: 1;
   visibility: visible;
 }
 
@@ -1201,8 +1244,9 @@ tbody tr:hover {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 20px 20px 14px;
+  padding: 18px 18px 13px;
   border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent);
 }
 
 .chat-drawer-title h3 {
@@ -1242,7 +1286,7 @@ tbody tr:hover {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  padding: 0 20px 20px;
+  padding: 0 18px 18px;
 }
 
 .chat-drawer .chat-thread {
@@ -1264,6 +1308,13 @@ tbody tr:hover {
   max-width: 94%;
 }
 
+/* Dentro do painel as bolhas tambem se descolam do fundo, so que um degrau
+   abaixo do painel — a hierarquia de profundidade continua legivel. */
+.chat-drawer .bubble-assistant,
+.chat-drawer .bubble-user {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 4px 12px rgba(0, 0, 0, 0.22);
+}
+
 @media (max-width: 560px) {
   .chat-fab {
     right: 16px;
@@ -1272,14 +1323,23 @@ tbody tr:hover {
   }
 
   .chat-drawer {
-    width: 100vw;
-    border-left: none;
+    right: 10px;
+    left: 10px;
+    bottom: 10px;
+    width: auto;
+    height: min(80dvh, calc(100dvh - 20px));
+    border-radius: 18px;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .chat-drawer {
+  .chat-drawer,
+  .chat-scrim {
     transition: none;
+  }
+
+  .chat-drawer {
+    transform: none;
   }
 }
 
@@ -1545,7 +1605,8 @@ body:has(.nowplaying) .chat-fab {
 }
 
 body:has(.nowplaying) .chat-drawer {
-  height: calc(100dvh - 69px);
+  bottom: 88px;
+  height: min(660px, calc(100dvh - 108px));
 }
 
 @media (max-width: 700px) {

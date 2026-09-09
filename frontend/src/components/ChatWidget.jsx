@@ -72,6 +72,10 @@ export default function ChatWidget({
         <span className="chat-fab-label">{copy.fabLabel}</span>
       </button>
 
+      {/* Puramente decorativo: da profundidade ao painel sem capturar clique,
+          para a pagina continuar acessivel com o chat aberto. */}
+      <div className={`chat-scrim${open ? " is-open" : ""}`} aria-hidden="true" />
+
       <aside
         ref={panelRef}
         className={`chat-drawer${open ? " is-open" : ""}`}
