@@ -28,6 +28,10 @@ export const api = {
   search: (q, limit = 20) =>
     request(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   searchStatus: () => request("/api/search/status"),
+  indexStatus: () => request("/api/search/index"),
+  startIndex: ({ auto = false } = {}) =>
+    request(`/api/search/index?auto=${auto}`, { method: "POST" }),
+  stopIndex: () => request("/api/search/index", { method: "DELETE" }),
   getPlaylistClusters: (id) => request(`/api/playlists/${id}/clusters`),
   chatStatus: () => request("/api/chat/status"),
 

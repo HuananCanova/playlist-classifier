@@ -1933,3 +1933,74 @@ body:has(.nowplaying) .chat-drawer {
   color: var(--muted);
   max-width: 68ch;
 }
+
+/* ── Cobertura do índice ────────────────────────────────────────────── */
+
+.coverage {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.coverage-top {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.coverage-label {
+  font-size: 13.5px;
+  color: var(--muted);
+  flex: 1;
+  min-width: 200px;
+}
+
+.coverage-label b {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A barra mostra playlists cobertas, não faixas: é a unidade em que o
+   usuário pensa sobre o que "falta" ser visto. */
+.coverage-bar {
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.coverage-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transition: width 0.4s ease;
+}
+
+.coverage-running {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.coverage-current {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 34ch;
+  color: var(--text);
+}
+
+.coverage-errors {
+  margin: 0;
+  font-size: 12px;
+  color: #ffb4b4;
+}

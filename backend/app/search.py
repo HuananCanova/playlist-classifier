@@ -1,10 +1,12 @@
 """Rota da busca semântica sobre as faixas indexadas."""
 import logging
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
+from . import indexer
 from .auth import get_valid_access_token
-from .models import SearchHit, SearchStatus
+from .config import get_settings
+from .models import IndexStatus, SearchHit, SearchStatus
 from .vector_store import search as vector_search
 from .vector_store import stats as vector_stats
 
@@ -30,11 +32,56 @@ async def search(
 
 @router.get("/status", response_model=SearchStatus)
 async def status(request: Request):
-    """Quantas faixas já entraram no índice.
+    """Cobertura do índice: faixas dentro, e quantas playlists faltam.
 
-    O frontend usa isso para explicar um resultado vazio: índice vazio é
-    "abra uma playlist primeiro", não "nada encontrado".
+    O frontend usa isso para explicar um resultado vazio. "Nada encontrado" e
+    "ainda não olhei essa playlist" são coisas diferentes, e sem esse número a
+    tela não tem como distinguir as duas.
+    """
+    token = await get_valid_access_token(request)
+    dados = await vector_stats()
+    return SearchStatus(
+        indexed_tracks=dados["faixas_indexadas"],
+        **await indexer.coverage(token),
+    )
+
+
+@router.post("/index", response_model=IndexStatus)
+async def start_index(request: Request, auto: bool = False):
+    """Varre as playlists ainda não indexadas.
+
+    `auto=true` é a chamada que o app dispara sozinho ao abrir; ela respeita a
+    configuração `AUTO_INDEX` e não faz nada se estiver desligada. Sem o
+    parâmetro, é uma ação explícita do usuário e sempre roda.
     """
     await get_valid_access_token(request)
-    dados = await vector_stats()
-    return SearchStatus(indexed_tracks=dados["faixas_indexadas"])
+
+    if auto and not get_settings().auto_index:
+        return IndexStatus(**indexer.progress_dict())
+
+    # A varredura sobrevive à requisição, e um access token expira em uma hora.
+    # O refresh token é o que permite renovar durante o trabalho.
+    refresh_token = request.session.get("refresh_token")
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Sessão sem refresh token; entre de novo.")
+
+    await indexer.start(refresh_token)
+    return IndexStatus(**indexer.progress_dict())
+
+
+@router.get("/index", response_model=IndexStatus)
+async def index_status(request: Request):
+    await get_valid_access_token(request)
+    return IndexStatus(**indexer.progress_dict())
+
+
+@router.delete("/index", response_model=IndexStatus)
+async def stop_index(request: Request):
+    """Interrompe a varredura em andamento.
+
+    O que já foi indexado permanece: o estado é gravado playlist a playlist, e
+    a próxima varredura recomeça de onde esta parou.
+    """
+    await get_valid_access_token(request)
+    await indexer.cancel()
+    return IndexStatus(**indexer.progress_dict())

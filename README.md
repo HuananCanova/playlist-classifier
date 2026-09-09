@@ -164,15 +164,30 @@ Isso aparece em três lugares:
 
 ### Como o índice é montado
 
-Indexar é efeito colateral de analisar uma playlist: os dados já foram buscados,
-então **não custa nenhuma chamada externa a mais**. O índice cresce conforme você
-navega, e nunca sozinho — o que importa num projeto que já levou ban do Spotify
-por volume de requisições.
+Por dois caminhos, que se complementam:
 
-Consequência a assumir: a busca só enxerga o que você já abriu. Um resultado
-vazio quase sempre quer dizer "essa playlist ainda não foi analisada", não "não
-existe" — e a tela de busca diz quantas faixas estão indexadas, justamente para
-essa diferença ficar clara.
+1. **Ao analisar uma playlist.** Os dados já foram buscados, então indexar não
+   custa nenhuma chamada externa a mais.
+2. **Por varredura da conta.** A tela de busca mostra quantas playlists já estão
+   cobertas e oferece indexar as que faltam; o app também dispara essa varredura
+   sozinho ao abrir, quando há pendências.
+
+A varredura é mais barata do que a intuição sugere: são ~2 chamadas ao Spotify
+por playlist (uma para a playlist, uma a cada 100 faixas) — cerca de 80 para uma
+conta com 40 playlists. O volume fica no Last.fm, que não é a API que bloqueou
+esta conta e ainda cacheia por 24h, com artistas repetidos saindo de graça a
+partir da segunda playlist.
+
+Mesmo assim ela é sequencial, com uma folga entre playlists, e respeita o
+`Retry-After` quando o Spotify pede pausa. O progresso é visível e pode ser
+interrompido a qualquer momento — o que já entrou permanece, e a próxima
+varredura recomeça de onde parou.
+
+Reindexação usa o `snapshot_id` do Spotify, que muda quando o conteúdo da
+playlist muda: playlists intactas são puladas, editadas voltam para a fila.
+
+Para desligar a varredura automática, `AUTO_INDEX=false` no `backend/.env` — aí
+o índice só cresce quando você mandar.
 
 ### Decisões
 

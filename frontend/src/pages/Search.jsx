@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api.js";
 
@@ -9,19 +9,87 @@ const EXEMPLOS = [
   "aggressive and heavy",
 ];
 
+// Enquanto a varredura roda, o progresso é buscado nesse intervalo. Curto o
+// bastante para a barra parecer viva, longo o bastante para não virar ruído.
+const INTERVALO_PROGRESSO = 1500;
+
 export default function Search() {
   const [consulta, setConsulta] = useState("");
   const [resultados, setResultados] = useState(null);
   const [buscando, setBuscando] = useState(false);
   const [erro, setErro] = useState(null);
-  const [indexadas, setIndexadas] = useState(null);
+  const [cobertura, setCobertura] = useState(null);
+  const [indexacao, setIndexacao] = useState(null);
+  const timer = useRef(null);
+
+  const lerCobertura = useCallback(async () => {
+    try {
+      setCobertura(await api.searchStatus());
+    } catch {
+      setCobertura(null);
+    }
+  }, []);
 
   useEffect(() => {
-    api
-      .searchStatus()
-      .then((s) => setIndexadas(s.indexed_tracks))
-      .catch(() => setIndexadas(0));
-  }, []);
+    lerCobertura();
+  }, [lerCobertura]);
+
+  // Enquanto houver varredura, pergunta o progresso; quando ela termina,
+  // relê a cobertura uma última vez para os números baterem.
+  useEffect(() => {
+    let vivo = true;
+
+    async function tick() {
+      try {
+        const status = await api.indexStatus();
+        if (!vivo) return;
+        setIndexacao(status);
+        if (!status.running) {
+          clearInterval(timer.current);
+          timer.current = null;
+          lerCobertura();
+        }
+      } catch {
+        clearInterval(timer.current);
+        timer.current = null;
+      }
+    }
+
+    tick();
+    timer.current = setInterval(tick, INTERVALO_PROGRESSO);
+    return () => {
+      vivo = false;
+      clearInterval(timer.current);
+    };
+  }, [lerCobertura]);
+
+  async function indexar() {
+    try {
+      setIndexacao(await api.startIndex());
+      if (!timer.current) {
+        timer.current = setInterval(async () => {
+          const status = await api.indexStatus();
+          setIndexacao(status);
+          if (!status.running) {
+            clearInterval(timer.current);
+            timer.current = null;
+            lerCobertura();
+          }
+        }, INTERVALO_PROGRESSO);
+      }
+    } catch {
+      setErro("Não consegui iniciar a varredura. Veja o log do backend.");
+    }
+  }
+
+  async function pararIndexacao() {
+    try {
+      setIndexacao(await api.stopIndex());
+    } catch {
+      /* parar é best-effort; o próximo tick corrige o estado */
+    }
+    lerCobertura();
+  }
 
   async function buscar(texto) {
     const q = texto.trim();
@@ -41,6 +109,7 @@ export default function Search() {
   }
 
   const vazio = resultados !== null && resultados.length === 0;
+  const rodando = indexacao?.running;
 
   return (
     <div className="container">
@@ -80,19 +149,21 @@ export default function Search() {
         ))}
       </div>
 
-      {indexadas !== null && (
-        <p className="search-index-note">
-          {indexadas === 0
-            ? "Nenhuma faixa indexada ainda — abra uma playlist para analisá-la e ela entra no índice."
-            : `${indexadas} faixa${indexadas === 1 ? "" : "s"} no índice, de tudo que você já analisou.`}
-        </p>
-      )}
+      <Cobertura
+        cobertura={cobertura}
+        indexacao={indexacao}
+        rodando={rodando}
+        onIndexar={indexar}
+        onParar={pararIndexacao}
+      />
 
       {erro && <div className="error-banner">{erro}</div>}
 
       {vazio && !erro && (
         <p className="spinner-text" style={{ marginTop: 32 }}>
-          Nada parecido no que já foi analisado.
+          {cobertura?.pending_playlists > 0
+            ? "Nada encontrado no que já foi indexado — e ainda faltam playlists."
+            : "Nada parecido no seu acervo."}
         </p>
       )}
 
@@ -104,6 +175,91 @@ export default function Search() {
             </li>
           ))}
         </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * O que a busca já enxerga. Existe porque "não encontrei" e "ainda não olhei"
+ * são respostas diferentes, e sem esse número elas ficam indistinguíveis.
+ */
+function Cobertura({ cobertura, indexacao, rodando, onIndexar, onParar }) {
+  if (!cobertura) return null;
+
+  const { indexed_tracks: faixas, indexed_playlists: feitas, total_playlists: total } = cobertura;
+  const pendentes = cobertura.pending_playlists;
+  const semDadosDoSpotify = total === null;
+  const pct = total ? Math.round((feitas / total) * 100) : 0;
+
+  return (
+    <div className="coverage">
+      <div className="coverage-top">
+        <span className="coverage-label">
+          {semDadosDoSpotify ? (
+            <>
+              <b>{faixas}</b> faixas no índice. Não consegui falar com o Spotify para
+              saber quantas playlists faltam.
+            </>
+          ) : (
+            <>
+              <b>{feitas}</b> de <b>{total}</b> playlists indexadas · <b>{faixas}</b> faixas
+              {pendentes > 0 && !rodando && (
+                <> · faltam <b>{pendentes}</b></>
+              )}
+            </>
+          )}
+        </span>
+
+        {rodando ? (
+          <button className="btn btn-secondary btn-sm" onClick={onParar}>
+            Parar
+          </button>
+        ) : (
+          pendentes > 0 && (
+            <button className="btn btn-sm" onClick={onIndexar}>
+              Indexar {pendentes === 1 ? "a que falta" : `as ${pendentes} restantes`}
+            </button>
+          )
+        )}
+      </div>
+
+      {!semDadosDoSpotify && (
+        <span className="coverage-bar">
+          <span className="coverage-bar-fill" style={{ width: `${pct}%` }} />
+        </span>
+      )}
+
+      {rodando && (
+        <div className="coverage-running">
+          <span className="typing-dots" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+          </span>
+          {indexacao.waiting_seconds ? (
+            <span>
+              O Spotify pediu uma pausa de {Math.round(indexacao.waiting_seconds)}s —
+              esperando antes de continuar.
+            </span>
+          ) : (
+            <>
+              <span>
+                {indexacao.done}/{indexacao.total}
+              </span>
+              {indexacao.current && (
+                <span className="coverage-current">{indexacao.current}</span>
+              )}
+            </>
+          )}
+        </div>
+      )}
+
+      {indexacao?.errors?.length > 0 && (
+        <p className="coverage-errors">
+          {indexacao.errors.length} playlist
+          {indexacao.errors.length === 1 ? "" : "s"} falhou: {indexacao.errors.slice(0, 2).join("; ")}
+        </p>
       )}
     </div>
   );

@@ -91,6 +91,24 @@ class SearchHit(BaseModel):
 
 class SearchStatus(BaseModel):
     indexed_tracks: int
+    # `None` quando o Spotify não respondeu — o frontend distingue isso de zero.
+    total_playlists: int | None = None
+    indexed_playlists: int | None = None
+    pending_playlists: int | None = None
+
+
+class IndexStatus(BaseModel):
+    """Progresso da varredura que alimenta o índice."""
+
+    running: bool
+    total: int
+    done: int
+    indexed_tracks: int
+    current: str | None = None
+    errors: list[str] = []
+    started_at: float | None = None
+    finished_at: float | None = None
+    waiting_seconds: float | None = None
 
 
 class GenreCount(BaseModel):
