@@ -22,15 +22,20 @@ export const api = {
   loginUrl: () => `${API_URL}/api/auth/login`,
   listPlaylists: () => request("/api/playlists"),
   getPlaylistAnalysis: (id) => request(`/api/playlists/${id}/analysis`),
+  getTrack: (id) => request(`/api/tracks/${id}`),
   chatStatus: () => request("/api/chat/status"),
 
   // Não passa por request(): precisamos do corpo como stream, não como JSON.
-  chatStream: async (messages, playlistId = null) => {
+  chatStream: async (messages, { playlistId = null, trackId = null } = {}) => {
+    const body = { messages };
+    if (playlistId) body.playlist_id = playlistId;
+    if (trackId) body.track_id = trackId;
+
     const res = await fetch(`${API_URL}/api/chat`, {
       method: "POST",
       credentials: "include",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(playlistId ? { messages, playlist_id: playlistId } : { messages }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`Chat failed: ${res.status}`);
     return res;

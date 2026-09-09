@@ -12,7 +12,7 @@ import logging
 
 from openai import AsyncOpenAI
 
-from .ai_tools import PLAYLIST_SYSTEM_PROMPT, SYSTEM_PROMPT, Tool, build_tools
+from .ai_tools import Tool, build_tools, system_prompt
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -20,10 +20,8 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.groq.com/openai/v1"
 MAX_TOKENS = 4000
 
-# Teto de voltas do laço: sem ele, um modelo que insista em chamar ferramentas
-# ficaria girando (e cobrando) indefinidamente. Perguntas amplas gastam uma
-# volta por playlist, então 6 era apertado demais.
-MAX_ITERATIONS = 10
+# Com uma ferramenta por escopo, 4 voltas bastam (tool + resposta, com margem).
+MAX_ITERATIONS = 4
 
 
 def _to_openai_schema(tool: Tool) -> dict:
@@ -38,7 +36,11 @@ def _to_openai_schema(tool: Tool) -> dict:
 
 
 async def stream_chat(
-    access_token: str, messages: list[dict], emit, playlist_id: str | None = None
+    access_token: str,
+    messages: list[dict],
+    emit,
+    playlist_id: str | None = None,
+    track_id: str | None = None,
 ):
     """Roda o agente no Groq, emitindo eventos pelo callback `emit`.
 
@@ -47,10 +49,13 @@ async def stream_chat(
     """
     settings = get_settings()
 
-    tools = {t.name: t for t in build_tools(access_token, playlist_id)}
+    tools = {
+        t.name: t
+        for t in build_tools(access_token, playlist_id=playlist_id, track_id=track_id)
+    }
     schemas = [_to_openai_schema(t) for t in tools.values()]
 
-    prompt = PLAYLIST_SYSTEM_PROMPT if playlist_id else SYSTEM_PROMPT
+    prompt = system_prompt(playlist_id=playlist_id, track_id=track_id)
     convo = [{"role": "system", "content": prompt}, *messages]
 
     # Resultados já entregues nesta conversa. Modelos menores às vezes repetem a
@@ -161,8 +166,8 @@ async def stream_chat(
             {
                 "role": "system",
                 "content": "Você atingiu o limite de chamadas de ferramenta. "
-                "Responda agora ao usuário com o que já levantou, deixando claro "
-                "que a resposta se baseia nas playlists analisadas até aqui.",
+                "Responda agora ao usuário com o que já levantou sobre "
+                "o escopo atual (playlist ou faixa).",
             }
         )
         async with await client.chat.completions.create(

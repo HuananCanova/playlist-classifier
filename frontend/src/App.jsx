@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from "react";
 import { Navigate, Route, Routes, Link, NavLink } from "react-router-dom";
 import { AuthProvider, useAuth } from "./AuthContext.jsx";
+import { PlayerProvider } from "./PlayerContext.jsx";
+import NowPlayingBar from "./components/NowPlayingBar.jsx";
 import Login from "./pages/Login.jsx";
 import PlaylistList from "./pages/PlaylistList.jsx";
 import PlaylistDetail from "./pages/PlaylistDetail.jsx";
-import Chat from "./pages/Chat.jsx";
+import TrackDetail from "./pages/TrackDetail.jsx";
 
 function Navbar() {
   const { user, logout } = useAuth();
@@ -32,12 +34,6 @@ function Navbar() {
               className={({ isActive }) => `nav-link${isActive ? " nav-link-active" : ""}`}
             >
               Playlists
-            </NavLink>
-            <NavLink
-              to="/chat"
-              className={({ isActive }) => `nav-link${isActive ? " nav-link-active" : ""}`}
-            >
-              Chat
             </NavLink>
           </nav>
         )}
@@ -72,6 +68,7 @@ function RequireAuth({ children }) {
 export default function App() {
   return (
     <AuthProvider>
+      <PlayerProvider>
       <Navbar />
       <main>
         <Routes>
@@ -85,10 +82,10 @@ export default function App() {
             }
           />
           <Route
-            path="/chat"
+            path="/faixa/:id"
             element={
               <RequireAuth>
-                <Chat />
+                <TrackDetail />
               </RequireAuth>
             }
           />
@@ -103,6 +100,8 @@ export default function App() {
           <Route path="*" element={<Navigate to="/playlists" replace />} />
         </Routes>
       </main>
+      <NowPlayingBar />
+      </PlayerProvider>
     </AuthProvider>
   );
 }

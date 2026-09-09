@@ -3,12 +3,9 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { api } from "../api.js";
 
-// O que cada ferramenta do backend está fazendo, em português.
 const TOOL_LABELS = {
-  visao_geral: "Analisando várias playlists em paralelo…",
-  listar_playlists: "Consultando suas playlists…",
-  analisar_playlist: "Analisando os gêneros da playlist…",
   analisar_esta_playlist: "Analisando esta playlist…",
+  analisar_esta_faixa: "Consultando os dados desta faixa…",
 };
 
 function Dots() {
@@ -22,15 +19,21 @@ function Dots() {
 }
 
 /**
- * O chat, usado em dois lugares: a aba geral (sem `playlistId`, enxerga toda a
- * conta) e a página de detalhe (com `playlistId`, restrito àquela playlist).
+ * Chat com escopo fixo: ou uma playlist (`playlistId`) ou uma faixa (`trackId`).
  */
-export default function ChatPanel({ playlistId = null, suggestions = [], compact = false }) {
+export default function ChatPanel({
+  playlistId = null,
+  trackId = null,
+  suggestions = [],
+  compact = false,
+}) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [streaming, setStreaming] = useState(false);
   const [activity, setActivity] = useState(null);
   const bottomRef = useRef(null);
+
+  const scopeKey = trackId ? `track:${trackId}` : `playlist:${playlistId}`;
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
@@ -40,9 +43,6 @@ export default function ChatPanel({ playlistId = null, suggestions = [], compact
     const question = text.trim();
     if (!question || streaming) return;
 
-    // Turnos que falharam ficam com conteúdo vazio. Reenviá-los faria o backend
-    // recusar a requisição inteira (o schema exige conteúdo), o que travava a
-    // conversa de vez depois do primeiro erro.
     const usable = messages.filter((m) => m.content && !m.error);
     const history = [...usable, { role: "user", content: question }];
 
@@ -52,7 +52,7 @@ export default function ChatPanel({ playlistId = null, suggestions = [], compact
     setMessages([...messages, { role: "user", content: question }, { role: "assistant", content: "" }]);
 
     try {
-      const res = await api.chatStream(history, playlistId);
+      const res = await api.chatStream(history, { playlistId, trackId });
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
@@ -62,7 +62,6 @@ export default function ChatPanel({ playlistId = null, suggestions = [], compact
         if (done) break;
         buffer += decoder.decode(value, { stream: true });
 
-        // Um evento SSE termina em linha em branco; o resto fica no buffer.
         const parts = buffer.split("\n\n");
         buffer = parts.pop() ?? "";
 
@@ -112,8 +111,12 @@ export default function ChatPanel({ playlistId = null, suggestions = [], compact
     }
   }
 
+  const placeholder = trackId
+    ? "Pergunte sobre esta faixa…"
+    : "Pergunte sobre esta playlist…";
+
   return (
-    <div className={`chat${compact ? " chat-compact" : ""}`}>
+    <div className={`chat${compact ? " chat-compact" : ""}`} key={scopeKey}>
       <div className="chat-thread">
         {messages.length === 0 && suggestions.length > 0 && (
           <div className="chat-empty">
@@ -166,7 +169,7 @@ export default function ChatPanel({ playlistId = null, suggestions = [], compact
           className="chat-input"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder={playlistId ? "Pergunte sobre esta playlist…" : "Pergunte sobre suas playlists…"}
+          placeholder={placeholder}
           disabled={streaming}
           aria-label="Sua pergunta"
         />

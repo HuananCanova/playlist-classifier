@@ -1129,3 +1129,547 @@ tbody tr:hover {
 .chat-compact .chat-suggestions {
   justify-content: flex-start;
 }
+
+/* ── Chat flutuante (botão + painel lateral) ────────────────────────── */
+
+.chat-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 14px 20px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #04140a;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(29, 185, 84, 0.25);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+
+.chat-fab:hover {
+  transform: translateY(-2px);
+  background: #22c55e;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.5), 0 0 0 5px rgba(29, 185, 84, 0.18);
+}
+
+.chat-fab:active {
+  transform: translateY(0);
+}
+
+/* Com o painel aberto o botão sai de cena: ele ocuparia o mesmo canto que o
+   campo de envio do chat. */
+.chat-fab-hidden {
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(8px) scale(0.9);
+  pointer-events: none;
+}
+
+.chat-fab-label {
+  line-height: 1;
+}
+
+.chat-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 55;
+  width: min(440px, 100vw);
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border);
+  box-shadow: -20px 0 50px rgba(0, 0, 0, 0.5);
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform 0.28s cubic-bezier(0.22, 0.61, 0.36, 1), visibility 0.28s;
+}
+
+.chat-drawer.is-open {
+  transform: translateX(0);
+  visibility: visible;
+}
+
+.chat-drawer-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 20px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-drawer-title h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  letter-spacing: -0.01em;
+}
+
+.chat-drawer-title .panel-sub {
+  margin: 0;
+}
+
+.chat-drawer-close {
+  margin-left: auto;
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+
+.chat-drawer-close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--border-strong);
+}
+
+/* O ChatPanel ocupa o resto da altura; só a conversa rola. */
+.chat-drawer .chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 20px;
+}
+
+.chat-drawer .chat-thread {
+  flex: 1;
+  min-height: 0;
+  max-height: none;
+  overflow-y: auto;
+  padding: 16px 0;
+}
+
+.chat-drawer .chat-composer {
+  position: static;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--border);
+  background: none;
+}
+
+.chat-drawer .bubble {
+  max-width: 94%;
+}
+
+@media (max-width: 560px) {
+  .chat-fab {
+    right: 16px;
+    bottom: 16px;
+    padding: 13px 17px;
+  }
+
+  .chat-drawer {
+    width: 100vw;
+    border-left: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-drawer {
+    transition: none;
+  }
+}
+
+/* ── Player e visualização de áudio ─────────────────────────────────── */
+
+.player-canvas {
+  display: block;
+  width: 100%;
+  height: 190px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #14141c, #101017);
+  border: 1px solid var(--border);
+}
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.player-play {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 46px;
+  height: 46px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #04140a;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.player-play:hover {
+  transform: scale(1.06);
+  background: #22c55e;
+  box-shadow: 0 6px 18px rgba(29, 185, 84, 0.3);
+}
+
+.player-seek {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.player-seek-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-deep), #22c55e);
+  transition: width 0.1s linear;
+}
+
+.player-time {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+.player-error {
+  margin: 12px 0 0;
+  color: #ffb4b4;
+  font-size: 13px;
+}
+
+.stat-hint {
+  font-size: 10.5px;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+.hero-links {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+}
+
+/* Capa da faixa vira botão de "abrir" na tabela. */
+.track-art-link {
+  position: relative;
+  display: block;
+  width: 40px;
+  height: 40px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.track-art-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(4, 4, 8, 0.6);
+  color: #fff;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+.track-art-link:hover .track-art-play,
+.track-art-link:focus-visible .track-art-play {
+  opacity: 1;
+}
+
+button.back-link {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* ── Barra "tocando agora" ──────────────────────────────────────────── */
+
+.nowplaying {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 16px;
+  background: rgba(18, 18, 26, 0.92);
+  backdrop-filter: saturate(160%) blur(14px);
+  border-top: 1px solid var(--border);
+  box-shadow: 0 -8px 28px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+  animation: fade-in-up 0.3s ease both;
+  transition: background 0.2s ease;
+}
+
+.nowplaying:hover {
+  background: rgba(24, 24, 34, 0.95);
+}
+
+/* Já estamos na página da faixa: nada para abrir. */
+.nowplaying-current {
+  cursor: default;
+}
+
+.nowplaying-current:hover {
+  background: rgba(18, 18, 26, 0.92);
+}
+
+.nowplaying-art {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: #21212b;
+}
+
+.nowplaying-art-empty {
+  background: linear-gradient(135deg, #21212b, #191921);
+}
+
+.nowplaying-meta {
+  min-width: 0;
+  flex: 0 1 220px;
+}
+
+.nowplaying-title,
+.nowplaying-artist {
+  margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.nowplaying-title {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.nowplaying-artist {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.nowplaying-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  cursor: default;
+}
+
+.nowplaying-play {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #04140a;
+  cursor: pointer;
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.nowplaying-play:hover {
+  transform: scale(1.07);
+  background: #22c55e;
+}
+
+.nowplaying-seek {
+  flex: 1;
+  height: 5px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.nowplaying-seek-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, var(--accent-deep), #22c55e);
+  transition: width 0.1s linear;
+}
+
+.nowplaying-time {
+  font-size: 11.5px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.nowplaying-close {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.2s ease, background 0.2s ease;
+}
+
+.nowplaying-close:hover {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.07);
+}
+
+/* A barra é fixa: o conteúdo precisa de espaço para não ficar embaixo dela. */
+body:has(.nowplaying) .container {
+  padding-bottom: 110px;
+}
+
+body:has(.nowplaying) .chat-fab {
+  bottom: 92px;
+}
+
+body:has(.nowplaying) .chat-drawer {
+  height: calc(100dvh - 69px);
+}
+
+@media (max-width: 700px) {
+  .nowplaying-meta {
+    flex-basis: 120px;
+  }
+  .nowplaying-time,
+  .nowplaying-close {
+    display: none;
+  }
+}
+
+/* ── Métricas do áudio ──────────────────────────────────────────────── */
+
+.overview-canvas {
+  display: block;
+  width: 100%;
+  height: 110px;
+  border-radius: 10px;
+  background: #101017;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.metrics-loading {
+  padding: 6px 0;
+}
+
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 14px;
+  margin-top: 18px;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 13px 15px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.metric-rotulo {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.metric-valor {
+  font-size: 21px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.metric-nota {
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.bandas {
+  margin-top: 20px;
+}
+
+.bandas-titulo {
+  margin: 0 0 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+}
+
+.bandas-barra {
+  display: flex;
+  height: 12px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.banda {
+  display: block;
+  height: 100%;
+}
+
+/* Um hue, três luminosidades: as bandas são uma escala ordenada (grave -> agudo),
+   não categorias independentes — cores distintas sugeririam o contrário. */
+.banda-graves { background: #0f6b34; }
+.banda-medios { background: #19a44a; }
+.banda-agudos { background: #4ed787; }
+
+.bandas-legenda {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.bandas-legenda em {
+  font-style: normal;
+  opacity: 0.6;
+  margin-left: 4px;
+}
+
+.ponto {
+  display: inline-block;
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  margin-right: 7px;
+  vertical-align: baseline;
+}
+
+.ponto-graves { background: #0f6b34; }
+.ponto-medios { background: #19a44a; }
+.ponto-agudos { background: #4ed787; }
+
+.metrics-fonte {
+  margin: 16px 0 0;
+  font-size: 11.5px;
+}

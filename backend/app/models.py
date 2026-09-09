@@ -25,6 +25,25 @@ class TrackGenreInfo(BaseModel):
     spotify_url: str | None = None
 
 
+class TrackDetail(BaseModel):
+    track_id: str
+    name: str
+    artists: list[str]
+    album: str | None = None
+    image: str | None = None
+    duration_ms: int
+    spotify_url: str | None = None
+    tags: list[str] = []
+    artist_tags: list[str] = []
+    # Vêm do Deezer e podem faltar: BPM só existe em ~43% das faixas, e o
+    # preview em ~93%.
+    bpm: float | None = None
+    preview_url: str | None = None
+    deezer_url: str | None = None
+    match_confidence: str | None = None
+    matched_title: str | None = None
+
+
 class GenreCount(BaseModel):
     label: str
     count: int

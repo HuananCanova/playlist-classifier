@@ -5,7 +5,7 @@ import DistributionBarChart from "../components/DistributionBarChart.jsx";
 import TopArtistsChart from "../components/TopArtistsChart.jsx";
 import TrackTable from "../components/TrackTable.jsx";
 import AnalysisLoader from "../components/AnalysisLoader.jsx";
-import ChatPanel from "../components/ChatPanel.jsx";
+import ChatWidget from "../components/ChatWidget.jsx";
 
 function Stat({ value, label }) {
   return (
@@ -118,26 +118,20 @@ export default function PlaylistDetail() {
 
       <TopArtistsChart data={top_artists} />
 
-      {chatAvailable && (
-        <section className="panel">
-          <header className="panel-head">
-            <h3>Perguntar sobre esta playlist</h3>
-            <p className="panel-sub">
-              A IA responde só sobre “{playlist.name}” — para comparar com outras, use a aba Chat.
-            </p>
-          </header>
-          <ChatPanel
-            playlistId={id}
-            compact
-            suggestions={[
-              "Como você descreveria o clima desta playlist?",
-              "Que faixas aqui fogem do padrão?",
-            ]}
-          />
-        </section>
-      )}
-
       <TrackTable tracks={tracks} />
+
+      {chatAvailable && (
+        <ChatWidget
+          scope="playlist"
+          playlistId={id}
+          subjectName={playlist.name}
+          suggestions={[
+            "Como você descreveria o clima desta playlist?",
+            "Quais artistas aparecem com mais frequência aqui?",
+            "Alguma faixa desta lista foge do padrão de gênero?",
+          ]}
+        />
+      )}
     </div>
   );
 }

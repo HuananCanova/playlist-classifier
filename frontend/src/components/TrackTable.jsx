@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 function formatDuration(ms) {
   const totalSeconds = Math.round(ms / 1000);
@@ -53,16 +54,13 @@ export default function TrackTable({ tracks }) {
             {filtered.map((t) => (
               <tr key={t.track_id}>
                 <td className="col-art">
-                  {t.image && <img className="track-art" src={t.image} alt="" loading="lazy" />}
+                  <Link to={`/faixa/${t.track_id}`} className="track-art-link">
+                    {t.image && <img className="track-art" src={t.image} alt="" loading="lazy" />}
+                    <span className="track-art-play" aria-hidden="true">▶</span>
+                  </Link>
                 </td>
                 <td className="track-name">
-                  {t.spotify_url ? (
-                    <a href={t.spotify_url} target="_blank" rel="noreferrer">
-                      {t.name}
-                    </a>
-                  ) : (
-                    t.name
-                  )}
+                  <Link to={`/faixa/${t.track_id}`}>{t.name}</Link>
                 </td>
                 <td className="muted">{t.artists.join(", ")}</td>
                 <td className="muted col-duration tabular">{formatDuration(t.duration_ms)}</td>
