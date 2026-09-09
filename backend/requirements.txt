@@ -27,3 +27,7 @@ mcp>=1.2,<2
 # persiste em backend/.chroma e não pede serviço nenhum ao lado. Os
 # embeddings rodam localmente em ONNX — sem chave de API e sem rate limit.
 chromadb>=1.5,<2
+
+# Agrupamento de faixas por clima (app/clustering.py): TF-IDF sobre as
+# tags + k-means, com a silhueta escolhendo o k.
+scikit-learn>=1.5,<2

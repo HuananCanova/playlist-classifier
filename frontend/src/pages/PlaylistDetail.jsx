@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import DistributionBarChart from "../components/DistributionBarChart.jsx";
 import TopArtistsChart from "../components/TopArtistsChart.jsx";
 import TrackTable from "../components/TrackTable.jsx";
+import ClusterPanel from "../components/ClusterPanel.jsx";
 import AnalysisLoader from "../components/AnalysisLoader.jsx";
 import ChatWidget from "../components/ChatWidget.jsx";
 
@@ -117,6 +118,8 @@ export default function PlaylistDetail() {
       </div>
 
       <TopArtistsChart data={top_artists} />
+
+      <ClusterPanel playlistId={id} />
 
       <TrackTable tracks={tracks} />
 

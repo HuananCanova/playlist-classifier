@@ -188,6 +188,30 @@ do Last.fm também são. Consultas em inglês funcionam bem; em português a
 separação entre resultados fica mais fraca. Trocar por um modelo multilíngue é
 uma mudança de uma linha em `_build_collection()`.
 
+## Grupos de clima
+
+A distribuição de gêneros diz do que a playlist é feita — 34% indie rock, 21%
+dream pop. O que ela não mostra é que essas fatias podem ser blocos separados:
+uma playlist de 60 faixas costuma ser duas ou três playlists convivendo, e a
+contagem global achata isso numa média que não descreve nenhuma delas.
+
+As faixas viram vetores TF-IDF das suas tags, o k-means separa os blocos, e o
+`k` é escolhido pela maior silhueta entre 2 e 6. O painel na página da playlist
+mostra os grupos e uma projeção 2D deles; no chat, `grupos_desta_playlist`
+devolve os mesmos dados para o modelo dar nome a cada grupo em português.
+
+O rótulo de cada grupo vem das tags que mais o **distinguem** do resto da
+playlist, não das mais frequentes nele. A diferença importa: numa playlist com
+um bloco de shoegaze e um de metal, `guitar` é a tag mais comum dos dois e não
+serve para nomear nenhum.
+
+**O que não entra nas features:** BPM seria o sinal numérico mais interessante,
+mas só existe via Deezer, uma chamada por faixa — caro demais para um painel que
+carrega junto com a página. As features espectrais do `audioAnalysis.js` são
+calculadas no navegador, só para a faixa tocando. Sobra o que a análise já tem:
+tags, duração e popularidade, com as duas últimas pesando pouco (0,35) para não
+dominarem as tags.
+
 ## A migração da API do Spotify (2026)
 
 Vale registrar, porque explica várias decisões do código. As mudanças de

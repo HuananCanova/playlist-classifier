@@ -19,6 +19,7 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 
+from .clustering import cluster_playlist
 from .genre_analysis import build_playlist_analysis
 from .tracks import build_track_detail
 from .vector_store import search as vector_search
@@ -177,6 +178,45 @@ async def buscar_na_playlist_json(access_token: str, playlist_id: str, consulta:
     )
 
 
+async def grupos_da_playlist_json(access_token: str, playlist_id: str) -> str:
+    """Grupos de clima da playlist, calculados por k-means sobre as tags."""
+    try:
+        analysis = await build_playlist_analysis(access_token, playlist_id)
+    except httpx.HTTPStatusError as exc:
+        return json.dumps(
+            {"erro": f"Não consegui ler essa playlist (HTTP {exc.response.status_code})."},
+            ensure_ascii=False,
+        )
+
+    resultado = await cluster_playlist(analysis)
+    if not resultado.clusters:
+        return json.dumps({"grupos": [], "observacao": resultado.note}, ensure_ascii=False)
+
+    return json.dumps(
+        {
+            "quantidade_de_grupos": resultado.k,
+            "silhueta": resultado.silhouette,
+            "grupos": [
+                {
+                    "tags_que_distinguem": c.top_tags,
+                    "faixas": c.size,
+                    "exemplos": c.sample_tracks,
+                }
+                for c in resultado.clusters
+            ],
+            "observacao": (
+                "Grupos vêm de k-means sobre as tags, não de um julgamento "
+                "editorial: as `tags_que_distinguem` são as que mais separam o "
+                "grupo do resto da playlist. Use-as para dar um nome em português "
+                "a cada grupo. A silhueta mede o quanto os grupos se separam — "
+                "acima de 0,25 é razoável, perto de 0 eles se sobrepõem e vale "
+                "dizer que a divisão é fraca."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
 async def faixas_parecidas_json(track_id: str) -> str:
     """Vizinhos semânticos de uma faixa, dentro do acervo já indexado."""
     hits = await similar_to_track(track_id, limite=8)
@@ -225,6 +265,9 @@ def build_tools(
         async def buscar_nesta_playlist(consulta: str) -> str:
             return await buscar_na_playlist_json(access_token, playlist_id, consulta)
 
+        async def grupos_desta_playlist() -> str:
+            return await grupos_da_playlist_json(access_token, playlist_id)
+
         return [
             Tool(
                 name="analisar_esta_playlist",
@@ -258,6 +301,17 @@ def build_tools(
                     "required": ["consulta"],
                 },
                 run=buscar_nesta_playlist,
+            ),
+            Tool(
+                name="grupos_desta_playlist",
+                description=(
+                    "Separa as faixas da playlist em grupos de clima parecido "
+                    "(k-means sobre as tags) e devolve as tags que distinguem "
+                    "cada grupo. Use quando perguntarem se a playlist é coesa, "
+                    "se tem 'partes' ou 'fases', ou como ela poderia ser dividida."
+                ),
+                parameters={"type": "object", "properties": {}, "required": []},
+                run=grupos_desta_playlist,
             ),
         ]
 

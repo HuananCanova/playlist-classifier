@@ -1859,3 +1859,77 @@ body:has(.nowplaying) .chat-drawer {
     width: 40px;
   }
 }
+
+/* ── Grupos de clima (k-means) ──────────────────────────────────────── */
+
+.cluster-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.cluster-list {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 10px;
+}
+
+.cluster-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card);
+}
+
+/* A cor liga o cartão ao ponto no gráfico; é a única coisa que o marcador
+   precisa dizer, então ele fica pequeno e sem borda. */
+.cluster-dot {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+}
+
+.cluster-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.cluster-label {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.cluster-count {
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.cluster-tags,
+.cluster-samples {
+  font-size: 11.5px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cluster-samples {
+  opacity: 0.72;
+}
+
+.cluster-chart-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+  max-width: 68ch;
+}

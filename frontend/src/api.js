@@ -28,6 +28,7 @@ export const api = {
   search: (q, limit = 20) =>
     request(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`),
   searchStatus: () => request("/api/search/status"),
+  getPlaylistClusters: (id) => request(`/api/playlists/${id}/clusters`),
   chatStatus: () => request("/api/chat/status"),
 
   // Não passa por request(): precisamos do corpo como stream, não como JSON.

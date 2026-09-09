@@ -5,8 +5,9 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from .auth import get_valid_access_token
+from .clustering import cluster_playlist
 from .genre_analysis import build_playlist_analysis
-from .models import PlaylistAnalysis, PlaylistSummary
+from .models import PlaylistAnalysis, PlaylistClusters, PlaylistSummary
 from .spotify_client import SpotifyClient
 from .vector_store import index_tracks
 
@@ -74,6 +75,44 @@ async def analyze_playlist(
     # análise não deveria esperar por isso.
     background.add_task(_index_analysis, analysis)
     return analysis
+
+
+@router.get("/{playlist_id}/clusters", response_model=PlaylistClusters)
+async def playlist_clusters(playlist_id: str, request: Request):
+    """Agrupa as faixas da playlist por clima.
+
+    Roda sobre a análise já cacheada, então não custa nenhuma chamada externa
+    além da que a própria análise faria.
+    """
+    token = await get_valid_access_token(request)
+    try:
+        analysis = await build_playlist_analysis(token, playlist_id)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="Playlist not found") from exc
+        raise HTTPException(status_code=502, detail="Spotify API error") from exc
+
+    resultado = await cluster_playlist(analysis)
+    return PlaylistClusters(
+        clusters=[
+            {
+                "id": c.id,
+                "label": c.label,
+                "size": c.size,
+                "top_tags": c.top_tags,
+                "track_ids": c.track_ids,
+                "sample_tracks": c.sample_tracks,
+            }
+            for c in resultado.clusters
+        ],
+        k=resultado.k,
+        silhouette=resultado.silhouette,
+        points=[
+            {"track_id": tid, "x": x, "y": y, "cluster": cid}
+            for tid, x, y, cid in resultado.points
+        ],
+        note=resultado.note,
+    )
 
 
 async def _index_analysis(analysis: PlaylistAnalysis) -> None:

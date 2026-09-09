@@ -44,6 +44,38 @@ class TrackDetail(BaseModel):
     matched_title: str | None = None
 
 
+class ClusterInfo(BaseModel):
+    """Um grupo de faixas com clima parecido dentro de uma playlist."""
+
+    id: int
+    label: str
+    size: int
+    top_tags: list[str] = []
+    track_ids: list[str] = []
+    sample_tracks: list[str] = []
+
+
+class ClusterPoint(BaseModel):
+    """Uma faixa projetada em 2D, só para o gráfico."""
+
+    track_id: str
+    x: float
+    y: float
+    cluster: int
+
+
+class PlaylistClusters(BaseModel):
+    clusters: list[ClusterInfo] = []
+    k: int
+    # Média da silhueta do agrupamento escolhido: acima de ~0,25 os grupos são
+    # razoavelmente separados; perto de 0 eles se sobrepõem.
+    silhouette: float | None = None
+    points: list[ClusterPoint] = []
+    # Preenchido quando não deu para agrupar — a playlist é curta demais, ou as
+    # faixas não compartilham tags suficientes.
+    note: str | None = None
+
+
 class SearchHit(BaseModel):
     """Uma faixa devolvida pela busca semântica."""
 
