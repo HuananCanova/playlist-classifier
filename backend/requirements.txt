@@ -1,4 +1,7 @@
-fastapi==0.115.0
+# fastapi 0.141+: o SDK do MCP exige starlette >= 1.0, que a série 0.115 do
+# fastapi ainda travava em < 0.39. Manter o par junto evita um conflito de
+# resolução na instalação limpa.
+fastapi>=0.141,<1
 uvicorn[standard]==0.30.6
 httpx==0.27.2
 
@@ -16,3 +19,6 @@ python-dotenv==1.0.1
 # aberto entregaria uma versão futura incompatível a quem clonar o projeto.
 anthropic>=1.4,<2
 openai>=3.8,<4
+
+# Servidor MCP (app/mcp_server.py). Fixado na major: o protocolo ainda muda.
+mcp>=1.2,<2

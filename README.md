@@ -93,6 +93,56 @@ Por que assim:
 O chat é opcional: sem `ANTHROPIC_API_KEY`, o `/api/chat/status` responde
 `available: false` e a interface esconde a aba, com o resto do app intacto.
 
+## Servidor MCP
+
+As mesmas ferramentas do chat também rodam como um servidor
+[MCP](https://modelcontextprotocol.io), então qualquer cliente MCP — Claude
+Desktop, Claude Code — consegue consultar suas playlists direto.
+
+O escopo aqui é maior de propósito. No chat de dentro do app o agente responde
+dentro de uma tela e fica preso a uma playlist ou faixa por conversa; via MCP o
+cliente é você, dono da conta, então existe `listar_playlists` e as outras
+ferramentas recebem o id como parâmetro:
+
+| Ferramenta | Argumentos | O que devolve |
+| --- | --- | --- |
+| `listar_playlists` | — | id, nome e nº de faixas de todas as playlists |
+| `analisar_playlist` | `playlist_id` | gêneros, subgêneros, artistas frequentes, amostra de faixas |
+| `analisar_faixa` | `track_id` | tags do Last.fm, tags do artista, BPM e prévia do Deezer |
+
+A formatação das respostas é literalmente a mesma do chat (`analisar_playlist_json`
+e `analisar_faixa_json`, em `app/ai_tools.py`) — o servidor MCP é só mais uma
+tradução daquele registro de ferramentas, ao lado dos adaptadores da Anthropic e
+da OpenAI.
+
+### Configurar
+
+O servidor roda fora do navegador, sem cookie de sessão, então precisa de um
+refresh token próprio. **Pare o backend** (o script usa a mesma porta do
+`SPOTIFY_REDIRECT_URI`) e rode uma vez:
+
+```bash
+cd backend
+python -m scripts.spotify_refresh_token
+```
+
+Ele abre o navegador, você autoriza, e o terminal imprime a linha para colar no
+`backend/.env`:
+
+```
+SPOTIFY_REFRESH_TOKEN=AQD...
+```
+
+Depois, registre o servidor no cliente MCP. No Claude Code:
+
+```bash
+claude mcp add playlist-classifier -- /caminho/para/backend/.venv/bin/python -m app.mcp_server
+```
+
+Em clientes que leem um JSON de configuração, o equivalente é `command` apontando
+para o Python do venv, `args` com `["-m", "app.mcp_server"]` e `cwd` na pasta
+`backend`.
+
 ## A migração da API do Spotify (2026)
 
 Vale registrar, porque explica várias decisões do código. As mudanças de

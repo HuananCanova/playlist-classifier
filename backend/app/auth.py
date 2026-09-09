@@ -16,11 +16,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
 from .config import get_settings
+from .spotify_auth import SPOTIFY_AUTHORIZE_URL, SPOTIFY_TOKEN_URL
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
-
-SPOTIFY_AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
-SPOTIFY_TOKEN_URL = "https://accounts.spotify.com/api/token"
 
 
 def _make_pkce_pair() -> tuple[str, str]:

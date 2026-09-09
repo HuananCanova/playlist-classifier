@@ -13,6 +13,10 @@ class Settings(BaseSettings):
 
     lastfm_api_key: str
 
+    # Só o servidor MCP usa: ele roda fora do navegador, sem cookie de sessão.
+    # Obtenha uma vez com `python -m scripts.spotify_refresh_token`.
+    spotify_refresh_token: str = ""
+
     # Provedor do chat: "anthropic" (alvo real) ou "groq" (testes sem custo).
     # Sem chave nenhuma, o app funciona normalmente e o chat some da interface.
     chat_provider: str = "anthropic"

@@ -1,7 +1,17 @@
 """As ferramentas do agente — independentes de provedor.
 
-Cada conversa tem escopo fixo: ou uma playlist, ou uma faixa. Não há ferramentas
-globais — isso evita fan-out caro e mantém o agente dentro do contexto da tela.
+O conteúdo de cada ferramenta mora em uma função `*_json` de módulo, que recebe
+o id como argumento. Em cima delas, `build_tools()` monta a versão do chat:
+ferramentas de aridade zero, com o id preso na closure. É essa amarração que dá
+o escopo fixo do chat — o agente não pode pedir outra playlist porque não existe
+argumento para isso.
+
+O servidor MCP (`mcp_server.py`) chama as mesmas funções `*_json` sem essa
+amarração, expondo o id como parâmetro: lá o cliente é o próprio dono da conta,
+não um agente respondendo dentro de uma tela.
+
+Assim os três consumidores — Claude, Groq e MCP — compartilham a formatação dos
+dados, e só a tradução para cada protocolo muda.
 """
 import json
 from dataclasses import dataclass
@@ -24,6 +34,87 @@ class Tool:
     run: Callable[..., Awaitable[str]]
 
 
+async def analisar_playlist_json(access_token: str, playlist_id: str) -> str:
+    """Análise completa de uma playlist, serializada para o modelo."""
+    try:
+        analysis = await build_playlist_analysis(access_token, playlist_id)
+    except httpx.HTTPStatusError as exc:
+        return json.dumps(
+            {
+                "erro": "Não consegui ler essa playlist no Spotify "
+                f"(HTTP {exc.response.status_code})."
+            },
+            ensure_ascii=False,
+        )
+
+    return json.dumps(
+        {
+            "playlist": analysis.playlist.name,
+            "total_de_faixas": analysis.playlist.track_count,
+            "faixas_sem_genero": analysis.tracks_missing_genre,
+            "generos": [
+                {"genero": g.label, "faixas": g.count}
+                for g in analysis.genre_distribution[:MAX_GENRES]
+            ],
+            "subgeneros": [
+                {"tag": g.label, "faixas": g.count}
+                for g in analysis.subgenre_distribution[:MAX_GENRES]
+            ],
+            "artistas_frequentes": [
+                {"artista": a.label, "faixas": a.count}
+                for a in analysis.top_artists[:10]
+            ],
+            "amostra_de_faixas": [
+                {"faixa": t.name, "artistas": t.artists, "tags": t.subgenre_tags[:4]}
+                for t in analysis.tracks[:MAX_TRACK_SAMPLE]
+            ],
+            "observacao": (
+                f"A amostra mostra {min(MAX_TRACK_SAMPLE, len(analysis.tracks))} "
+                f"de {len(analysis.tracks)} faixas."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
+async def analisar_faixa_json(access_token: str, track_id: str) -> str:
+    """Detalhe de uma faixa, serializado para o modelo."""
+    try:
+        detail = await build_track_detail(access_token, track_id)
+    except httpx.HTTPStatusError as exc:
+        return json.dumps(
+            {
+                "erro": "Não consegui ler essa faixa no Spotify "
+                f"(HTTP {exc.response.status_code})."
+            },
+            ensure_ascii=False,
+        )
+
+    minutos = detail.duration_ms // 60000
+    segundos = (detail.duration_ms % 60000) // 1000
+
+    return json.dumps(
+        {
+            "faixa": detail.name,
+            "artistas": detail.artists,
+            "album": detail.album,
+            "duracao": f"{minutos}:{segundos:02d}",
+            "tags_da_faixa": detail.tags,
+            "tags_do_artista": detail.artist_tags,
+            "bpm": detail.bpm,
+            "bpm_fonte": "Deezer" if detail.bpm else None,
+            "tem_previa": bool(detail.preview_url),
+            "correspondencia_deezer": detail.match_confidence,
+            "titulo_deezer": detail.matched_title,
+            "observacao": (
+                "Tags vêm do Last.fm (aproximadas). BPM e prévia vêm do Deezer "
+                "e podem faltar ou ser de uma gravação parecida, não idêntica."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
 def build_tools(
     access_token: str,
     *,
@@ -34,51 +125,10 @@ def build_tools(
     if (playlist_id is None) == (track_id is None):
         raise ValueError("Informe exatamente um escopo: playlist_id ou track_id.")
 
-    async def _analisar_playlist(pid: str) -> str:
-        try:
-            analysis = await build_playlist_analysis(access_token, pid)
-        except httpx.HTTPStatusError as exc:
-            return json.dumps(
-                {
-                    "erro": "Não consegui ler essa playlist no Spotify "
-                    f"(HTTP {exc.response.status_code})."
-                },
-                ensure_ascii=False,
-            )
-
-        return json.dumps(
-            {
-                "playlist": analysis.playlist.name,
-                "total_de_faixas": analysis.playlist.track_count,
-                "faixas_sem_genero": analysis.tracks_missing_genre,
-                "generos": [
-                    {"genero": g.label, "faixas": g.count}
-                    for g in analysis.genre_distribution[:MAX_GENRES]
-                ],
-                "subgeneros": [
-                    {"tag": g.label, "faixas": g.count}
-                    for g in analysis.subgenre_distribution[:MAX_GENRES]
-                ],
-                "artistas_frequentes": [
-                    {"artista": a.label, "faixas": a.count}
-                    for a in analysis.top_artists[:10]
-                ],
-                "amostra_de_faixas": [
-                    {"faixa": t.name, "artistas": t.artists, "tags": t.subgenre_tags[:4]}
-                    for t in analysis.tracks[:MAX_TRACK_SAMPLE]
-                ],
-                "observacao": (
-                    f"A amostra mostra {min(MAX_TRACK_SAMPLE, len(analysis.tracks))} "
-                    f"de {len(analysis.tracks)} faixas."
-                ),
-            },
-            ensure_ascii=False,
-        )
-
     if playlist_id is not None:
 
-        async def analisar_esta() -> str:
-            return await _analisar_playlist(playlist_id)
+        async def analisar_esta_playlist() -> str:
+            return await analisar_playlist_json(access_token, playlist_id)
 
         return [
             Tool(
@@ -90,45 +140,12 @@ def build_tools(
                     "pergunta sobre ela."
                 ),
                 parameters={"type": "object", "properties": {}, "required": []},
-                run=analisar_esta,
+                run=analisar_esta_playlist,
             )
         ]
 
-    async def analisar_esta() -> str:
-        try:
-            detail = await build_track_detail(access_token, track_id)  # type: ignore[arg-type]
-        except httpx.HTTPStatusError as exc:
-            return json.dumps(
-                {
-                    "erro": "Não consegui ler essa faixa no Spotify "
-                    f"(HTTP {exc.response.status_code})."
-                },
-                ensure_ascii=False,
-            )
-
-        minutos = detail.duration_ms // 60000
-        segundos = (detail.duration_ms % 60000) // 1000
-
-        return json.dumps(
-            {
-                "faixa": detail.name,
-                "artistas": detail.artists,
-                "album": detail.album,
-                "duracao": f"{minutos}:{segundos:02d}",
-                "tags_da_faixa": detail.tags,
-                "tags_do_artista": detail.artist_tags,
-                "bpm": detail.bpm,
-                "bpm_fonte": "Deezer" if detail.bpm else None,
-                "tem_previa": bool(detail.preview_url),
-                "correspondencia_deezer": detail.match_confidence,
-                "titulo_deezer": detail.matched_title,
-                "observacao": (
-                    "Tags vêm do Last.fm (aproximadas). BPM e prévia vêm do Deezer "
-                    "e podem faltar ou ser de uma gravação parecida, não idêntica."
-                ),
-            },
-            ensure_ascii=False,
-        )
+    async def analisar_esta_faixa() -> str:
+        return await analisar_faixa_json(access_token, track_id)  # type: ignore[arg-type]
 
     return [
         Tool(
@@ -138,7 +155,7 @@ def build_tools(
                 "BPM e metadados. Chame antes de responder qualquer pergunta sobre ela."
             ),
             parameters={"type": "object", "properties": {}, "required": []},
-            run=analisar_esta,
+            run=analisar_esta_faixa,
         )
     ]
 
