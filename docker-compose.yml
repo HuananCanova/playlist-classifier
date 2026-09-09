@@ -1,0 +1,34 @@
+# Sobe o app inteiro com um comando. Útil por si só, e ainda contorna um
+# problema real do ambiente de desenvolvimento aqui: o projeto mora numa pasta
+# do OneDrive, onde o observador de arquivos do uvicorn perde alterações e passa
+# a servir código velho.
+
+services:
+  backend:
+    build: ./backend
+    env_file: ./backend/.env
+    environment:
+      # Dentro da rede do compose o frontend é servido pelo nginx na porta 80,
+      # mas o navegador continua falando com ele por 127.0.0.1:5173 — é esse
+      # valor que o CORS e o redirect do OAuth precisam enxergar.
+      FRONTEND_URL: http://127.0.0.1:5173
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      # O índice vetorial persiste entre recriações do container.
+      - chroma:/srv/.chroma
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_URL: http://127.0.0.1:8000
+    ports:
+      - "127.0.0.1:5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  chroma:
