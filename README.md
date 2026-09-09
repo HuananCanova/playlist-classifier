@@ -143,6 +143,51 @@ Em clientes que leem um JSON de configuração, o equivalente é `command` apont
 para o Python do venv, `args` com `["-m", "app.mcp_server"]` e `cwd` na pasta
 `backend`.
 
+## Busca semântica
+
+A análise de gênero conta tags exatas: ela sabe que 14 faixas têm a tag
+`shoegaze`. O que ela não consegue é responder *"quais faixas são melancólicas
+com guitarra"* — nenhuma faixa carrega esse texto literal.
+
+Para isso cada faixa vira um documento (nome, artistas, álbum e tags) embutido
+em um vetor; a pergunta vira um vetor no mesmo espaço, e a resposta é a
+proximidade entre eles. Na prática, "melancholic guitar" acha faixas marcadas
+como *sad*, *wistful* ou *dream pop* sem que a palavra apareça em lugar nenhum.
+
+Isso aparece em três lugares:
+
+- **`/busca`** — busca livre sobre tudo que você já analisou.
+- **Página da faixa** — a seção *Parecidas com esta*, por vizinhança de vetores.
+- **Chat** — `buscar_nesta_playlist` no escopo de playlist e `faixas_parecidas`
+  no escopo de faixa. A primeira é recortada pelos ids da própria playlist, então
+  a busca não vaza faixas de fora do escopo da conversa.
+
+### Como o índice é montado
+
+Indexar é efeito colateral de analisar uma playlist: os dados já foram buscados,
+então **não custa nenhuma chamada externa a mais**. O índice cresce conforme você
+navega, e nunca sozinho — o que importa num projeto que já levou ban do Spotify
+por volume de requisições.
+
+Consequência a assumir: a busca só enxerga o que você já abriu. Um resultado
+vazio quase sempre quer dizer "essa playlist ainda não foi analisada", não "não
+existe" — e a tela de busca diz quantas faixas estão indexadas, justamente para
+essa diferença ficar clara.
+
+### Decisões
+
+| Decisão | Por quê |
+| --- | --- |
+| Chroma embarcado, não pgvector | O app é local-first e sem banco. Subir um Postgres ao lado contradiria isso; o Chroma persiste em `backend/.chroma` e não pede processo nenhum. |
+| Embeddings locais (all-MiniLM-L6-v2, ONNX) | Rodam na CPU, sem chave de API e sem rate limit. Baixa ~80 MB uma vez. |
+| Distância cosseno, não L2 | Documentos de tags variam muito de tamanho (2 tags numa faixa obscura, 40 numa popular) e a euclidiana leria comprimento como diferença de conteúdo. |
+| Um documento por faixa | A mesma música em três playlists deve aparecer uma vez na busca global. O recorte por playlist vem de um filtro por id. |
+
+**Limitação conhecida:** o modelo de embeddings é treinado em inglês, e as tags
+do Last.fm também são. Consultas em inglês funcionam bem; em português a
+separação entre resultados fica mais fraca. Trocar por um modelo multilíngue é
+uma mudança de uma linha em `_build_collection()`.
+
 ## A migração da API do Spotify (2026)
 
 Vale registrar, porque explica várias decisões do código. As mudanças de

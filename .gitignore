@@ -37,3 +37,6 @@ debug_error.log
 
 
 CLAUDE.md
+
+# Índice vetorial (Chroma). Reconstruído ao analisar as playlists.
+backend/.chroma/

@@ -11,6 +11,7 @@ from collections import Counter
 
 import httpx
 
+from .cache import playlist_analysis_cache
 from .lastfm_client import get_artist_tags, get_track_tags
 from .models import GenreCount, PlaylistAnalysis, PlaylistSummary, TrackGenreInfo
 from .spotify_client import SpotifyClient, gather_with_concurrency
@@ -31,6 +32,10 @@ HTTP_LIMITS = httpx.Limits(max_connections=64, max_keepalive_connections=64)
 async def build_playlist_analysis(
     access_token: str, playlist_id: str
 ) -> PlaylistAnalysis:
+    cached = playlist_analysis_cache.get(playlist_id)
+    if cached is not None:
+        return cached
+
     spotify = SpotifyClient(access_token)
 
     async with httpx.AsyncClient(timeout=20.0, limits=HTTP_LIMITS) as client:
@@ -126,7 +131,7 @@ async def build_playlist_analysis(
     def top_counts(counter: Counter, limit: int = 25) -> list[GenreCount]:
         return [GenreCount(label=label, count=count) for label, count in counter.most_common(limit)]
 
-    return PlaylistAnalysis(
+    analysis = PlaylistAnalysis(
         playlist=summary,
         tracks=track_infos,
         genre_distribution=top_counts(genre_counter),
@@ -134,3 +139,5 @@ async def build_playlist_analysis(
         top_artists=top_counts(artist_counter, limit=15),
         tracks_missing_genre=missing_genre,
     )
+    playlist_analysis_cache[playlist_id] = analysis
+    return analysis

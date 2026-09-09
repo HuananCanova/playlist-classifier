@@ -1734,3 +1734,128 @@ body:has(.nowplaying) .chat-drawer {
   margin: 16px 0 0;
   font-size: 11.5px;
 }
+
+/* ── Busca semântica ────────────────────────────────────────────────── */
+
+.search-head {
+  margin: 8px 0 22px;
+}
+
+.search-head h1 {
+  margin: 0 0 6px;
+  font-size: 30px;
+  letter-spacing: -0.02em;
+}
+
+.search-head .panel-sub {
+  margin: 0;
+  max-width: 62ch;
+}
+
+.search-form {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.search-examples {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.search-index-note {
+  margin: 16px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.hit-list {
+  list-style: none;
+  margin: 22px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Uma linha, não um cartão: os resultados são uma lista para varrer de cima a
+   baixo, e cada um em seu próprio cartão competiria por atenção com os
+   painéis da página. */
+.hit {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 11px 14px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--card);
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+
+.hit:hover {
+  background: var(--card-hover);
+  border-color: rgba(29, 185, 84, 0.4);
+  transform: translateX(2px);
+}
+
+.hit-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.hit-name {
+  font-weight: 600;
+  font-size: 14.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hit-artists {
+  font-size: 13px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hit-tags {
+  font-size: 11.5px;
+  color: var(--muted);
+  opacity: 0.75;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hit-meter {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 4px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.09);
+  overflow: hidden;
+}
+
+.hit-meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+@media (max-width: 560px) {
+  .search-form {
+    flex-wrap: wrap;
+  }
+
+  .hit-meter {
+    width: 40px;
+  }
+}

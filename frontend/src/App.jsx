@@ -6,6 +6,7 @@ import NowPlayingBar from "./components/NowPlayingBar.jsx";
 import Login from "./pages/Login.jsx";
 import PlaylistList from "./pages/PlaylistList.jsx";
 import PlaylistDetail from "./pages/PlaylistDetail.jsx";
+import Search from "./pages/Search.jsx";
 import TrackDetail from "./pages/TrackDetail.jsx";
 
 function Navbar() {
@@ -34,6 +35,12 @@ function Navbar() {
               className={({ isActive }) => `nav-link${isActive ? " nav-link-active" : ""}`}
             >
               Playlists
+            </NavLink>
+            <NavLink
+              to="/busca"
+              className={({ isActive }) => `nav-link${isActive ? " nav-link-active" : ""}`}
+            >
+              Busca
             </NavLink>
           </nav>
         )}
@@ -78,6 +85,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <PlaylistList />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/busca"
+            element={
+              <RequireAuth>
+                <Search />
               </RequireAuth>
             }
           />

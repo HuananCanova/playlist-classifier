@@ -44,6 +44,23 @@ class TrackDetail(BaseModel):
     matched_title: str | None = None
 
 
+class SearchHit(BaseModel):
+    """Uma faixa devolvida pela busca semântica."""
+
+    track_id: str
+    nome: str
+    artistas: list[str] = []
+    album: str | None = None
+    tags: list[str] = []
+    # 1.0 = idêntico. É `1 - distância cosseno`, então pode ser levemente
+    # negativo para pares de sentidos opostos.
+    similaridade: float
+
+
+class SearchStatus(BaseModel):
+    indexed_tracks: int
+
+
 class GenreCount(BaseModel):
     label: str
     count: int

@@ -4,6 +4,7 @@ import { api } from "../api.js";
 import Waveform from "../components/Waveform.jsx";
 import AudioMetrics from "../components/AudioMetrics.jsx";
 import ChatWidget from "../components/ChatWidget.jsx";
+import { SearchHit } from "./Search.jsx";
 
 function Stat({ value, label, hint }) {
   return (
@@ -21,6 +22,7 @@ export default function TrackDetail() {
   const [track, setTrack] = useState(null);
   const [error, setError] = useState(null);
   const [chatAvailable, setChatAvailable] = useState(false);
+  const [similares, setSimilares] = useState([]);
 
   useEffect(() => {
     setTrack(null);
@@ -37,6 +39,16 @@ export default function TrackDetail() {
       .then((s) => setChatAvailable(s.available))
       .catch(() => setChatAvailable(false));
   }, []);
+
+  // Lista vazia é o caso normal, não um erro: a faixa só está no índice depois
+  // que a playlist que a contém foi analisada.
+  useEffect(() => {
+    setSimilares([]);
+    api
+      .getSimilarTracks(id)
+      .then(setSimilares)
+      .catch(() => setSimilares([]));
+  }, [id]);
 
   if (error) {
     return (
@@ -155,6 +167,24 @@ export default function TrackDetail() {
               </span>
             ))}
           </div>
+        </section>
+      )}
+
+      {similares.length > 0 && (
+        <section className="panel">
+          <header className="panel-head">
+            <h3>Parecidas com esta</h3>
+            <p className="panel-sub">
+              Por proximidade de tags, entre as faixas que você já analisou
+            </p>
+          </header>
+          <ul className="hit-list">
+            {similares.map((h) => (
+              <li key={h.track_id}>
+                <SearchHit hit={h} />
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

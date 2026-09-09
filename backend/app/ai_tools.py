@@ -21,6 +21,8 @@ import httpx
 
 from .genre_analysis import build_playlist_analysis
 from .tracks import build_track_detail
+from .vector_store import search as vector_search
+from .vector_store import similar_to_track
 
 MAX_TRACK_SAMPLE = 40
 MAX_GENRES = 15
@@ -115,6 +117,96 @@ async def analisar_faixa_json(access_token: str, track_id: str) -> str:
     )
 
 
+MAX_BUSCA = 12
+
+
+def _resumir_hits(hits: list[dict]) -> list[dict]:
+    return [
+        {
+            "faixa": h["nome"],
+            "artistas": h["artistas"],
+            "tags": h["tags"][:5],
+            "similaridade": h["similaridade"],
+        }
+        for h in hits
+    ]
+
+
+async def buscar_na_playlist_json(access_token: str, playlist_id: str, consulta: str) -> str:
+    """Busca semântica restrita às faixas de uma playlist.
+
+    O recorte vem dos ids da própria análise, então a ferramenta não consegue
+    vazar faixas de fora do escopo da conversa nem que o modelo peça.
+    """
+    try:
+        analysis = await build_playlist_analysis(access_token, playlist_id)
+    except httpx.HTTPStatusError as exc:
+        return json.dumps(
+            {"erro": f"Não consegui ler essa playlist (HTTP {exc.response.status_code})."},
+            ensure_ascii=False,
+        )
+
+    ids = [t.track_id for t in analysis.tracks]
+    hits = await vector_search(consulta, limite=MAX_BUSCA, track_ids=ids)
+
+    if not hits:
+        return json.dumps(
+            {
+                "resultados": [],
+                "observacao": (
+                    "Nada no índice para esta playlist ainda. O índice é montado "
+                    "quando a playlist é analisada — se a análise acabou de rodar, "
+                    "vale tentar de novo em alguns segundos."
+                ),
+            },
+            ensure_ascii=False,
+        )
+
+    return json.dumps(
+        {
+            "consulta": consulta,
+            "resultados": _resumir_hits(hits),
+            "observacao": (
+                "Ordenado por proximidade semântica entre a consulta e as tags "
+                "da faixa, não por correspondência exata de palavra. Similaridade "
+                "perto de 1 é forte; abaixo de ~0,2 é fraca e provavelmente não "
+                "responde à pergunta."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
+async def faixas_parecidas_json(track_id: str) -> str:
+    """Vizinhos semânticos de uma faixa, dentro do acervo já indexado."""
+    hits = await similar_to_track(track_id, limite=8)
+
+    if not hits:
+        return json.dumps(
+            {
+                "resultados": [],
+                "observacao": (
+                    "Esta faixa ainda não está no índice, ou não há outras faixas "
+                    "indexadas para comparar. O índice cresce conforme as playlists "
+                    "são analisadas."
+                ),
+            },
+            ensure_ascii=False,
+        )
+
+    return json.dumps(
+        {
+            "resultados": _resumir_hits(hits),
+            "observacao": (
+                "São as faixas mais próximas DENTRO do que o usuário já analisou "
+                "neste app — não é uma recomendação sobre todo o catálogo do "
+                "Spotify. Deixe isso claro na resposta."
+            ),
+        },
+        ensure_ascii=False,
+    )
+
+
 def build_tools(
     access_token: str,
     *,
@@ -130,6 +222,9 @@ def build_tools(
         async def analisar_esta_playlist() -> str:
             return await analisar_playlist_json(access_token, playlist_id)
 
+        async def buscar_nesta_playlist(consulta: str) -> str:
+            return await buscar_na_playlist_json(access_token, playlist_id, consulta)
+
         return [
             Tool(
                 name="analisar_esta_playlist",
@@ -141,11 +236,36 @@ def build_tools(
                 ),
                 parameters={"type": "object", "properties": {}, "required": []},
                 run=analisar_esta_playlist,
-            )
+            ),
+            Tool(
+                name="buscar_nesta_playlist",
+                description=(
+                    "Busca faixas DESTA playlist por descrição livre — clima, "
+                    "textura, instrumento, energia — em vez de nome exato. Use "
+                    "quando a pergunta for do tipo 'quais faixas são mais X', com "
+                    "X sendo algo que não é uma tag literal. A busca é semântica: "
+                    "'melancólico' encontra faixas marcadas como sad, wistful ou "
+                    "dream pop, mesmo sem essa palavra aparecer."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "consulta": {
+                            "type": "string",
+                            "description": "A descrição a procurar, em poucas palavras.",
+                        }
+                    },
+                    "required": ["consulta"],
+                },
+                run=buscar_nesta_playlist,
+            ),
         ]
 
     async def analisar_esta_faixa() -> str:
         return await analisar_faixa_json(access_token, track_id)  # type: ignore[arg-type]
+
+    async def faixas_parecidas() -> str:
+        return await faixas_parecidas_json(track_id)  # type: ignore[arg-type]
 
     return [
         Tool(
@@ -156,7 +276,17 @@ def build_tools(
             ),
             parameters={"type": "object", "properties": {}, "required": []},
             run=analisar_esta_faixa,
-        )
+        ),
+        Tool(
+            name="faixas_parecidas",
+            description=(
+                "Encontra faixas parecidas com esta entre as que o usuário já "
+                "analisou no app. Use quando perguntarem o que ouvir depois, com "
+                "o que esta faixa se parece, ou onde ela se encaixa no acervo."
+            ),
+            parameters={"type": "object", "properties": {}, "required": []},
+            run=faixas_parecidas,
+        ),
     ]
 
 
@@ -179,6 +309,7 @@ Escopo — respeite rigorosamente:
 
 Como trabalhar:
 - Chame `analisar_esta_playlist` antes de responder qualquer coisa sobre o conteúdo dela. Nunca invente faixas, artistas ou números.
+- Para perguntas sobre clima, textura ou energia — “quais faixas são mais dançantes”, “o que aqui é melancólico” — use `buscar_nesta_playlist`. A contagem de tags responde “quantas são shoegaze”; a busca semântica responde “quais soam etéreas”, que não é uma tag.
 - Os gêneros vêm de tags da comunidade do Last.fm, não do Spotify. São aproximados: trate-os como indício, não como verdade absoluta.
 - A análise traz uma amostra das faixas, não todas — não conclua que uma faixa não existe só porque não apareceu na amostra.
 
@@ -190,9 +321,10 @@ TRACK_SYSTEM_PROMPT = """Você é o assistente do Playlist Classifier e está re
 Responda sempre em português do Brasil, de forma direta e conversacional.
 
 Escopo — respeite rigorosamente:
-- Você só pode falar sobre ESTA faixa. Não tem acesso a outras faixas, playlists nem à conta inteira.
-- Se o usuário perguntar sobre a playlist inteira, outras músicas ou o gosto geral, recuse educadamente e diga que ele deve voltar à playlist e usar o chat dali.
-- Não compare esta faixa com outras que você não possa consultar — responda só com o que a ferramenta trouxer.
+- O assunto é ESTA faixa. Você não tem acesso à conta inteira nem consegue abrir outra playlist.
+- Há uma exceção deliberada: `faixas_parecidas` devolve faixas semelhantes a esta dentro do que o usuário já analisou no app. Use para recomendar ou situar a faixa, e deixe claro que a comparação é com o acervo já analisado, não com o catálogo do Spotify.
+- Se perguntarem sobre a playlist inteira ou o gosto geral, recuse educadamente e diga que ele deve voltar à playlist e usar o chat dali.
+- Fora o que as ferramentas trouxerem, não compare esta faixa com outras.
 
 Como trabalhar:
 - Chame `analisar_esta_faixa` antes de responder qualquer coisa sobre ela. Nunca invente tags, BPM ou metadados.

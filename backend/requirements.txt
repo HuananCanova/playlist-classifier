@@ -22,3 +22,8 @@ openai>=3.8,<4
 
 # Servidor MCP (app/mcp_server.py). Fixado na major: o protocolo ainda muda.
 mcp>=1.2,<2
+
+# Índice vetorial da busca semântica (app/vector_store.py). Embarcado:
+# persiste em backend/.chroma e não pede serviço nenhum ao lado. Os
+# embeddings rodam localmente em ONNX — sem chave de API e sem rate limit.
+chromadb>=1.5,<2

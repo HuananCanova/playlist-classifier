@@ -18,3 +18,8 @@ deezer_cache: TTLCache = TTLCache(maxsize=5000, ttl=60 * 30)
 # propósito: o objeto carrega a `preview_url` assinada do Deezer, então
 # guardá-lo por mais tempo que a própria URL serviria um link já morto.
 track_detail_cache: TTLCache = TTLCache(maxsize=5000, ttl=60 * 25)
+
+# Análise pronta de uma playlist. Existe porque o chat agora tem duas
+# ferramentas por escopo: sem o cache, analisar e depois buscar dentro da mesma
+# playlist refaria toda a varredura de Spotify + Last.fm no mesmo turno.
+playlist_analysis_cache: TTLCache = TTLCache(maxsize=200, ttl=60 * 10)

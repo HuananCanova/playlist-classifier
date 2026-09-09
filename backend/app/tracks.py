@@ -8,8 +8,9 @@ from .auth import get_valid_access_token
 from .cache import track_detail_cache
 from .deezer_client import buscar_faixa
 from .lastfm_client import get_artist_tags, get_track_tags
-from .models import TrackDetail
+from .models import SearchHit, TrackDetail
 from .spotify_client import BASE_URL as SPOTIFY_BASE
+from .vector_store import similar_to_track
 
 router = APIRouter(prefix="/api/tracks", tags=["tracks"])
 
@@ -80,6 +81,17 @@ async def track_detail(track_id: str, request: Request):
         if exc.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Faixa não encontrada") from exc
         raise HTTPException(status_code=502, detail="Erro na API do Spotify") from exc
+
+
+@router.get("/{track_id}/similar", response_model=list[SearchHit])
+async def track_similar(track_id: str, request: Request, limit: int = 8):
+    """Faixas parecidas com esta, dentro do que já foi indexado.
+
+    Devolve lista vazia se a faixa ainda não entrou no índice — o índice só
+    cresce quando você analisa a playlist que a contém.
+    """
+    await get_valid_access_token(request)
+    return await similar_to_track(track_id, limite=limit)
 
 
 async def _buscar_em_paralelo(client, artista: str, titulo: str, duracao_ms):

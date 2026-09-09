@@ -23,6 +23,11 @@ export const api = {
   listPlaylists: () => request("/api/playlists"),
   getPlaylistAnalysis: (id) => request(`/api/playlists/${id}/analysis`),
   getTrack: (id) => request(`/api/tracks/${id}`),
+  getSimilarTracks: (id, limit = 8) =>
+    request(`/api/tracks/${id}/similar?limit=${limit}`),
+  search: (q, limit = 20) =>
+    request(`/api/search?q=${encodeURIComponent(q)}&limit=${limit}`),
+  searchStatus: () => request("/api/search/status"),
   chatStatus: () => request("/api/chat/status"),
 
   // Não passa por request(): precisamos do corpo como stream, não como JSON.

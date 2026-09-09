@@ -2,12 +2,13 @@
 import logging
 
 import httpx
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from .auth import get_valid_access_token
 from .genre_analysis import build_playlist_analysis
 from .models import PlaylistAnalysis, PlaylistSummary
 from .spotify_client import SpotifyClient
+from .vector_store import index_tracks
 
 logger = logging.getLogger(__name__)
 
@@ -50,10 +51,12 @@ def _track_count(playlist: dict) -> int:
 
 
 @router.get("/{playlist_id}/analysis", response_model=PlaylistAnalysis)
-async def analyze_playlist(playlist_id: str, request: Request):
+async def analyze_playlist(
+    playlist_id: str, request: Request, background: BackgroundTasks
+):
     token = await get_valid_access_token(request)
     try:
-        return await build_playlist_analysis(token, playlist_id)
+        analysis = await build_playlist_analysis(token, playlist_id)
     except httpx.HTTPStatusError as exc:
         # Log the upstream status and body — without this, every Spotify failure looks
         # like an opaque 502 and there's nothing to debug from.
@@ -64,3 +67,31 @@ async def analyze_playlist(playlist_id: str, request: Request):
         if exc.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Playlist not found") from exc
         raise HTTPException(status_code=502, detail="Spotify API error") from exc
+
+    # Indexar é efeito colateral de analisar: os dados já estão em mãos, então
+    # não custa nenhuma chamada externa a mais. Vai para segundo plano porque
+    # embutir ~100 faixas leva cerca de um segundo de CPU, e a resposta da
+    # análise não deveria esperar por isso.
+    background.add_task(_index_analysis, analysis)
+    return analysis
+
+
+async def _index_analysis(analysis: PlaylistAnalysis) -> None:
+    """Alimenta o índice vetorial com as faixas de uma análise já pronta."""
+    try:
+        await index_tracks(
+            [
+                {
+                    "track_id": t.track_id,
+                    "nome": t.name,
+                    "artistas": t.artists,
+                    "album": t.album,
+                    "tags": t.subgenre_tags,
+                }
+                for t in analysis.tracks
+            ]
+        )
+    except Exception:
+        # Indexar é enriquecimento, não o produto: se o índice falhar, a análise
+        # que o usuário pediu já foi entregue e não deve virar um erro.
+        logger.exception("Falha ao indexar a playlist %s", analysis.playlist.id)
