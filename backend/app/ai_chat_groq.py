@@ -14,6 +14,7 @@ from openai import AsyncOpenAI
 
 from .ai_tools import Tool, build_tools, system_prompt
 from .config import get_settings
+from .metrics import TurnMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ async def stream_chat(
     emit,
     playlist_id: str | None = None,
     track_id: str | None = None,
+    turno: TurnMetrics | None = None,
 ):
     """Roda o agente no Groq, emitindo eventos pelo callback `emit`.
 
@@ -48,6 +50,8 @@ async def stream_chat(
     frontend não sabe (nem precisa saber) qual provedor respondeu.
     """
     settings = get_settings()
+    turno = turno or TurnMetrics(provider="groq", model=settings.groq_model, scope="?")
+    turno.model = settings.groq_model
 
     tools = {
         t.name: t
@@ -71,6 +75,9 @@ async def stream_chat(
                 tools=schemas,
                 max_tokens=MAX_TOKENS,
                 stream=True,
+                # Sem isso o chunk final vem sem `usage` e o turno fica sem
+                # contagem de tokens.
+                stream_options={"include_usage": True},
             )
 
             text_parts: list[str] = []
@@ -81,12 +88,18 @@ async def stream_chat(
             # stream só é liberado no coletor de lixo, que reclama no shutdown.
             async with stream:
                 async for chunk in stream:
+                    # O chunk com `usage` vem sem `choices`; contabiliza e segue.
+                    uso = getattr(chunk, "usage", None)
+                    if uso is not None:
+                        turno.input_tokens += getattr(uso, "prompt_tokens", 0) or 0
+                        turno.output_tokens += getattr(uso, "completion_tokens", 0) or 0
                     if not chunk.choices:
                         continue
                     delta = chunk.choices[0].delta
 
                     if delta.content:
                         text_parts.append(delta.content)
+                        turno.mark_first_text()
                         await emit({"type": "text", "delta": delta.content})
 
                     for call in delta.tool_calls or []:
@@ -97,6 +110,7 @@ async def stream_chat(
                             slot["id"] = call.id
                         if call.function and call.function.name:
                             slot["name"] = call.function.name
+                            turno.mark_tool(call.function.name)
                             await emit({"type": "tool", "name": call.function.name})
                         if call.function and call.function.arguments:
                             slot["arguments"] += call.function.arguments

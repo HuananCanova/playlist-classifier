@@ -5,6 +5,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from .ai_chat import active_provider, stream_chat
 from .auth import get_valid_access_token
+from .metrics import recent, summary
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -34,6 +35,17 @@ class ChatRequest(BaseModel):
 async def chat_status():
     provider = active_provider()
     return {"available": provider is not None, "provider": provider}
+
+
+@router.get("/metrics")
+async def chat_metrics(request: Request, limit: int = 50):
+    """Custo e latência dos últimos turnos, agregados por provedor.
+
+    Existe para que a escolha entre Claude e Groq seja um número em vez de uma
+    impressão. Fica em memória: reiniciar o backend zera.
+    """
+    await get_valid_access_token(request)
+    return {"resumo": summary(), "turnos": recent(limit)}
 
 
 @router.post("")

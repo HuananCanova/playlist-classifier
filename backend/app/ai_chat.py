@@ -16,6 +16,7 @@ from anthropic import beta_async_tool
 
 from .ai_tools import build_tools, system_prompt
 from .config import get_settings
+from .metrics import TurnMetrics
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ async def _run_anthropic(
     emit,
     playlist_id: str | None,
     track_id: str | None,
+    turno: TurnMetrics,
 ) -> None:
     settings = get_settings()
     client = anthropic.AsyncAnthropic(api_key=settings.anthropic_api_key)
@@ -85,16 +87,27 @@ async def _run_anthropic(
         thinking={"type": "adaptive"},
     )
 
+    turno.model = MODEL
+
     async for stream in runner:
         async for event in stream:
             if event.type == "content_block_start":
                 block = event.content_block
                 if block.type == "tool_use":
+                    turno.mark_tool(block.name)
                     await emit({"type": "tool", "name": block.name})
             elif event.type == "content_block_delta":
                 delta = event.delta
                 if delta.type == "text_delta" and delta.text:
+                    turno.mark_first_text()
                     await emit({"type": "text", "delta": delta.text})
+            elif event.type == "message_delta":
+                # O uso só fecha no fim de cada mensagem; um turno com ferramenta
+                # tem várias, então acumula em vez de sobrescrever.
+                uso = getattr(event, "usage", None)
+                if uso is not None:
+                    turno.input_tokens += getattr(uso, "input_tokens", 0) or 0
+                    turno.output_tokens += getattr(uso, "output_tokens", 0) or 0
 
 
 async def stream_chat(
@@ -116,6 +129,11 @@ async def stream_chat(
       {"type": "error", "message": "..."}
     """
     queue: asyncio.Queue = asyncio.Queue()
+    turno = TurnMetrics(
+        provider=active_provider() or "nenhum",
+        model="",
+        scope="track" if track_id else "playlist",
+    )
 
     async def emit(payload: dict) -> None:
         await queue.put(payload)
@@ -132,16 +150,21 @@ async def stream_chat(
             if provider == "groq":
                 from .ai_chat_groq import stream_chat as run_groq
 
-                await run_groq(access_token, messages, emit, playlist_id, track_id)
+                await run_groq(access_token, messages, emit, playlist_id, track_id, turno)
             else:
-                await _run_anthropic(access_token, messages, emit, playlist_id, track_id)
+                await _run_anthropic(access_token, messages, emit, playlist_id, track_id, turno)
+
+            turno.finish()
 
         except AIUnavailable as exc:
+            turno.finish(error=str(exc))
             await queue.put({"type": "error", "message": str(exc)})
         except asyncio.CancelledError:
+            turno.finish(error="cancelado pelo cliente")
             raise
-        except Exception:
+        except Exception as exc:
             logger.exception("Chat failed")
+            turno.finish(error=f"{type(exc).__name__}: {exc}")
             await queue.put(
                 {"type": "error", "message": "O chat falhou. Veja o log do backend."}
             )

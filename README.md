@@ -212,6 +212,47 @@ calculadas no navegador, só para a faixa tocando. Sobra o que a análise já te
 tags, duração e popularidade, com as duas últimas pesando pouco (0,35) para não
 dominarem as tags.
 
+## Testes, evals e observabilidade
+
+```bash
+cd backend
+python -m pytest                      # suíte rápida, sem rede
+python -m evals.run_evals             # conjunto dourado, contra o modelo real
+python -m evals.run_evals --provider groq --verbose
+```
+
+**A suíte (`backend/tests`)** não toca em Spotify, Last.fm, Deezer nem em modelo
+nenhum: tudo que sai para a rede vira fixture. O que ela cobre de mais
+importante é o escopo do chat — a promessa de que uma conversa fala de uma
+playlist *ou* de uma faixa não é feita pelo prompt (que o modelo pode ignorar) e
+sim pela forma das ferramentas, que não aceitam id. Isso é testável, e é testado.
+
+**O conjunto dourado (`backend/evals`)** roda o agente de verdade contra o
+provedor configurado, mas ainda com a camada de dados trocada por fixtures — o
+custo de rodar é só o do modelo, nunca o da API do Spotify. Cada caso declara as
+ferramentas que a resposta deveria ter usado, e todos passam por uma checagem
+automática de alucinação: qualquer faixa citada que não exista na fixture reprova
+o caso.
+
+**Métricas** ficam em `GET /api/chat/metrics`: tokens, tempo até o primeiro
+texto, tempo total e ferramentas por turno, agregados por provedor. É o que
+transforma "o Groq parece mais rápido" em um número — e o runner de evals imprime
+o mesmo resumo no fim de cada execução.
+
+## Docker
+
+```bash
+docker compose up --build
+```
+
+Sobe backend (`127.0.0.1:8000`) e frontend servido por nginx
+(`127.0.0.1:5173`), com o índice vetorial num volume. O modelo de embeddings é
+baixado durante o build da imagem, não no primeiro uso.
+
+Útil por si só, e ainda contorna um problema real de desenvolvimento aqui: o
+projeto mora numa pasta do OneDrive, onde o observador de arquivos do uvicorn
+perde alterações e passa a servir código velho.
+
 ## A migração da API do Spotify (2026)
 
 Vale registrar, porque explica várias decisões do código. As mudanças de

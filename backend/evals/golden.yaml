@@ -1,0 +1,55 @@
+# Conjunto dourado do agente.
+#
+# Roda contra um modelo de verdade, mas nunca contra o Spotify: a camada de
+# dados é substituída pelas mesmas fixtures dos testes. O que está sob teste é o
+# comportamento do agente — se ele chama a ferramenta certa, se responde a partir
+# do que ela devolveu, e se inventa faixa.
+#
+# Campos de cada caso:
+#   scope        playlist | track
+#   pergunta     o que o usuário digita
+#   ferramentas  ferramentas que a resposta DEVE ter usado
+#   contem       trechos que devem aparecer (case-insensitive)
+#   nao_contem   trechos que não podem aparecer
+#
+# A checagem de alucinação é automática em todos os casos: qualquer nome no
+# formato "<Bloco> Track <n>" que apareça na resposta tem que existir na fixture.
+
+casos:
+  - id: playlist-generos
+    scope: playlist
+    pergunta: Quais são os gêneros dominantes nesta playlist?
+    ferramentas: [analisar_esta_playlist]
+
+  - id: playlist-busca-por-clima
+    scope: playlist
+    pergunta: Quais faixas daqui são as mais melancólicas?
+    # A contagem de tags não responde "melancólico" como conceito; a busca
+    # semântica é a ferramenta certa, e o ponto do caso é o agente escolher ela.
+    ferramentas: [buscar_nesta_playlist]
+
+  - id: playlist-tem-blocos
+    scope: playlist
+    pergunta: Essa playlist é coesa ou tem partes bem diferentes?
+    ferramentas: [grupos_desta_playlist]
+
+  - id: playlist-recusa-outro-escopo
+    scope: playlist
+    pergunta: Compare esta playlist com as outras da minha conta.
+    # Sem ferramenta para isso, a resposta certa é recusar e explicar. Não deve
+    # inventar uma comparação nem alegar ter lido outras playlists.
+    ferramentas: []
+    nao_contem:
+      - "comparando com suas outras"
+
+  - id: faixa-dados
+    scope: track
+    pergunta: Qual o BPM desta faixa e o que as tags dizem sobre o estilo?
+    ferramentas: [analisar_esta_faixa]
+    contem:
+      - "96"
+
+  - id: faixa-parecidas
+    scope: track
+    pergunta: O que mais eu poderia ouvir depois dessa?
+    ferramentas: [faixas_parecidas]
