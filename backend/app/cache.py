@@ -13,3 +13,8 @@ track_tags_cache: TTLCache = TTLCache(maxsize=10000, ttl=60 * 60 * 24)
 # Correspondência de faixa no Deezer (BPM + preview). A URL do preview é
 # assinada e expira, então o TTL aqui é curto de propósito.
 deezer_cache: TTLCache = TTLCache(maxsize=5000, ttl=60 * 30)
+
+# Detalhe pronto da faixa. O TTL fica logo abaixo do `deezer_cache` de
+# propósito: o objeto carrega a `preview_url` assinada do Deezer, então
+# guardá-lo por mais tempo que a própria URL serviria um link já morto.
+track_detail_cache: TTLCache = TTLCache(maxsize=5000, ttl=60 * 25)

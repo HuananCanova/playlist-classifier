@@ -5,6 +5,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 from .auth import get_valid_access_token
+from .cache import track_detail_cache
 from .deezer_client import buscar_faixa
 from .lastfm_client import get_artist_tags, get_track_tags
 from .models import TrackDetail
@@ -14,7 +15,18 @@ router = APIRouter(prefix="/api/tracks", tags=["tracks"])
 
 
 async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
-    """Monta o detalhe de uma faixa — usado pela rota HTTP e pelo chat."""
+    """Monta o detalhe de uma faixa — usado pela rota HTTP e pelo chat.
+
+    Uma faixa custa três chamadas externas (Spotify, Last.fm x2, Deezer) e os
+    metadados não são por usuário, então o resultado é cacheado por id. Em
+    desenvolvimento isso importa mais do que parece: o `StrictMode` do React
+    monta cada efeito duas vezes, e sem o cache toda visita à página da faixa
+    batia duas vezes no Spotify.
+    """
+    cached = track_detail_cache.get(track_id)
+    if cached is not None:
+        return cached
+
     async with httpx.AsyncClient(timeout=20.0) as client:
         resp = await client.get(
             f"{SPOTIFY_BASE}/tracks/{track_id}",
@@ -54,6 +66,7 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
         match_confidence=(deezer or {}).get("confianca"),
         matched_title=(deezer or {}).get("titulo_encontrado"),
     )
+    track_detail_cache[track_id] = detail
     return detail
 
 
