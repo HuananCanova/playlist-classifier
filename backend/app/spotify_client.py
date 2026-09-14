@@ -123,13 +123,27 @@ class SpotifyClient:
 
         return resp  # inalcançável: o laço sempre retorna ou levanta
 
+    async def get_current_user_id(self, client: httpx.AsyncClient) -> str | None:
+        resp = await self._get(client, f"{BASE_URL}/me")
+        return resp.json().get("id")
+
     async def get_all_playlists(self, client: httpx.AsyncClient) -> list[dict]:
+        """Playlists da conta cujas faixas o Spotify deixa ler.
+
+        `/me/playlists` também devolve as playlists que o usuário apenas segue,
+        mas desde fevereiro de 2026 `/playlists/{id}/items` responde 403 para
+        qualquer playlist que não seja dele nem colaborativa. Listá-las só
+        levaria o usuário a um erro ao abrir, então ficam de fora aqui.
+        """
+        user_id = await self.get_current_user_id(client)
         playlists: list[dict] = []
         url = f"{BASE_URL}/me/playlists?limit=50"
         while url:
             resp = await self._get(client, url)
             data = resp.json()
-            playlists.extend(data.get("items", []))
+            playlists.extend(
+                p for p in data.get("items", []) if is_accessible_playlist(p, user_id)
+            )
             url = data.get("next")
         return playlists
 
@@ -161,6 +175,15 @@ class SpotifyClient:
                     tracks.append(track)
             url = data.get("next")
         return tracks
+
+
+def is_accessible_playlist(playlist: dict | None, user_id: str | None) -> bool:
+    """Se o Spotify permite ler as faixas desta playlist para este usuário."""
+    if not playlist:
+        return False
+    if playlist.get("collaborative"):
+        return True
+    return user_id is not None and (playlist.get("owner") or {}).get("id") == user_id
 
 
 async def gather_with_concurrency(limit: int, *coros):

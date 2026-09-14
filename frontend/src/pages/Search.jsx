@@ -116,8 +116,7 @@ export default function Search() {
       <header className="search-head">
         <h1>Busca por descrição</h1>
         <p className="panel-sub">
-          Procure por clima, textura ou energia em vez de nome — a busca compara
-          o sentido da frase com as tags das faixas, não as palavras.
+          Descreva um clima, uma textura ou uma energia. A busca compara o sentido da frase com as tags das faixas que você já analisou, não as palavras exatas.
         </p>
       </header>
 
@@ -203,16 +202,16 @@ function Cobertura({ cobertura, indexacao, rodando, onIndexar, onParar }) {
             </>
           ) : (
             <>
-              <b>{feitas}</b> de <b>{total}</b> playlists indexadas · <b>{faixas}</b> faixas
+              <b>{feitas}</b> de <b>{total}</b> playlists indexadas, com <b>{faixas}</b> faixas.
               {pendentes > 0 && !rodando && (
-                <> · faltam <b>{pendentes}</b></>
+                <> Faltam <b>{pendentes}</b>.</>
               )}
             </>
           )}
         </span>
 
         {rodando ? (
-          <button className="btn btn-secondary btn-sm" onClick={onParar}>
+          <button className="btn btn-ghost btn-sm" onClick={onParar}>
             Parar
           </button>
         ) : (
@@ -273,7 +272,7 @@ export function SearchHit({ hit }) {
         <span className="hit-name">{hit.nome}</span>
         <span className="hit-artists">{hit.artistas.join(", ")}</span>
         {hit.tags.length > 0 && (
-          <span className="hit-tags">{hit.tags.slice(0, 4).join(" · ")}</span>
+          <span className="hit-tags">{hit.tags.slice(0, 4).join(", ")}</span>
         )}
       </div>
       <SimilarityMeter valor={hit.similaridade} />

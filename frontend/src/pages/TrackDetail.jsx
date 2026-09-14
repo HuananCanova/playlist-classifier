@@ -5,6 +5,7 @@ import Waveform from "../components/Waveform.jsx";
 import AudioMetrics from "../components/AudioMetrics.jsx";
 import ChatWidget from "../components/ChatWidget.jsx";
 import { SearchHit } from "./Search.jsx";
+import BackLink from "../components/BackLink.jsx";
 
 function Stat({ value, label, hint }) {
   return (
@@ -53,9 +54,7 @@ export default function TrackDetail() {
   if (error) {
     return (
       <div className="container">
-        <button className="back-link" onClick={() => navigate(-1)}>
-          ← Voltar
-        </button>
+        <BackLink onClick={() => navigate(-1)} />
         <div className="error-banner">{error}</div>
       </div>
     );
@@ -64,12 +63,14 @@ export default function TrackDetail() {
   if (!track) {
     return (
       <div className="container">
-        <button className="back-link" onClick={() => navigate(-1)}>
-          ← Voltar
-        </button>
-        <p className="spinner-text" style={{ marginTop: 40 }}>
-          Carregando a faixa…
-        </p>
+        <BackLink onClick={() => navigate(-1)} />
+        <div className="hero hero-skeleton" aria-busy="true">
+          <div className="skeleton hero-art" />
+          <div className="hero-body">
+            <div className="skeleton skeleton-line" style={{ width: "60%", height: 30 }} />
+            <div className="skeleton skeleton-line skeleton-line-short" />
+          </div>
+        </div>
       </div>
     );
   }
@@ -78,19 +79,23 @@ export default function TrackDetail() {
   const segundos = String(Math.floor((track.duration_ms % 60000) / 1000)).padStart(2, "0");
 
   return (
-    <div className="container fade-in">
-      <button className="back-link" onClick={() => navigate(-1)}>
-        ← Voltar
-      </button>
+    <div className="container page-enter">
+      <BackLink onClick={() => navigate(-1)} />
 
       <section className="hero">
-        {track.image && <img className="hero-art" src={track.image} alt={track.name} />}
+        {track.image && (
+          <div className="hero-backdrop" style={{ backgroundImage: `url(${track.image})` }} aria-hidden="true" />
+        )}
+        {track.image ? (
+          <img className="hero-art" src={track.image} alt="" />
+        ) : (
+          <div className="hero-art hero-art-empty" aria-hidden="true" />
+        )}
         <div className="hero-body">
-          <p className="hero-eyebrow">Faixa</p>
           <h1 className="hero-title">{track.name}</h1>
-          <p className="muted hero-meta">
+          <p className="hero-meta">
             {track.artists.join(", ")}
-            {track.album ? ` · ${track.album}` : ""}
+            {track.album ? <span className="hero-meta-album">do álbum {track.album}</span> : null}
           </p>
 
           <div className="stat-row">
@@ -105,12 +110,12 @@ export default function TrackDetail() {
 
           <div className="hero-links">
             {track.spotify_url && (
-              <a className="btn btn-secondary btn-sm" href={track.spotify_url} target="_blank" rel="noreferrer">
+              <a className="btn btn-ghost btn-sm" href={track.spotify_url} target="_blank" rel="noreferrer">
                 Abrir no Spotify
               </a>
             )}
             {track.deezer_url && (
-              <a className="btn btn-secondary btn-sm" href={track.deezer_url} target="_blank" rel="noreferrer">
+              <a className="btn btn-ghost btn-sm" href={track.deezer_url} target="_blank" rel="noreferrer">
                 Abrir no Deezer
               </a>
             )}
@@ -129,7 +134,7 @@ export default function TrackDetail() {
         <header className="panel-head">
           <h3>Áudio</h3>
           <p className="panel-sub">
-            Prévia de 30s do Deezer, com a forma de onda e o espectro desenhados em tempo real
+            Prévia de 30 segundos do Deezer. A onda e o espectro são desenhados enquanto toca.
           </p>
         </header>
 
@@ -147,7 +152,7 @@ export default function TrackDetail() {
           <header className="panel-head">
             <h3>Métricas do áudio</h3>
             <p className="panel-sub">
-              Medidas das amostras da prévia — não são metadados do catálogo
+              Medidas direto do som da prévia, não copiadas de um catálogo
             </p>
           </header>
           <AudioMetrics track={track} />

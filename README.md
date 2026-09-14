@@ -292,7 +292,7 @@ perde alterações e passa a servir código velho.
 
 Vale registrar, porque explica várias decisões do código. As mudanças de
 [fevereiro](https://developer.spotify.com/documentation/web-api/references/changes/february-2026)
-e março de 2026 quebraram três suposições do projeto:
+e março de 2026 quebraram algumas suposições do projeto:
 
 | Mudança | Efeito | Como o código lida |
 |---|---|---|
@@ -300,6 +300,7 @@ e março de 2026 quebraram três suposições do projeto:
 | Endpoints em lote removidos (`GET /artists?ids=`, `/tracks`, `/albums`…) | 403 ao buscar artistas | Busca individual por artista, com concorrência limitada + cache |
 | Campo `genres` removido do objeto de artista | Spotify deixou de fornecer gênero | Gênero passou a vir das tags de artista do Last.fm |
 | Contagem migrou de `tracks.total` para `items.total` | Toda playlist aparecia com 0 músicas | Lê `items.total` com fallback pro campo deprecado |
+| `/playlists/{id}/items` só responde para playlists do usuário ou colaborativas | 403 ao abrir playlists apenas seguidas | A listagem filtra por dono (`/me`) ou `collaborative`; um 403 vira mensagem, não logout |
 
 A terceira é a mais estrutural: o Spotify não fornece mais dado de gênero
 nenhum, então o Last.fm deixou de ser complemento e virou a única fonte.

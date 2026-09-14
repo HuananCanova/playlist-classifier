@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
+import SoundRibbon from "./SoundRibbon.jsx";
 
 // Roughly in the order the backend actually works, with some editorial licence.
 const PHRASES = [
@@ -27,7 +28,6 @@ export default function AnalysisLoader() {
 
   useEffect(() => {
     const id = setInterval(() => {
-      // Stop before the end: the bar completes only when the data actually lands.
       setPhrase((p) => (p + 1) % PHRASES.length);
     }, PHRASE_MS);
     return () => clearInterval(id);
@@ -37,6 +37,7 @@ export default function AnalysisLoader() {
     const id = setInterval(() => {
       const elapsed = (Date.now() - started.current) / 1000;
       // Asymptotic creep — fast at first, never quite reaching 100%.
+      // Stop before the end: the bar completes only when the data actually lands.
       setProgress(Math.min(94, 100 * (1 - Math.exp(-elapsed / 6))));
     }, TICK_MS);
     return () => clearInterval(id);
@@ -44,12 +45,7 @@ export default function AnalysisLoader() {
 
   return (
     <div className="analysis-loader">
-      <div className="pulse-bars" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-        <span />
-      </div>
+      <SoundRibbon className="loader-ribbon" lines={18} height={300} speed={2.2} />
 
       <div
         className="progress-track"
@@ -66,7 +62,8 @@ export default function AnalysisLoader() {
         {PHRASES[phrase]}
       </p>
       <p className="loader-hint muted">
-        Playlists grandes levam alguns segundos — depois disso fica em cache e abre rápido.
+        Playlists grandes levam alguns segundos. Depois disso a análise fica guardada e abre
+        na hora.
       </p>
     </div>
   );

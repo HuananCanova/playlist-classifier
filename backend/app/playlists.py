@@ -39,7 +39,14 @@ def _spotify_error(exc: httpx.HTTPStatusError) -> HTTPException:
         )
     if status == 404:
         return HTTPException(status_code=404, detail="Playlist não encontrada.")
-    if status in (401, 403):
+    if status == 403:
+        # Não é sessão expirada: o Spotify só libera as faixas de playlists do
+        # próprio usuário ou colaborativas. Tratar como 401 derrubava o login.
+        return HTTPException(
+            status_code=403,
+            detail="O Spotify só permite abrir playlists criadas por você ou colaborativas.",
+        )
+    if status == 401:
         return HTTPException(status_code=401, detail="Sessão expirada, entre de novo.")
     return HTTPException(status_code=502, detail="Erro ao falar com o Spotify.")
 

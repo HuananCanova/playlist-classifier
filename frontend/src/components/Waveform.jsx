@@ -1,8 +1,9 @@
 import React, { useEffect, useRef } from "react";
 import { usePlayer } from "../PlayerContext.jsx";
+import { PauseIcon, PlayIcon } from "./TrackTable.jsx";
 
-const ACCENT_BRIGHT = "#22c55e";
-const GRID = "#2a2a35";
+const ACCENT_BRIGHT = "#c9bfff";
+const GRID = "rgba(255, 255, 255, 0.07)";
 
 /**
  * Desenha a forma de onda e o espectro do que está tocando.
@@ -59,14 +60,26 @@ export default function Waveform({ track }) {
       for (let j = 0; j < step; j++) soma += freq[i * step + j];
       const media = soma / step / 255;
       const barH = media * h * 0.85;
-      g.fillStyle = `rgba(25, 164, 74, ${0.1 + media * 0.28})`;
-      g.fillRect(i * barW + 1, h - barH, barW - 2, barH);
+      const grad = g.createLinearGradient(0, h - barH, 0, h);
+      grad.addColorStop(0, `rgba(144, 133, 233, ${0.18 + media * 0.5})`);
+      grad.addColorStop(1, "rgba(144, 133, 233, 0.02)");
+      g.fillStyle = grad;
+      const bx = i * barW + 1.5;
+      const bw = Math.max(barW - 3, 1);
+      const radius = Math.min(3, bw / 2);
+      g.beginPath();
+      if (g.roundRect) g.roundRect(bx, h - barH, bw, barH, [radius, radius, 0, 0]);
+      else g.rect(bx, h - barH, bw, barH);
+      g.fill();
     }
 
     // A onda no domínio do tempo, por cima.
     const wave = new Uint8Array(analyser.fftSize);
     analyser.getByteTimeDomainData(wave);
     g.lineWidth = 2;
+    g.lineJoin = "round";
+    g.shadowColor = "rgba(143, 123, 255, 0.7)";
+    g.shadowBlur = 12;
     g.strokeStyle = ACCENT_BRIGHT;
     g.beginPath();
     const slice = w / wave.length;
@@ -76,6 +89,7 @@ export default function Waveform({ track }) {
       i === 0 ? g.moveTo(i * slice, y) : g.lineTo(i * slice, y);
     }
     g.stroke();
+    g.shadowBlur = 0;
 
     rafRef.current = requestAnimationFrame(draw);
   }
@@ -112,15 +126,7 @@ export default function Waveform({ track }) {
           onClick={() => (estaAqui ? toggle() : playTrack(track))}
           aria-label={tocandoEsta ? "Pausar" : "Reproduzir"}
         >
-          {tocandoEsta ? (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z" />
-            </svg>
-          ) : (
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-              <path d="M8 5.5v13l11-6.5z" />
-            </svg>
-          )}
+          {tocandoEsta ? <PauseIcon size={20} /> : <PlayIcon size={20} />}
         </button>
 
         <div

@@ -2,9 +2,9 @@ import React, { useEffect, useRef, useState } from "react";
 import { analisarPrevia } from "../audioAnalysis.js";
 import { usePlayer } from "../PlayerContext.jsx";
 
-const ACCENT = "#19a44a";
-const ACCENT_DIM = "rgba(25, 164, 74, 0.32)";
-const GRID = "#2a2a35";
+const ACCENT = "#9085e9";
+const ACCENT_DIM = "rgba(144, 133, 233, 0.45)";
+const GRID = "rgba(255, 255, 255, 0.07)";
 
 /**
  * Panorama da prévia: a onda inteira desenhada de uma vez, com a posição da
@@ -92,7 +92,7 @@ export default function AudioMetrics({ track }) {
     g.stroke();
 
     if (estaAqui && progresso > 0) {
-      g.strokeStyle = "#eafff2";
+      g.strokeStyle = "#eeebf7";
       g.lineWidth = 2;
       g.beginPath();
       g.moveTo(xTocado, 0);
@@ -106,7 +106,7 @@ export default function AudioMetrics({ track }) {
   if (!analise) {
     return (
       <div className="metrics-loading">
-        <div className="skeleton" style={{ height: 96, borderRadius: 10 }} />
+        <div className="skeleton" style={{ height: 110, borderRadius: 14 }} />
         <p className="muted" style={{ fontSize: 12.5, marginTop: 12 }}>
           Baixando e decodificando a prévia…
         </p>
@@ -172,7 +172,7 @@ export default function AudioMetrics({ track }) {
       </div>
 
       <p className="metrics-fonte muted">
-        Medido dos {analise.duracao.toFixed(0)}s da prévia · {analise.taxaAmostragem / 1000} kHz ·{" "}
+        Medido nos {analise.duracao.toFixed(0)} segundos da prévia, a {analise.taxaAmostragem / 1000} kHz,{" "}
         {analise.canais === 2 ? "estéreo" : "mono"}
       </p>
     </div>
