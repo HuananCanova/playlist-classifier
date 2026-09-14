@@ -57,6 +57,7 @@ async def test_playlist_curta_explica_em_vez_de_inventar(analysis):
         subgenre_distribution=[],
         top_artists=[],
         tracks_missing_genre=0,
+        bpm_histogram=[],
     )
     r = await cluster_playlist(curta)
 

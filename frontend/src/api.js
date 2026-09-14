@@ -53,9 +53,9 @@ export const api = {
   me: () => get("/api/auth/me"),
   logout: () => request("/api/auth/logout", { method: "POST" }),
   loginUrl: () => `${API_URL}/api/auth/login`,
-<<<<<<< HEAD
-  listPlaylists: () => request("/api/playlists"),
-  getPlaylistAnalysis: (id) => request(`/api/playlists/${id}/analysis`),
+  listPlaylists: ({ refresh = false } = {}) =>
+    get(`/api/playlists${refresh ? "?refresh=true" : ""}`),
+  getPlaylistAnalysis: (id) => get(`/api/playlists/${id}/analysis`),
   getTrack: (id) => request(`/api/tracks/${id}`),
   getSimilarTracks: (id, limit = 8) =>
     request(`/api/tracks/${id}/similar?limit=${limit}`),
@@ -67,13 +67,7 @@ export const api = {
     request(`/api/search/index?auto=${auto}`, { method: "POST" }),
   stopIndex: () => request("/api/search/index", { method: "DELETE" }),
   getPlaylistClusters: (id) => request(`/api/playlists/${id}/clusters`),
-  chatStatus: () => request("/api/chat/status"),
-=======
-  listPlaylists: ({ refresh = false } = {}) =>
-    get(`/api/playlists${refresh ? "?refresh=true" : ""}`),
-  getPlaylistAnalysis: (id) => get(`/api/playlists/${id}/analysis`),
   chatStatus: () => get("/api/chat/status"),
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
 
   // Não passa por request(): precisamos do corpo como stream, não como JSON.
   chatStream: async (messages, { playlistId = null, trackId = null } = {}) => {

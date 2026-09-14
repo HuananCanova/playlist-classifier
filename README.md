@@ -10,6 +10,26 @@ gênero e subgênero — por playlist e por música.
 - **Claude API**: um chat que responde perguntas sobre as suas playlists
   consultando os dados reais por meio de ferramentas (opcional).
 
+## Stack técnica
+
+| Camada | Tecnologia | Uso neste projeto |
+| --- | --- | --- |
+| Backend | Python 3.11+, FastAPI, httpx | API assíncrona, chamadas concorrentes ao Spotify/Last.fm/Deezer |
+| Sessão | Starlette `SessionMiddleware` | Cookie assinado; tokens do Spotify nunca chegam ao navegador |
+| Validação | Pydantic v2 + pydantic-settings | Schemas de request/response e variáveis de ambiente tipadas |
+| Cache | `cachetools` (TTLCache) | Evita estourar o rate limit do Spotify/Last.fm |
+| Agente de IA | Anthropic Claude (tool use, streaming SSE) | Chat com escopo de playlist/faixa, sem dados soltos no prompt |
+| Agente de IA (alternativo) | Groq (`llama-3.3-70b`, API compatível com OpenAI) | Testar o agente sem custo, mesmo contrato de ferramentas |
+| Protocolo de agente | [MCP](https://modelcontextprotocol.io) | As mesmas ferramentas do chat, expostas a Claude Desktop/Code |
+| Busca semântica | ChromaDB (embarcado) + `all-MiniLM-L6-v2` via ONNX | Índice vetorial local, sem chave de API nem rate limit |
+| Agrupamento | scikit-learn (TF-IDF + k-means) | Separa faixas de uma playlist em "climas", `k` pela silhueta |
+| APIs externas | Spotify Web API (OAuth 2.0 + PKCE), Last.fm API, Deezer API | Playlists/faixas, tags de gênero, BPM e prévia de áudio |
+| Frontend | React 18, Vite, React Router, Recharts | SPA, gráficos de distribuição de gênero/BPM |
+| Áudio no navegador | Web Audio API (`AnalyserNode`) | Forma de onda e espectro da prévia tocando, ao vivo |
+| Testes | pytest, pytest-asyncio | Suíte sem rede (fixtures) + conjunto dourado contra o modelo real |
+| Infra | Docker, docker-compose, nginx | `docker compose up --build` sobe backend + frontend servido por nginx |
+| CI | GitHub Actions | Roda a suíte de testes e o build do frontend a cada push |
+
 ## Arquitetura
 
 ```

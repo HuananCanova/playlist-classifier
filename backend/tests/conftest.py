@@ -59,6 +59,7 @@ def analysis() -> PlaylistAnalysis:
         subgenre_distribution=[],
         top_artists=[],
         tracks_missing_genre=0,
+        bpm_histogram=[],
     )
 
 
@@ -108,6 +109,7 @@ def analysis_sobreposta() -> PlaylistAnalysis:
         subgenre_distribution=[],
         top_artists=[],
         tracks_missing_genre=0,
+        bpm_histogram=[],
     )
 
 

@@ -6,11 +6,8 @@ import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
 from .auth import get_valid_access_token
-<<<<<<< HEAD
 from .clustering import cluster_playlist
-=======
 from .cache import playlist_analysis_cache, user_playlists_cache
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
 from .genre_analysis import build_playlist_analysis
 from .models import PlaylistAnalysis, PlaylistClusters, PlaylistSummary
 from .spotify_client import SpotifyClient
@@ -109,13 +106,9 @@ def _track_count(playlist: dict) -> int:
 
 
 @router.get("/{playlist_id}/analysis", response_model=PlaylistAnalysis)
-<<<<<<< HEAD
 async def analyze_playlist(
-    playlist_id: str, request: Request, background: BackgroundTasks
+    playlist_id: str, request: Request, background: BackgroundTasks, refresh: bool = False
 ):
-=======
-async def analyze_playlist(playlist_id: str, request: Request, refresh: bool = False):
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
     token = await get_valid_access_token(request)
 
     # Abrir uma playlist custa 1 chamada de metadados + 1 por página de 100
@@ -134,21 +127,9 @@ async def analyze_playlist(playlist_id: str, request: Request, refresh: bool = F
     try:
         analysis = await build_playlist_analysis(token, playlist_id)
     except httpx.HTTPStatusError as exc:
-<<<<<<< HEAD
-        # Log the upstream status and body — without this, every Spotify failure looks
-        # like an opaque 502 and there's nothing to debug from.
-        logger.error(
-            "Spotify returned %s for %s: %s",
-            exc.response.status_code, exc.request.url, exc.response.text[:500],
-        )
-        if exc.response.status_code == 404:
-            raise HTTPException(status_code=404, detail="Playlist not found") from exc
-        raise HTTPException(status_code=502, detail="Spotify API error") from exc
+        raise _spotify_error(exc) from exc
 
-    # Indexar é efeito colateral de analisar: os dados já estão em mãos, então
-    # não custa nenhuma chamada externa a mais. Vai para segundo plano porque
-    # embutir ~100 faixas leva cerca de um segundo de CPU, e a resposta da
-    # análise não deveria esperar por isso.
+    playlist_analysis_cache[cache_key] = analysis
     background.add_task(_index_analysis, analysis)
     return analysis
 
@@ -210,9 +191,3 @@ async def _index_analysis(analysis: PlaylistAnalysis) -> None:
         # Indexar é enriquecimento, não o produto: se o índice falhar, a análise
         # que o usuário pediu já foi entregue e não deve virar um erro.
         logger.exception("Falha ao indexar a playlist %s", analysis.playlist.id)
-=======
-        raise _spotify_error(exc) from exc
-
-    playlist_analysis_cache[cache_key] = analysis
-    return analysis
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5

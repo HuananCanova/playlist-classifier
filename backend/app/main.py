@@ -7,12 +7,9 @@ from .auth import router as auth_router
 from .chat import router as chat_router
 from .config import get_settings
 from .playlists import router as playlists_router
-<<<<<<< HEAD
 from .search import router as search_router
 from .tracks import router as tracks_router
-=======
 from .spotify_client import throttle_state
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
 
 settings = get_settings()
 

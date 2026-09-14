@@ -11,11 +11,8 @@ from collections import Counter
 
 import httpx
 
-<<<<<<< HEAD
 from .cache import playlist_analysis_cache
-=======
 from .deezer_client import get_many as get_deezer_many
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
 from .lastfm_client import get_artist_tags, get_track_tags
 from .models import GenreCount, PlaylistAnalysis, PlaylistSummary, TrackGenreInfo
 from .spotify_client import SpotifyClient, gather_with_concurrency
@@ -160,10 +157,10 @@ async def build_playlist_analysis(
         tracks_missing_genre=missing_genre,
         tracks_missing_bpm=len(track_infos) - len(bpm_values),
     )
-<<<<<<< HEAD
     playlist_analysis_cache[playlist_id] = analysis
     return analysis
-=======
+
+
 
 
 # Faixas de 20 BPM: largas o bastante para não virar ruído numa playlist de 40
@@ -197,4 +194,3 @@ def _bpm_histogram(values: list[float]) -> list[GenreCount]:
     first = next((i for i, c in enumerate(counts) if c.count), 0)
     last = len(counts) - next((i for i, c in enumerate(reversed(counts)) if c.count), 0)
     return counts[first:last]
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5

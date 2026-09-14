@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 """Deezer — a fonte de BPM e do áudio de preview.
 
 O Spotify deixou de servir para isso: `audio-features` e `audio-analysis`
@@ -12,7 +11,6 @@ Duas ressalvas medidas contra a API real, que o resto do código precisa respeit
 - **A busca é por texto**, então pode casar com a faixa errada. Por isso cada
   resultado passa por uma verificação de similaridade antes de ser aceito.
 """
-=======
 """Buscas na API pública do Deezer — BPM e prévia de 30s por faixa.
 
 Por que Deezer: desde 27/11/2024 o Spotify cortou `/audio-features` (de onde
@@ -30,13 +28,11 @@ Duas ressalvas que moldam este módulo:
    normalizados — senão o BPM exibido seria de outra gravação.
 """
 import asyncio
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
 import re
 import unicodedata
 
 import httpx
 
-<<<<<<< HEAD
 from .cache import deezer_cache
 
 BASE_URL = "https://api.deezer.com"
@@ -169,7 +165,6 @@ async def buscar_faixa(
     }
     deezer_cache[chave] = resultado
     return resultado
-=======
 from .cache import deezer_track_cache
 
 SEARCH_URL = "https://api.deezer.com/search"
@@ -314,4 +309,3 @@ async def get_many(client: httpx.AsyncClient, pairs: list[tuple[str, str]]) -> l
             return await get_track_info(client, artist, track)
 
     return await asyncio.gather(*(one(a, t) for a, t in pairs))
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5

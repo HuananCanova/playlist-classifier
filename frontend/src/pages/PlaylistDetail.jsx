@@ -4,11 +4,8 @@ import { api } from "../api.js";
 import DistributionBarChart from "../components/DistributionBarChart.jsx";
 import TopArtistsChart from "../components/TopArtistsChart.jsx";
 import TrackTable from "../components/TrackTable.jsx";
-<<<<<<< HEAD
 import ClusterPanel from "../components/ClusterPanel.jsx";
-=======
 import BpmChart from "../components/BpmChart.jsx";
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
 import AnalysisLoader from "../components/AnalysisLoader.jsx";
 import ChatWidget from "../components/ChatWidget.jsx";
 

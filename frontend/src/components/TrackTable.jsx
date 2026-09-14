@@ -1,9 +1,6 @@
 import React, { useMemo, useState } from "react";
-<<<<<<< HEAD
 import { Link } from "react-router-dom";
-=======
 import { usePlayer } from "../PlayerContext.jsx";
->>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
 
 function formatDuration(ms) {
   const totalSeconds = Math.round(ms / 1000);
@@ -14,7 +11,7 @@ function formatDuration(ms) {
 
 export default function TrackTable({ tracks }) {
   const [query, setQuery] = useState("");
-  const { track: current, playing, play } = usePlayer();
+  const { track: current, playing, playTrack: play } = usePlayer();
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
