@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api.js";
+import { api, formatWait } from "../api.js";
 import { useAuth } from "../AuthContext.jsx";
 
 function SkeletonCard() {
@@ -111,7 +111,7 @@ export default function PlaylistList() {
           {error.canRetry && (
             <button className="btn btn-ghost btn-sm" onClick={() => load()}>
               Tentar de novo
-              {error.retryAfter ? ` em ~${error.retryAfter}s` : ""}
+              {error.retryAfter ? ` em ${formatWait(error.retryAfter)}` : ""}
             </button>
           )}
         </div>

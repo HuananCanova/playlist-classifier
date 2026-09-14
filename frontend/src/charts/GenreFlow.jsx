@@ -25,7 +25,7 @@ function inkOn(hex) {
     return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
   };
   const L = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
-  return L > 0.2 ? "#120f1c" : "#ffffff";
+  return L > 0.2 ? "#0a0a0a" : "#ffffff";
 }
 
 /**
@@ -269,7 +269,7 @@ export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
                     width={2}
                     height={t.genres.length ? 8 : 4}
                     rx={1}
-                    fill={t.genres.length ? INK_MUTED : "rgba(157,151,179,0.35)"}
+                    fill={t.genres.length ? INK_MUTED : "rgba(167,167,167,0.35)"}
                     opacity={hoverIndex === i ? 1 : 0.55}
                   />
                 ))}

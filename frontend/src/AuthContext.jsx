@@ -23,16 +23,6 @@ export function AuthProvider({ children }) {
     refresh();
   }, []);
 
-  // Assim que há sessão, pede ao backend que indexe as playlists que ainda
-  // faltam. É fire-and-forget de propósito: o índice é enriquecimento, e uma
-  // falha aqui não pode atrapalhar quem só quer ver as playlists. O backend
-  // decide se realmente roda — ele respeita AUTO_INDEX e ignora o pedido se
-  // já houver varredura em andamento.
-  useEffect(() => {
-    if (!user) return;
-    api.startIndex({ auto: true }).catch(() => {});
-  }, [user?.id]);
-
   const logout = async () => {
     await api.logout();
     setUser(null);

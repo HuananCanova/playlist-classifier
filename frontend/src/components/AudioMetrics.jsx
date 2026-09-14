@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { analisarPrevia } from "../audioAnalysis.js";
 import { usePlayer } from "../PlayerContext.jsx";
 
-const ACCENT = "#9085e9";
-const ACCENT_DIM = "rgba(144, 133, 233, 0.45)";
+const ACCENT = "#1ed760";
+const ACCENT_DIM = "rgba(30, 215, 96, 0.45)";
 const GRID = "rgba(255, 255, 255, 0.07)";
 
 /**
@@ -92,7 +92,7 @@ export default function AudioMetrics({ track }) {
     g.stroke();
 
     if (estaAqui && progresso > 0) {
-      g.strokeStyle = "#eeebf7";
+      g.strokeStyle = "#f2f2f2";
       g.lineWidth = 2;
       g.beginPath();
       g.moveTo(xTocado, 0);

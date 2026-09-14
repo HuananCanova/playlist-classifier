@@ -22,9 +22,11 @@ class Settings(BaseSettings):
     # Obtenha uma vez com `python -m scripts.spotify_refresh_token`.
     spotify_refresh_token: str = ""
 
-    # Varre as playlists ainda não indexadas quando o app abre. Desligue para
-    # que o índice só cresça quando você mandar, pela tela de busca.
-    auto_index: bool = True
+    # Varre as playlists ainda não indexadas quando o app abre. Desligado por
+    # padrão: varreduras automáticas a cada visita somaram volume suficiente
+    # para o Spotify suspender o app por 18 horas. Com `false`, a varredura só
+    # roda pelo botão da busca ou do perfil.
+    auto_index: bool = False
 
     # Provedor do chat: "anthropic" (alvo real) ou "groq" (testes sem custo).
     # Sem chave nenhuma, o app funciona normalmente e o chat some da interface.

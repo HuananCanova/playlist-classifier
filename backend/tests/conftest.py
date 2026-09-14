@@ -8,6 +8,22 @@ import random
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def spotify_state_tmp(tmp_path, monkeypatch):
+    """Bloqueio do Spotify e listagem guardada vão para um diretório descartável.
+
+    Sem isso um teste que simula um 429 longo gravaria um bloqueio de verdade e
+    o app real pararia de chamar o Spotify — e o bloqueio real do desenvolvedor
+    vazaria para os testes.
+    """
+    from app import spotify_client
+
+    monkeypatch.setattr(spotify_client, "STATE_PATH", tmp_path / "state")
+    monkeypatch.setattr(spotify_client, "_global_until", None)
+    monkeypatch.setattr(spotify_client, "_throttled_until", {})
+    yield spotify_client
+
 from app.models import PlaylistAnalysis, PlaylistSummary, TrackDetail, TrackGenreInfo
 
 # Três blocos deliberadamente distintos: dá para afirmar o que um agrupamento

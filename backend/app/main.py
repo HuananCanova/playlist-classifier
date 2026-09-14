@@ -7,6 +7,7 @@ from .auth import router as auth_router
 from .chat import router as chat_router
 from .config import get_settings
 from .playlists import router as playlists_router
+from .profile import router as profile_router
 from .search import router as search_router
 from .tracks import router as tracks_router
 from .spotify_client import throttle_state
@@ -36,6 +37,7 @@ app.add_middleware(
 
 app.include_router(auth_router)
 app.include_router(playlists_router)
+app.include_router(profile_router)
 app.include_router(tracks_router)
 app.include_router(search_router)
 app.include_router(chat_router)

@@ -3,10 +3,14 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+import asyncio
+
 from . import indexer
 from .auth import get_valid_access_token
 from .config import get_settings
 from .models import IndexStatus, SearchHit, SearchStatus
+from .playlists import get_playlist_summaries
+from .spotify_client import global_block_remaining
 from .vector_store import search as vector_search
 from .vector_store import stats as vector_stats
 
@@ -38,11 +42,18 @@ async def status(request: Request):
     "ainda não olhei essa playlist" são coisas diferentes, e sem esse número a
     tela não tem como distinguir as duas.
     """
-    token = await get_valid_access_token(request)
+    await get_valid_access_token(request)
     dados = await vector_stats()
+    try:
+        # Listagem em cache (memória, depois disco): consultar a cobertura não
+        # custa chamada ao Spotify, por mais que a tela seja recarregada.
+        playlists = [p.model_dump() for p in await get_playlist_summaries(request)]
+    except HTTPException:
+        return SearchStatus(indexed_tracks=dados["faixas_indexadas"], blocked_seconds=global_block_remaining())
     return SearchStatus(
         indexed_tracks=dados["faixas_indexadas"],
-        **await indexer.coverage(token),
+        blocked_seconds=global_block_remaining(),
+        **await asyncio.to_thread(indexer.coverage, playlists),
     )
 
 
@@ -65,7 +76,8 @@ async def start_index(request: Request, auto: bool = False):
     if not refresh_token:
         raise HTTPException(status_code=401, detail="Sessão sem refresh token; entre de novo.")
 
-    await indexer.start(refresh_token)
+    playlists = [p.model_dump() for p in await get_playlist_summaries(request)]
+    await indexer.start(refresh_token, playlists)
     return IndexStatus(**indexer.progress_dict())
 
 

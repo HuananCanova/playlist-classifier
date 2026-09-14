@@ -30,4 +30,3 @@ deezer_track_cache: TTLCache = TTLCache(maxsize=10000, ttl=60 * 60 * 24)
 # no Spotify, mas recarregar a página não pode custar uma chamada nova.
 # É a única API do app com rate limit severo, e era a única sem cache.
 user_playlists_cache: TTLCache = TTLCache(maxsize=64, ttl=60 * 5)
-

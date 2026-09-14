@@ -11,6 +11,7 @@ from collections import Counter
 
 import httpx
 
+from . import profile_store
 from .cache import playlist_analysis_cache
 from .deezer_client import get_many as get_deezer_many
 from .lastfm_client import get_artist_tags, get_track_tags
@@ -30,13 +31,50 @@ LASTFM_CONCURRENCY = 24
 HTTP_LIMITS = httpx.Limits(max_connections=64, max_keepalive_connections=64)
 
 
+# Análises em andamento, por (playlist, com_audio). A varredura da busca, a do
+# perfil e a própria página podem pedir a mesma playlist ao mesmo tempo; sem
+# isto cada uma repetiria as chamadas ao Spotify.
+_in_flight: dict[tuple[str, bool], asyncio.Task] = {}
+
+
 async def build_playlist_analysis(
-    access_token: str, playlist_id: str
+    access_token: str, playlist_id: str, *, include_audio: bool = True
 ) -> PlaylistAnalysis:
+    """Análise completa da playlist.
+
+    `include_audio=False` pula o Deezer (BPM e prévia). É o modo da varredura do
+    perfil: o Deezer aceita ~10 requisições por segundo e custa até duas por
+    faixa, então numa conta inteira ele sozinho levaria minutos, enquanto o
+    resto termina em segundos. Uma análise sem áudio nunca entra no
+    `playlist_analysis_cache`, para a página da playlist não receber BPM vazio.
+    """
     cached = playlist_analysis_cache.get(playlist_id)
     if cached is not None:
         return cached
 
+    # Uma análise completa já em voo serve também a quem não precisa de áudio.
+    keys = [(playlist_id, True)] if include_audio else [(playlist_id, False), (playlist_id, True)]
+    for key in keys:
+        task = _in_flight.get(key)
+        if task is not None:
+            return await asyncio.shield(task)
+
+    key = (playlist_id, include_audio)
+    task = asyncio.create_task(_build(access_token, playlist_id, include_audio))
+    _in_flight[key] = task
+    task.add_done_callback(lambda t: _forget(key, t))
+    return await asyncio.shield(task)
+
+
+def _forget(key: tuple[str, bool], task: asyncio.Task) -> None:
+    _in_flight.pop(key, None)
+    # Se quem pediu desistiu (página fechada), ninguém lê o erro; lê-lo aqui
+    # evita o aviso de "exception was never retrieved".
+    if not task.cancelled():
+        task.exception()
+
+
+async def _build(access_token: str, playlist_id: str, include_audio: bool) -> PlaylistAnalysis:
     spotify = SpotifyClient(access_token)
 
     async with httpx.AsyncClient(timeout=20.0, limits=HTTP_LIMITS) as client:
@@ -66,11 +104,14 @@ async def build_playlist_analysis(
             for t in tracks
         ]
 
+        async def no_audio() -> list[dict]:
+            return [{"bpm": None, "preview_url": None, "deezer_url": None} for _ in tracks]
+
         lastfm_started = time.perf_counter()
         artist_genre_pairs, all_tags, all_deezer = await asyncio.gather(
             gather_with_concurrency(LASTFM_CONCURRENCY, *(genre_for(n) for n in artist_names)),
             gather_with_concurrency(LASTFM_CONCURRENCY, *(tags_for(t) for t in tracks)),
-            get_deezer_many(client, deezer_pairs),
+            get_deezer_many(client, deezer_pairs) if include_audio else no_audio(),
         )
         artist_genres = dict(artist_genre_pairs)
         lastfm_seconds = time.perf_counter() - lastfm_started
@@ -130,6 +171,9 @@ async def build_playlist_analysis(
                 preview_url=deezer["preview_url"],
                 deezer_url=deezer["deezer_url"],
                 spotify_url=urls.get("spotify"),
+                added_at=track.get("added_at"),
+                release_year=_release_year(album.get("release_date")),
+                explicit=track.get("explicit"),
             )
         )
 
@@ -141,6 +185,7 @@ async def build_playlist_analysis(
         image=playlist_images[0]["url"] if playlist_images else None,
         track_count=len(track_infos),
         owner=(playlist_data.get("owner") or {}).get("display_name"),
+        snapshot_id=playlist_data.get("snapshot_id"),
     )
 
     def top_counts(counter: Counter, limit: int = 25) -> list[GenreCount]:
@@ -157,8 +202,26 @@ async def build_playlist_analysis(
         tracks_missing_genre=missing_genre,
         tracks_missing_bpm=len(track_infos) - len(bpm_values),
     )
-    playlist_analysis_cache[playlist_id] = analysis
+    if include_audio:
+        playlist_analysis_cache[playlist_id] = analysis
+
+    # Toda análise vira resumo em disco para o perfil — inclusive as da página e
+    # da varredura da busca, que assim adiantam o trabalho do perfil de graça.
+    try:
+        await asyncio.to_thread(profile_store.save, analysis, has_audio=include_audio)
+    except Exception:
+        logger.exception("Não consegui guardar o resumo de %s", playlist_id)
     return analysis
+
+
+def _release_year(release_date: str | None) -> int | None:
+    """"1997", "1997-05" e "1997-05-21" são todos formatos válidos do Spotify."""
+    try:
+        year = int((release_date or "")[:4])
+    except ValueError:
+        return None
+    # Álbuns sem data vêm como "0000".
+    return year if year >= 1900 else None
 
 
 

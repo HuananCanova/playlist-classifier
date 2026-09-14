@@ -9,6 +9,9 @@ import { NEUTRAL, SERIES, pct, plural, useMounted } from "../charts/chartKit.js"
  * `colorFor(label)` deixa a página amarrar a cor à entidade (o mesmo gênero
  * tem a mesma cor aqui e no fluxo de gêneros). Sem ele, uma série só, uma
  * cor só: pintar por valor repetiria o que o comprimento já mostra.
+ *
+ * `detailFor(row)` troca a porcentagem por outro texto curto (ex.: "em 4
+ * playlists"), e `foot` substitui a nota de rodapé — `null` a esconde.
  */
 export default function DistributionBarChart({
   data,
@@ -18,6 +21,8 @@ export default function DistributionBarChart({
   limit = 10,
   unit = ["música", "músicas"],
   colorFor = null,
+  detailFor = null,
+  foot = undefined,
 }) {
   const mounted = useMounted();
   const [hovered, setHovered] = useState(null);
@@ -41,10 +46,10 @@ export default function DistributionBarChart({
       {rows.length === 0 ? (
         <p className="muted panel-empty">Sem dados suficientes.</p>
       ) : (
-        <ol className={`bars${hovered != null ? " has-hover" : ""}`} onMouseLeave={() => setHovered(null)}>
+        <ol className={`bars${detailFor ? " bars-detail" : ""}${hovered != null ? " has-hover" : ""}`} onMouseLeave={() => setHovered(null)}>
           {rows.map((r, i) => {
             const color = r.isRest ? NEUTRAL : colorFor ? colorFor(r.label) : SERIES[0];
-            const share = total ? pct(r.count, total) : null;
+            const share = detailFor ? (r.isRest ? null : detailFor(r)) : total ? pct(r.count, total) : null;
             return (
               <li
                 key={r.label}
@@ -53,7 +58,7 @@ export default function DistributionBarChart({
                 tabIndex={0}
                 onFocus={() => setHovered(i)}
                 onBlur={() => setHovered(null)}
-                aria-label={`${r.label}: ${plural(r.count, unit[0], unit[1])}${share ? `, ${share} da playlist` : ""}`}
+                aria-label={`${r.label}: ${plural(r.count, unit[0], unit[1])}${share ? `, ${share}${detailFor ? "" : " da playlist"}` : ""}`}
               >
                 <span className="bar-label" title={r.label}>
                   {r.label}
@@ -78,7 +83,9 @@ export default function DistributionBarChart({
         </ol>
       )}
 
-      {total > 0 && rows.length > 0 && (
+      {foot !== undefined ? (
+        foot && <p className="panel-foot muted">{foot}</p>
+      ) : total > 0 && rows.length > 0 && (
         <p className="panel-foot muted">
           Porcentagens sobre as {total} faixas. Uma faixa pode ter mais de uma tag, então a soma
           passa de 100%.

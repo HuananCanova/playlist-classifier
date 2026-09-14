@@ -9,7 +9,8 @@ from .cache import track_detail_cache
 from .deezer_client import buscar_faixa
 from .lastfm_client import get_artist_tags, get_track_tags
 from .models import SearchHit, TrackDetail
-from .spotify_client import BASE_URL as SPOTIFY_BASE
+from .playlists import _spotify_error
+from .spotify_client import SpotifyClient
 from .vector_store import similar_to_track
 
 router = APIRouter(prefix="/api/tracks", tags=["tracks"])
@@ -29,17 +30,9 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
         return cached
 
     async with httpx.AsyncClient(timeout=20.0) as client:
-        resp = await client.get(
-            f"{SPOTIFY_BASE}/tracks/{track_id}",
-            headers={"Authorization": f"Bearer {access_token}"},
-        )
-        if resp.status_code == 404:
-            raise httpx.HTTPStatusError(
-                "Faixa não encontrada", request=resp.request, response=resp
-            )
-        resp.raise_for_status()
-
-        faixa = resp.json()
+        # Pelo SpotifyClient, que respeita o bloqueio; por fora dele esta rota
+        # continuava chamando o Spotify durante um bloqueio.
+        faixa = await SpotifyClient(access_token).get_track(client, track_id)
         artistas = [a["name"] for a in (faixa.get("artists") or []) if a and a.get("name")]
         nome = faixa.get("name") or "(sem título)"
         principal = artistas[0] if artistas else ""
@@ -80,7 +73,7 @@ async def track_detail(track_id: str, request: Request):
     except httpx.HTTPStatusError as exc:
         if exc.response.status_code == 404:
             raise HTTPException(status_code=404, detail="Faixa não encontrada") from exc
-        raise HTTPException(status_code=502, detail="Erro na API do Spotify") from exc
+        raise _spotify_error(exc) from exc
 
 
 @router.get("/{track_id}/similar", response_model=list[SearchHit])

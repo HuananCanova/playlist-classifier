@@ -96,67 +96,71 @@ export default function PlaylistDetail() {
   const duration = minutes >= 60 ? `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}` : `${minutes} min`;
 
   return (
-    <div className="container page-enter">
-      <BackLink to="/playlists" />
+    <>
+      <div className="container page-enter">
+        <BackLink to="/playlists" />
 
-      <section className="hero">
-        {playlist.image && (
-          <div className="hero-backdrop" style={{ backgroundImage: `url(${playlist.image})` }} aria-hidden="true" />
-        )}
-        {playlist.image ? (
-          <img className="hero-art" src={playlist.image} alt="" />
-        ) : (
-          <div className="hero-art hero-art-empty" aria-hidden="true" />
-        )}
-        <div className="hero-body">
-          <h1 className="hero-title">{playlist.name}</h1>
-          <p className="hero-meta">
-            {playlist.owner ? `Playlist de ${playlist.owner}` : "Playlist"}, {duration} de música
-          </p>
-          <div className="stat-row">
-            <Stat value={playlist.track_count} label="faixas" />
-            <Stat value={genre_distribution.length} label="gêneros" />
-            <Stat value={subgenre_distribution.length} label="subgêneros" />
-            <Stat value={pct(identified, playlist.track_count)} label="com gênero identificado" />
-            {average_bpm != null && <Stat value={Math.round(average_bpm)} label="BPM médio" />}
+        <section className="hero">
+          {playlist.image && (
+            <div className="hero-backdrop" style={{ backgroundImage: `url(${playlist.image})` }} aria-hidden="true" />
+          )}
+          {playlist.image ? (
+            <img className="hero-art" src={playlist.image} alt="" />
+          ) : (
+            <div className="hero-art hero-art-empty" aria-hidden="true" />
+          )}
+          <div className="hero-body">
+            <h1 className="hero-title">{playlist.name}</h1>
+            <p className="hero-meta">
+              {playlist.owner ? `Playlist de ${playlist.owner}` : "Playlist"}, {duration} de música
+            </p>
+            <div className="stat-row">
+              <Stat value={playlist.track_count} label="faixas" />
+              <Stat value={genre_distribution.length} label="gêneros" />
+              <Stat value={subgenre_distribution.length} label="subgêneros" />
+              <Stat value={pct(identified, playlist.track_count)} label="com gênero identificado" />
+              {average_bpm != null && <Stat value={Math.round(average_bpm)} label="BPM médio" />}
+            </div>
           </div>
+        </section>
+
+        {tracks_missing_genre > 0 && (
+          <p className="note">
+            {tracks_missing_genre} de {playlist.track_count} faixas ficaram sem gênero: nem o artista
+            nem a faixa têm tags no Last.fm.
+          </p>
+        )}
+
+        <GenreFlow tracks={tracks} genreDistribution={genre_distribution} trackCount={playlist.track_count} />
+
+        <div className="charts-grid">
+          <DistributionBarChart
+            data={genre_distribution}
+            total={playlist.track_count}
+            title="Gêneros"
+            subtitle="Tags do artista no Last.fm. As cores são as mesmas do caminho acima."
+            colorFor={colorFor}
+          />
+          <DistributionBarChart
+            data={subgenre_distribution}
+            total={playlist.track_count}
+            title="Subgêneros"
+            subtitle="Tags de cada faixa no Last.fm"
+          />
         </div>
-      </section>
 
-      {tracks_missing_genre > 0 && (
-        <p className="note">
-          {tracks_missing_genre} de {playlist.track_count} faixas ficaram sem gênero: nem o artista
-          nem a faixa têm tags no Last.fm.
-        </p>
-      )}
+        <div className="charts-grid charts-grid-wide">
+          <BpmChart tracks={tracks} averageBpm={average_bpm} missing={tracks_missing_bpm} />
+          <TopArtistsChart data={top_artists} total={playlist.track_count} />
+        </div>
 
-      <GenreFlow tracks={tracks} genreDistribution={genre_distribution} trackCount={playlist.track_count} />
+        <ClusterPanel playlistId={id} tracks={tracks} />
 
-      <div className="charts-grid">
-        <DistributionBarChart
-          data={genre_distribution}
-          total={playlist.track_count}
-          title="Gêneros"
-          subtitle="Tags do artista no Last.fm. As cores são as mesmas do caminho acima."
-          colorFor={colorFor}
-        />
-        <DistributionBarChart
-          data={subgenre_distribution}
-          total={playlist.track_count}
-          title="Subgêneros"
-          subtitle="Tags de cada faixa no Last.fm"
-        />
+        <TrackTable tracks={tracks} />
       </div>
 
-      <div className="charts-grid charts-grid-wide">
-        <BpmChart tracks={tracks} averageBpm={average_bpm} missing={tracks_missing_bpm} />
-        <TopArtistsChart data={top_artists} total={playlist.track_count} />
-      </div>
-
-      <ClusterPanel playlistId={id} tracks={tracks} />
-
-      <TrackTable tracks={tracks} />
-
+      {/* Fora do .page-enter: a animação de entrada vira bloco de contenção
+          e prenderia o botão fixo ao fim da página em vez da tela. */}
       {chatAvailable && (
         <ChatWidget
           scope="playlist"
@@ -169,6 +173,6 @@ export default function PlaylistDetail() {
           ]}
         />
       )}
-    </div>
+    </>
   );
 }

@@ -190,3 +190,17 @@ async def stats() -> dict:
     col = await _get_collection()
     total = await asyncio.to_thread(col.count)
     return {"faixas_indexadas": total, "caminho": str(CHROMA_PATH)}
+
+
+async def all_metadata() -> tuple[int, list[dict]]:
+    """Metadados de todas as faixas indexadas, sem embeddings.
+
+    Alimenta o perfil com o que já está no índice — artistas e tags de milhares
+    de faixas sem nenhuma chamada ao Spotify.
+    """
+    col = await _get_collection()
+    total = await asyncio.to_thread(col.count)
+    if not total:
+        return 0, []
+    resultado = await asyncio.to_thread(col.get, include=["metadatas"])
+    return total, [m or {} for m in resultado.get("metadatas") or []]

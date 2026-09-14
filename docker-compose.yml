@@ -17,6 +17,10 @@ services:
     volumes:
       # O índice vetorial persiste entre recriações do container.
       - chroma:/srv/.chroma
+      # Resumos do perfil: sem isso, cada recriação refaria a varredura inteira.
+      - profile_cache:/srv/.profile_cache
+      # Bloqueio do Spotify: recriar o container não pode esquecer que ele existe.
+      - state:/srv/.state
     restart: unless-stopped
 
   frontend:
@@ -32,3 +36,5 @@ services:
 
 volumes:
   chroma:
+  profile_cache:
+  state:

@@ -17,6 +17,7 @@ from fastapi.responses import RedirectResponse
 
 from .config import get_settings
 from .spotify_auth import SPOTIFY_AUTHORIZE_URL, SPOTIFY_TOKEN_URL
+from .spotify_client import SpotifyClient, global_block_remaining
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -81,6 +82,9 @@ async def callback(request: Request, code: str | None = None, state: str | None 
 
     token_data = resp.json()
     _store_tokens(request, token_data)
+    # Um /me por login: daqui em diante o perfil sai da sessão.
+    request.session.pop("me", None)
+    await get_me(request, token_data["access_token"])
 
     return RedirectResponse(f"{settings.frontend_url}/playlists")
 
@@ -91,24 +95,55 @@ def _store_tokens(request: Request, token_data: dict) -> None:
     request.session["expires_at"] = time.time() + token_data.get("expires_in", 3600) - 30  # 30s safety margin
 
 
+# Nome, foto e seguidores quase não mudam; renovar duas vezes por dia basta.
+ME_MAX_AGE = 12 * 60 * 60
+
+
+async def get_me(request: Request, token: str) -> dict:
+    """Perfil do usuário guardado na sessão.
+
+    Toda página chama `/api/auth/me` ao abrir, e antes cada chamada virava um
+    `/me` no Spotify — dezenas por dia só para mostrar o nome no canto da tela.
+    Agora o Spotify é consultado no login e depois a cada `ME_MAX_AGE`.
+
+    Nunca falha por causa do Spotify: bloqueado ou fora do ar, devolve o que
+    houver na sessão (ou um perfil vazio). Antes, um 429 aqui virava 401 e
+    deslogava o usuário justamente durante um bloqueio.
+    """
+    cached = request.session.get("me")
+    fresh = cached and time.time() - cached.get("fetched_at", 0) < ME_MAX_AGE
+    if fresh or global_block_remaining():
+        return cached or {}
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            profile = await SpotifyClient(token).get_me(client)
+    except httpx.HTTPError:
+        return cached or {}
+
+    me = {
+        "id": profile.get("id"),
+        "display_name": profile.get("display_name"),
+        "image": ((profile.get("images") or [{}])[0] or {}).get("url"),
+        # Dependem de escopos e de campos que o Spotify vem enxugando.
+        "followers": (profile.get("followers") or {}).get("total"),
+        "country": profile.get("country"),
+        "product": profile.get("product"),
+        "spotify_url": (profile.get("external_urls") or {}).get("spotify"),
+        "fetched_at": time.time(),
+    }
+    request.session["me"] = me
+    return me
+
+
 @router.get("/me")
 async def me(request: Request):
-    if "access_token" not in request.session:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
     token = await get_valid_access_token(request)
-    async with httpx.AsyncClient() as client:
-        resp = await client.get(
-            "https://api.spotify.com/v1/me",
-            headers={"Authorization": f"Bearer {token}"},
-        )
-    if resp.status_code != 200:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    profile = resp.json()
+    profile = await get_me(request, token)
     return {
         "id": profile.get("id"),
         "display_name": profile.get("display_name"),
-        "image": (profile.get("images") or [{}])[0].get("url"),
+        "image": profile.get("image"),
     }
 
 

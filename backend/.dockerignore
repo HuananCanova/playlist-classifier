@@ -1,5 +1,7 @@
 .venv
 .chroma
+.profile_cache
+.state
 __pycache__
 **/__pycache__
 .env

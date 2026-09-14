@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { usePlayer } from "../PlayerContext.jsx";
 import { PauseIcon, PlayIcon } from "./TrackTable.jsx";
 
-const ACCENT_BRIGHT = "#c9bfff";
+const ACCENT_BRIGHT = "#7ee8a4";
 const GRID = "rgba(255, 255, 255, 0.07)";
 
 /**
@@ -61,8 +61,8 @@ export default function Waveform({ track }) {
       const media = soma / step / 255;
       const barH = media * h * 0.85;
       const grad = g.createLinearGradient(0, h - barH, 0, h);
-      grad.addColorStop(0, `rgba(144, 133, 233, ${0.18 + media * 0.5})`);
-      grad.addColorStop(1, "rgba(144, 133, 233, 0.02)");
+      grad.addColorStop(0, `rgba(30, 215, 96, ${0.18 + media * 0.5})`);
+      grad.addColorStop(1, "rgba(30, 215, 96, 0.02)");
       g.fillStyle = grad;
       const bx = i * barW + 1.5;
       const bw = Math.max(barW - 3, 1);
@@ -78,7 +78,7 @@ export default function Waveform({ track }) {
     analyser.getByteTimeDomainData(wave);
     g.lineWidth = 2;
     g.lineJoin = "round";
-    g.shadowColor = "rgba(143, 123, 255, 0.7)";
+    g.shadowColor = "rgba(30, 215, 96, 0.7)";
     g.shadowBlur = 12;
     g.strokeStyle = ACCENT_BRIGHT;
     g.beginPath();

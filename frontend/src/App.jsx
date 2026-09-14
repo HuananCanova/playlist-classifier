@@ -6,6 +6,7 @@ import NowPlayingBar from "./components/NowPlayingBar.jsx";
 import Login from "./pages/Login.jsx";
 import PlaylistList from "./pages/PlaylistList.jsx";
 import PlaylistDetail from "./pages/PlaylistDetail.jsx";
+import Profile from "./pages/Profile.jsx";
 import Search from "./pages/Search.jsx";
 import TrackDetail from "./pages/TrackDetail.jsx";
 
@@ -14,14 +15,14 @@ function BrandMark() {
     <svg className="brand-mark" width="26" height="26" viewBox="0 0 26 26" aria-hidden="true">
       <defs>
         <linearGradient id="brand-grad" x1="0" y1="1" x2="1" y2="0">
-          <stop offset="0" stopColor="#6a55e8" />
-          <stop offset="1" stopColor="#c9bfff" />
+          <stop offset="0" stopColor="#169c46" />
+          <stop offset="1" stopColor="#7ee8a4" />
         </linearGradient>
       </defs>
       <rect width="26" height="26" rx="8" fill="url(#brand-grad)" />
       <path
         d="M6 13h1.6M9.4 9.5v7M12.8 6.5v13M16.2 9v8M19.6 11.5v3"
-        stroke="#0d0b16"
+        stroke="#0a0a0a"
         strokeWidth="2"
         strokeLinecap="round"
       />
@@ -57,6 +58,9 @@ function Navbar() {
             </NavLink>
             <NavLink to="/busca" className={linkClass}>
               Busca
+            </NavLink>
+            <NavLink to="/perfil" className={linkClass}>
+              Perfil
             </NavLink>
           </nav>
         )}
@@ -109,6 +113,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <Search />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/perfil"
+            element={
+              <RequireAuth>
+                <Profile />
               </RequireAuth>
             }
           />

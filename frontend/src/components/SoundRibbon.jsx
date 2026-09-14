@@ -86,15 +86,15 @@ export default function SoundRibbon({ lines = 30, width = 1000, height = 420, cl
     >
       <defs>
         <linearGradient id={`stroke-${uid}`} x1="0" x2="1" y1="0" y2="0">
-          <stop offset="0" stopColor="#6a55e8" stopOpacity="0" />
-          <stop offset="0.3" stopColor="#8f7bff" />
-          <stop offset="0.55" stopColor="#d6ccff" />
-          <stop offset="0.8" stopColor="#8f7bff" />
-          <stop offset="1" stopColor="#6a55e8" stopOpacity="0" />
+          <stop offset="0" stopColor="#169c46" stopOpacity="0" />
+          <stop offset="0.3" stopColor="#1ed760" />
+          <stop offset="0.55" stopColor="#b8f5cd" />
+          <stop offset="0.8" stopColor="#1ed760" />
+          <stop offset="1" stopColor="#169c46" stopOpacity="0" />
         </linearGradient>
         <radialGradient id={`glow-${uid}`} cx="0.5" cy="0.62" r="0.5">
-          <stop offset="0" stopColor="#7b68ee" stopOpacity="0.5" />
-          <stop offset="1" stopColor="#7b68ee" stopOpacity="0" />
+          <stop offset="0" stopColor="#1db954" stopOpacity="0.5" />
+          <stop offset="1" stopColor="#1db954" stopOpacity="0" />
         </radialGradient>
       </defs>
       <ellipse cx={width / 2} cy={height * 0.62} rx={width * 0.42} ry={height * 0.4} fill={`url(#glow-${uid})`} />

@@ -64,7 +64,7 @@ function SpotifyGlyph() {
       <circle cx="12" cy="12" r="11" fill="#1db954" />
       <path
         d="M6.6 9.4c3.7-1.1 7.9-.8 11 1M7.2 12.6c3-.9 6.4-.6 8.9.8M7.8 15.6c2.4-.6 4.9-.4 6.9.7"
-        stroke="#0d0b16"
+        stroke="#0a0a0a"
         strokeWidth="1.6"
         strokeLinecap="round"
         fill="none"

@@ -49,6 +49,14 @@ async function request(path, options = {}) {
 // uma ação em andamento esconderia um segundo clique de propósito diferente.
 const get = (path) => dedupe(path, () => request(path));
 
+/** "~18 h" / "~5 min" / "~40 s" — para o Retry-After que um humano vai ler. */
+export function formatWait(seconds) {
+  if (!seconds) return "";
+  if (seconds >= 5400) return `~${Math.round(seconds / 3600)} h`;
+  if (seconds >= 90) return `~${Math.round(seconds / 60)} min`;
+  return `~${Math.round(seconds)} s`;
+}
+
 export const api = {
   me: () => get("/api/auth/me"),
   logout: () => request("/api/auth/logout", { method: "POST" }),
@@ -68,6 +76,9 @@ export const api = {
   stopIndex: () => request("/api/search/index", { method: "DELETE" }),
   getPlaylistClusters: (id) => request(`/api/playlists/${id}/clusters`),
   chatStatus: () => get("/api/chat/status"),
+  getProfile: () => get("/api/profile"),
+  getProfileBuild: () => get("/api/profile/build"),
+  buildProfile: () => request("/api/profile/build", { method: "POST" }),
 
   // Não passa por request(): precisamos do corpo como stream, não como JSON.
   chatStream: async (messages, { playlistId = null, trackId = null } = {}) => {

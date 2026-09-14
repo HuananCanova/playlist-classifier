@@ -9,6 +9,9 @@ class PlaylistSummary(BaseModel):
     image: str | None = None
     track_count: int
     owner: str | None = None
+    # Muda a cada alteração no conteúdo: é o que diz se um resumo guardado em
+    # disco ainda vale (profile_store.py).
+    snapshot_id: str | None = None
 
 
 class TrackGenreInfo(BaseModel):
@@ -27,6 +30,11 @@ class TrackGenreInfo(BaseModel):
     preview_url: str | None = None
     deezer_url: str | None = None
     spotify_url: str | None = None
+    # Alimentam o perfil. Todos opcionais: vêm de campos que o Spotify já
+    # tirou de outros objetos, e a ausência não pode derrubar a análise.
+    added_at: str | None = None
+    release_year: int | None = None
+    explicit: bool | None = None
 
 
 class TrackDetail(BaseModel):
@@ -99,6 +107,10 @@ class SearchStatus(BaseModel):
     total_playlists: int | None = None
     indexed_playlists: int | None = None
     pending_playlists: int | None = None
+    # Chamadas ao Spotify que indexar o que falta custaria — para decidir antes.
+    estimated_calls: int | None = None
+    # Segundos até o fim de uma suspensão do Spotify, se houver.
+    blocked_seconds: float | None = None
 
 
 class IndexStatus(BaseModel):
@@ -113,6 +125,7 @@ class IndexStatus(BaseModel):
     started_at: float | None = None
     finished_at: float | None = None
     waiting_seconds: float | None = None
+    blocked_seconds: float | None = None
 
 
 class GenreCount(BaseModel):

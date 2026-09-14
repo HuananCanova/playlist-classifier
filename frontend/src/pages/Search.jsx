@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api.js";
+import { api, formatWait } from "../api.js";
 
 const EXEMPLOS = [
   "melancholic guitar",
@@ -188,6 +188,7 @@ function Cobertura({ cobertura, indexacao, rodando, onIndexar, onParar }) {
 
   const { indexed_tracks: faixas, indexed_playlists: feitas, total_playlists: total } = cobertura;
   const pendentes = cobertura.pending_playlists;
+  const bloqueio = !rodando && (indexacao?.blocked_seconds || cobertura.blocked_seconds);
   const semDadosDoSpotify = total === null;
   const pct = total ? Math.round((feitas / total) * 100) : 0;
 
@@ -216,12 +217,27 @@ function Cobertura({ cobertura, indexacao, rodando, onIndexar, onParar }) {
           </button>
         ) : (
           pendentes > 0 && (
-            <button className="btn btn-sm" onClick={onIndexar}>
+            <button className="btn btn-sm" onClick={onIndexar} disabled={Boolean(bloqueio)}>
               Indexar {pendentes === 1 ? "a que falta" : `as ${pendentes} restantes`}
             </button>
           )
         )}
       </div>
+
+      {bloqueio ? (
+        <p className="coverage-errors">
+          O Spotify suspendeu o acesso deste app por {formatWait(bloqueio)}. Nenhuma chamada sai até lá.
+        </p>
+      ) : (
+        pendentes > 0 &&
+        !rodando &&
+        cobertura.estimated_calls != null && (
+          <p className="coverage-note">
+            Indexar o que falta custa ~{cobertura.estimated_calls} chamadas ao Spotify, uma playlist por vez com
+            pausas. A mesma análise completa o seu perfil.
+          </p>
+        )
+      )}
 
       {!semDadosDoSpotify && (
         <span className="coverage-bar">
@@ -238,8 +254,8 @@ function Cobertura({ cobertura, indexacao, rodando, onIndexar, onParar }) {
           </span>
           {indexacao.waiting_seconds ? (
             <span>
-              O Spotify pediu uma pausa de {Math.round(indexacao.waiting_seconds)}s —
-              esperando antes de continuar.
+              Pausa de {formatWait(indexacao.waiting_seconds)} para respeitar o limite do Spotify —
+              a varredura continua sozinha.
             </span>
           ) : (
             <>

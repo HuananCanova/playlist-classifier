@@ -188,26 +188,17 @@ Por dois caminhos, que se complementam:
 
 1. **Ao analisar uma playlist.** Os dados já foram buscados, então indexar não
    custa nenhuma chamada externa a mais.
-2. **Por varredura da conta.** A tela de busca mostra quantas playlists já estão
-   cobertas e oferece indexar as que faltam; o app também dispara essa varredura
-   sozinho ao abrir, quando há pendências.
-
-A varredura é mais barata do que a intuição sugere: são ~2 chamadas ao Spotify
-por playlist (uma para a playlist, uma a cada 100 faixas) — cerca de 80 para uma
-conta com 40 playlists. O volume fica no Last.fm, que não é a API que bloqueou
-esta conta e ainda cacheia por 24h, com artistas repetidos saindo de graça a
-partir da segunda playlist.
-
-Mesmo assim ela é sequencial, com uma folga entre playlists, e respeita o
-`Retry-After` quando o Spotify pede pausa. O progresso é visível e pode ser
-interrompido a qualquer momento — o que já entrou permanece, e a próxima
-varredura recomeça de onde parou.
+2. **Por varredura da conta**, quando você pede. A tela de busca e o perfil
+   mostram quantas playlists faltam e quantas chamadas ao Spotify indexá-las
+   custaria, e oferecem um botão. É a mesma varredura nos dois lugares, e ela
+   alimenta o índice e os resumos do perfil de uma vez (veja
+   [Limites do Spotify](#limites-do-spotify)).
 
 Reindexação usa o `snapshot_id` do Spotify, que muda quando o conteúdo da
 playlist muda: playlists intactas são puladas, editadas voltam para a fila.
 
-Para desligar a varredura automática, `AUTO_INDEX=false` no `backend/.env` — aí
-o índice só cresce quando você mandar.
+`AUTO_INDEX=true` no `backend/.env` volta a disparar a varredura ao abrir o app.
+O padrão é `false`.
 
 ### Decisões
 
@@ -246,6 +237,53 @@ carrega junto com a página. As features espectrais do `audioAnalysis.js` são
 calculadas no navegador, só para a faixa tocando. Sobra o que a análise já tem:
 tags, duração e popularidade, com as duas últimas pesando pouco (0,35) para não
 dominarem as tags.
+
+## Perfil
+
+A aba **Perfil** agrega a conta inteira: artistas e gêneros mais presentes,
+variedade de gosto, décadas, quando você adiciona músicas, faixas que se
+repetem entre playlists e uma tabela comparando as playlists lado a lado. Só
+entram playlists que o Spotify deixa ler (suas e colaborativas).
+
+Abrir o perfil não chama o Spotify. O painel sai do que já existe:
+
+1. **Resumos em disco** (`backend/.profile_cache/`): toda análise feita no app —
+   abrir uma playlist ou a varredura da conta — grava um resumo compacto da
+   playlist. Ele vale enquanto o `snapshot_id` do Spotify não muda e sobrevive a
+   reinícios.
+2. **O índice da busca**: enquanto faltam resumos, artistas e estilos de todas
+   as faixas já indexadas aparecem num painel à parte, sem chamada nenhuma.
+3. **O botão "Analisar as que faltam"** dispara a varredura da conta, com a
+   estimativa de chamadas e de tempo antes de começar. Ela pula o Deezer (BPM e
+   prévia), que sozinho levaria minutos numa conta inteira; o BPM médio usa as
+   faixas que já têm BPM.
+
+Enquanto a varredura roda, a página acompanha o progresso e recarrega o painel a
+cada playlist concluída.
+
+Análises simultâneas da mesma playlist (página + varredura) viram uma só.
+
+## Limites do Spotify
+
+Em setembro de 2026 o Spotify suspendeu o app por ~18 horas (`Retry-After:
+65527`). Nenhuma chamada isolada foi o problema: ler as 113 playlists da conta
+custa ~250 chamadas. O volume veio de repetições — duas varreduras separadas
+(busca e perfil) relendo a conta inteira, a varredura automática a cada visita,
+um `/me` por página aberta, e reinícios do backend que esqueciam o bloqueio e
+voltavam a chamar uma API bloqueada. O Spotify não publica os limites de apps em
+modo de desenvolvimento, então o código trata o volume como recurso escasso:
+
+| Proteção | Onde |
+| --- | --- |
+| Toda chamada ao Spotify passa pelo `SpotifyClient` — inclusive `/me` e o detalhe de faixa | `spotify_client.py` |
+| Espera acima de 60s vira **bloqueio do app inteiro**, gravado em `backend/.state/` e respeitado depois de reinícios; nada sai para o Spotify até ele acabar | `spotify_client.py` |
+| Esperas curtas valem por rota sem o id (`/v1/playlists/{id}/items`), para outra playlist não parecer um endpoint livre | `spotify_client.py` |
+| Perfil do usuário guardado na sessão no login; renovado a cada 12h. Um bloqueio não desloga mais | `auth.py` |
+| Listagem de playlists em memória **e em disco**: sem nova chamada depois de um reinício, e a última lista conhecida serve as páginas durante um bloqueio | `playlists.py` |
+| **Uma** varredura, só por botão: uma playlist por vez, 2s de pausa, no máximo 60 por hora, repete a mesma playlist numa espera curta e para no primeiro bloqueio longo | `indexer.py` |
+| A tela mostra quanto uma varredura vai custar antes de começar, e quanto falta de um bloqueio | busca e perfil |
+
+`GET /api/health` mostra o estado atual (`spotify_throttled.global_block_seconds`).
 
 ## Testes, evals e observabilidade
 
@@ -374,6 +412,8 @@ Abra **`http://127.0.0.1:5173`** e clique em **Entrar com Spotify**.
   8 → 1,69s · 16 → 1,22s · 24 → 1,08s · 32 → 0,74s, sem nenhum 429. O projeto usa
   24, e uma busca que falhe degrada para "sem tags" em vez de derrubar a análise.
 - **Cache**: em memória, TTL de um dia, por processo — reiniciar o backend zera.
+  As exceções ficam em disco: os resumos do perfil (veja [Perfil](#perfil)), o
+  bloqueio do Spotify e a última listagem de playlists (veja [Limites do Spotify](#limites-do-spotify)).
 - **Dados faltando**: faixas locais e indisponíveis vêm com campos `null` (não
   ausentes), então o código usa `.get(x) or default` em vez de `.get(x, default)`.
 - **Gráficos**: barras horizontais, uma cor por gráfico. Gênero é categoria

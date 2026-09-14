@@ -3,21 +3,21 @@ import { useEffect, useState } from "react";
 /*
  * Peças comuns aos gráficos desenhados à mão em SVG.
  *
- * A paleta categórica foi validada contra a superfície dos painéis (#17141f)
+ * A paleta categórica foi validada contra a superfície dos painéis (#181818)
  * com o validador de paleta: nesta ordem, pares vizinhos passam no teste de
  * daltonismo (ΔE >= 9,4) e todas as seis cores têm contraste >= 3:1. A ordem é
  * o mecanismo de segurança — não reordene nem gere uma sétima cor; o que
  * passar de seis vira "outros".
  */
-export const SERIES = ["#9085e9", "#199e70", "#d95926", "#3987e5", "#c98500", "#d55181"];
+export const SERIES = ["#199e70", "#9085e9", "#d95926", "#3987e5", "#c98500", "#d55181"];
 
 // "Outros" e "sem tag" não são entidades: ficam num cinza violáceo neutro.
-export const NEUTRAL = "#4d4862";
+export const NEUTRAL = "#535353";
 
-export const SURFACE = "#17141f";
+export const SURFACE = "#181818";
 export const GRID = "rgba(255, 255, 255, 0.07)";
-export const INK = "#eeebf7";
-export const INK_MUTED = "#9d97b3";
+export const INK = "#f2f2f2";
+export const INK_MUTED = "#a7a7a7";
 
 /**
  * Largura real do elemento, atualizada em resize. SVG responsivo sem viewBox esticado.
