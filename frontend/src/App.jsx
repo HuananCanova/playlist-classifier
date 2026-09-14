@@ -76,6 +76,7 @@ export default function App() {
   return (
     <AuthProvider>
       <PlayerProvider>
+<<<<<<< HEAD
       <Navbar />
       <main>
         <Routes>
@@ -116,6 +117,40 @@ export default function App() {
         </Routes>
       </main>
       <NowPlayingBar />
+=======
+        <Navbar />
+        <main>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/playlists"
+              element={
+                <RequireAuth>
+                  <PlaylistList />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/chat"
+              element={
+                <RequireAuth>
+                  <Chat />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/playlists/:id"
+              element={
+                <RequireAuth>
+                  <PlaylistDetail />
+                </RequireAuth>
+              }
+            />
+            <Route path="*" element={<Navigate to="/playlists" replace />} />
+          </Routes>
+        </main>
+        <NowPlayingBar />
+>>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
       </PlayerProvider>
     </AuthProvider>
   );

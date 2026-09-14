@@ -4,6 +4,7 @@
 fastapi>=0.141,<1
 uvicorn[standard]==0.30.6
 httpx==0.27.2
+<<<<<<< HEAD
 
 # pydantic 2.13+ é necessário para Python 3.13/3.14: as versões anteriores fixam
 # pydantic-core <= 2.35, que não publica wheel para essas versões no Windows —
@@ -11,6 +12,10 @@ httpx==0.27.2
 pydantic>=2.13,<3
 pydantic-settings>=2.7,<3
 
+=======
+pydantic>=2.9.2
+pydantic-settings>=2.5.2
+>>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
 itsdangerous==2.2.0
 cachetools==5.5.0
 python-dotenv==1.0.1

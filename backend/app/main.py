@@ -7,8 +7,12 @@ from .auth import router as auth_router
 from .chat import router as chat_router
 from .config import get_settings
 from .playlists import router as playlists_router
+<<<<<<< HEAD
 from .search import router as search_router
 from .tracks import router as tracks_router
+=======
+from .spotify_client import throttle_state
+>>>>>>> 159c84aa20a29c88dffa974f84d744e63bdf7cf5
 
 settings = get_settings()
 
@@ -28,6 +32,9 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Retry-After não está na lista segura do CORS: sem expor explicitamente, o
+    # navegador esconde o cabeçalho e o front não consegue dizer quanto falta.
+    expose_headers=["Retry-After"],
 )
 
 app.include_router(auth_router)
@@ -39,4 +46,7 @@ app.include_router(chat_router)
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok"}
+    # `spotify_throttled` mostra os segundos restantes por endpoint bloqueado.
+    # Sem isso, um 429 longo só aparece como erro na tela, sem forma de saber
+    # quanto falta nem se já passou.
+    return {"status": "ok", "spotify_throttled": throttle_state()}

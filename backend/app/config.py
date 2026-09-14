@@ -1,11 +1,16 @@
 """Application configuration, loaded from environment variables / .env file."""
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Caminho absoluto: assim o backend sobe de qualquer diretório de trabalho
+# (backend/, raiz do repo, runner da IDE) e não só de dentro de backend/.
+ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore")
 
     spotify_client_id: str
     spotify_client_secret: str

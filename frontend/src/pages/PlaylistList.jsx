@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api.js";
 
@@ -19,12 +19,25 @@ export default function PlaylistList() {
   const [error, setError] = useState(null);
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
+  const load = useCallback((refresh = false) => {
+    setError(null);
+    setPlaylists(null);
     api
-      .listPlaylists()
+      .listPlaylists({ refresh })
       .then(setPlaylists)
-      .catch(() => setError("Não foi possível carregar suas playlists."));
+      .catch((e) =>
+        setError({
+          message: e.message || "Não foi possível carregar suas playlists.",
+          // 429 é temporário: aqui a ação certa é tentar de novo, não recarregar tudo.
+          canRetry: e.status === 429 || e.status === 502,
+          retryAfter: e.retryAfter,
+        }),
+      );
   }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const filtered = useMemo(() => {
     if (!playlists) return null;
@@ -54,9 +67,28 @@ export default function PlaylistList() {
             aria-label="Filtrar playlists por nome"
           />
         )}
+        {playlists && (
+          <button
+            className="btn btn-secondary btn-inline"
+            onClick={() => load(true)}
+            title="Busca de novo no Spotify, ignorando o cache de 5 minutos"
+          >
+            Atualizar
+          </button>
+        )}
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
+      {error && (
+        <div className="error-banner">
+          <span>{error.message}</span>
+          {error.canRetry && (
+            <button className="btn btn-secondary btn-inline" onClick={load}>
+              Tentar de novo
+              {error.retryAfter ? ` (aguarde ~${error.retryAfter}s)` : ""}
+            </button>
+          )}
+        </div>
+      )}
 
       {!playlists && !error && (
         <div className="grid">
