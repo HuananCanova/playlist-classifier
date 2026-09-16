@@ -1,60 +1,109 @@
 # Playlist Classifier
 
 Conecta com a sua conta do Spotify, lista suas playlists e gera gráficos de
-gênero e subgênero — por playlist e por música.
+gênero, subgênero e andamento — por playlist, por música e da conta inteira.
 
 - **Spotify Web API**: autenticação OAuth, suas playlists e as faixas de cada uma.
 - **Last.fm API**: as tags da comunidade, que são a fonte de gênero do projeto —
   tags do **artista** dão o gênero amplo (`techno`, `mpb`), tags da **faixa** dão o
   subgênero (`minimal techno`, `bossa nova`), com granularidade por música.
-- **Claude API**: um chat que responde perguntas sobre as suas playlists
-  consultando os dados reais por meio de ferramentas (opcional).
+- **Deezer API**: BPM e prévia de 30s de cada faixa (o Spotify cortou os dois).
+- **Claude ou Groq**: um chat que responde perguntas sobre uma playlist ou uma
+  faixa consultando os dados reais por meio de ferramentas (opcional).
+
+O que dá para fazer no app:
+
+- **Playlist**: fluxo de gêneros ao longo da ordem das faixas, distribuição de
+  gêneros e subgêneros, andamento (BPM), artistas frequentes, grupos de clima e
+  a tabela de faixas com prévia.
+- **Faixa**: onda sonora e espectro ao vivo, métricas do áudio medidas no
+  navegador, tags e faixas parecidas.
+- **Busca**: busca semântica ("melancholic guitar") sobre tudo que já foi analisado.
+- **Perfil**: o retrato da conta inteira, montado sem chamar o Spotify ao abrir.
+- **MCP**: as mesmas ferramentas do chat, para Claude Desktop/Code.
 
 ## Stack técnica
 
 | Camada | Tecnologia | Uso neste projeto |
 | --- | --- | --- |
-| Backend | Python 3.11+, FastAPI, httpx | API assíncrona, chamadas concorrentes ao Spotify/Last.fm/Deezer |
+| Backend | Python 3.10+ (CI e Docker usam 3.12), FastAPI, httpx | API assíncrona, chamadas concorrentes ao Spotify/Last.fm/Deezer |
 | Sessão | Starlette `SessionMiddleware` | Cookie assinado; tokens do Spotify nunca chegam ao navegador |
 | Validação | Pydantic v2 + pydantic-settings | Schemas de request/response e variáveis de ambiente tipadas |
-| Cache | `cachetools` (TTLCache) | Evita estourar o rate limit do Spotify/Last.fm |
-| Agente de IA | Anthropic Claude (tool use, streaming SSE) | Chat com escopo de playlist/faixa, sem dados soltos no prompt |
-| Agente de IA (alternativo) | Groq (`llama-3.3-70b`, API compatível com OpenAI) | Testar o agente sem custo, mesmo contrato de ferramentas |
+| Cache | `cachetools` (TTLCache) + JSON em disco | Memória para respostas externas; disco para resumos do perfil, listagem de playlists e bloqueio do Spotify |
+| Agente de IA | Anthropic Claude (`claude-opus-5`, tool use, streaming SSE) | Chat com escopo de playlist/faixa, sem dados soltos no prompt |
+| Agente de IA (alternativo) | Groq (`openai/gpt-oss-120b`, API compatível com OpenAI) | Testar o agente sem custo, mesmo contrato de ferramentas |
 | Protocolo de agente | [MCP](https://modelcontextprotocol.io) | As mesmas ferramentas do chat, expostas a Claude Desktop/Code |
 | Busca semântica | ChromaDB (embarcado) + `all-MiniLM-L6-v2` via ONNX | Índice vetorial local, sem chave de API nem rate limit |
 | Agrupamento | scikit-learn (TF-IDF + k-means) | Separa faixas de uma playlist em "climas", `k` pela silhueta |
 | APIs externas | Spotify Web API (OAuth 2.0 + PKCE), Last.fm API, Deezer API | Playlists/faixas, tags de gênero, BPM e prévia de áudio |
-| Frontend | React 18, Vite, React Router, Recharts | SPA, gráficos de distribuição de gênero/BPM |
-| Áudio no navegador | Web Audio API (`AnalyserNode`) | Forma de onda e espectro da prévia tocando, ao vivo |
+| Frontend | React 18, Vite, React Router, react-markdown | SPA; respostas do chat renderizadas em Markdown |
+| Gráficos | SVG e canvas feitos à mão (`charts/chartKit.js`) | Sem biblioteca de gráficos: fluxo de gêneros, BPM, grupos, colunas e barras |
+| Áudio no navegador | Web Audio API (`AnalyserNode`) + FFT próprio | Forma de onda e espectro ao vivo; métricas de volume e bandas da prévia |
 | Testes | pytest, pytest-asyncio | Suíte sem rede (fixtures) + conjunto dourado contra o modelo real |
 | Infra | Docker, docker-compose, nginx | `docker compose up --build` sobe backend + frontend servido por nginx |
-| CI | GitHub Actions | Roda a suíte de testes e o build do frontend a cada push |
+| CI | GitHub Actions | A cada push: testes do backend, build do frontend e build das imagens Docker; evals sob demanda |
 
 ## Arquitetura
 
 ```
 playlist-classifier/
-├── backend/          FastAPI (Python) — OAuth com Spotify, chamadas às APIs, análise de gênero
-│   └── app/
-│       ├── main.py            # app + middlewares (sessão, CORS)
-│       ├── config.py          # variáveis de ambiente
-│       ├── auth.py            # OAuth Authorization Code + PKCE, refresh de token
-│       ├── spotify_client.py  # chamadas à Spotify Web API
-│       ├── lastfm_client.py   # tags de artista e de faixa (a fonte de gênero)
-│       ├── genre_analysis.py  # combina as duas fontes e agrega distribuições
-│       ├── playlists.py       # rotas /api/playlists
-│       ├── ai_tools.py        # as ferramentas do agente (neutras de provedor)
-│       ├── ai_chat.py         # adaptador Claude + streaming SSE
-│       ├── ai_chat_groq.py    # adaptador Groq (testes sem custo)
-│       ├── chat.py            # rotas /api/chat
-│       ├── models.py          # schemas Pydantic
-│       └── cache.py           # cache em memória (TTL) pra não estourar rate limit
-└── frontend/         React + Vite — login, lista de playlists, gráficos (Recharts)
-    └── src/
-        ├── App.jsx / AuthContext.jsx
-        ├── pages/    Login, PlaylistList, PlaylistDetail, Chat
-        └── components/  gráficos de barras, tabela de faixas, loader da análise
+├── backend/                   FastAPI (Python)
+│   ├── app/
+│   │   ├── main.py            # app + middlewares (sessão, CORS) + /api/health
+│   │   ├── config.py          # variáveis de ambiente
+│   │   ├── models.py          # schemas Pydantic
+│   │   ├── cache.py           # caches em memória (TTL)
+│   │   │
+│   │   ├── auth.py            # rotas /api/auth — OAuth Authorization Code + PKCE
+│   │   ├── playlists.py       # rotas /api/playlists — listagem, análise, grupos
+│   │   ├── tracks.py          # rotas /api/tracks — detalhe e faixas parecidas
+│   │   ├── search.py          # rotas /api/search — busca semântica e varredura
+│   │   ├── profile.py         # rotas /api/profile — perfil da conta
+│   │   ├── chat.py            # rotas /api/chat — chat (SSE) e métricas
+│   │   │
+│   │   ├── spotify_client.py  # toda chamada ao Spotify passa aqui (limites e bloqueio)
+│   │   ├── spotify_auth.py    # token a partir do refresh token (MCP e scripts)
+│   │   ├── lastfm_client.py   # tags de artista e de faixa (a fonte de gênero)
+│   │   ├── deezer_client.py   # BPM e prévia de 30s
+│   │   │
+│   │   ├── genre_analysis.py  # combina as fontes e agrega distribuições
+│   │   ├── clustering.py      # grupos de clima (TF-IDF + k-means)
+│   │   ├── vector_store.py    # índice vetorial (ChromaDB)
+│   │   ├── indexer.py         # a varredura da conta, com ritmo e teto
+│   │   ├── profile_store.py   # resumos por playlist em disco
+│   │   ├── profile_stats.py   # agregações do perfil (funções puras)
+│   │   │
+│   │   ├── ai_tools.py        # as ferramentas do agente (neutras de provedor)
+│   │   ├── ai_chat.py         # adaptador Claude + streaming SSE
+│   │   ├── ai_chat_groq.py    # adaptador Groq (testes sem custo)
+│   │   ├── metrics.py         # tokens e latência por turno
+│   │   └── mcp_server.py      # servidor MCP (stdio)
+│   ├── tests/                 # suíte sem rede
+│   ├── evals/                 # conjunto dourado contra o modelo real
+│   └── scripts/               # gerar o SPOTIFY_REFRESH_TOKEN
+├── frontend/                  React + Vite
+│   └── src/
+│       ├── App.jsx            # rotas e navegação
+│       ├── api.js             # cliente HTTP (deduplica GETs simultâneos)
+│       ├── AuthContext.jsx    # usuário logado
+│       ├── PlayerContext.jsx  # o único <audio> do app + analisador Web Audio
+│       ├── audioAnalysis.js   # picos e métricas espectrais da prévia
+│       ├── pages/             # Login, PlaylistList, PlaylistDetail, TrackDetail, Search, Profile
+│       ├── components/        # gráficos, tabela de faixas, player, chat
+│       └── charts/            # chartKit (paleta, hooks, curvas), tooltip, fluxo de gêneros
+├── docs/CODEBASE_MAP.md       # mapa detalhado do código
+├── docker-compose.yml
+└── .github/workflows/ci.yml
 ```
+
+| Rota do app | Página |
+| --- | --- |
+| `/login` | Entrada com Spotify |
+| `/playlists` | Suas playlists |
+| `/playlists/:id` | Análise de uma playlist + chat |
+| `/faixa/:id` | Detalhe de uma faixa + chat |
+| `/busca` | Busca semântica e varredura |
+| `/perfil` | Perfil da conta |
 
 **Por que essa stack:** backend em Python/FastAPI porque é onde fica a lógica de
 combinar duas fontes de dados, agregar e cachear — fácil de evoluir. Frontend em
@@ -74,35 +123,39 @@ ele os busca através de ferramentas.
 ```
 pergunta do usuário
       ↓
-  agente ──chama──> visao_geral(limite)     ──> N playlists EM PARALELO
-      ↓             listar_playlists()      ──> Spotify
-      ↓             analisar_playlist(id)   ──> Spotify + Last.fm
+  agente ──chama──> ferramentas presas a UMA playlist ou faixa
+      ↓               └─> análise em cache, grupos, índice vetorial
   resposta em streaming (SSE)
 ```
 
-Existe em dois lugares: a aba **Chat**, que enxerga a conta toda, e um painel na
-página da playlist, restrito a ela. O escopo é aplicado no servidor — com
-`playlist_id` na requisição, o agente recebe só a ferramenta daquela playlist e
-não tem como alcançar as outras.
+O chat abre num botão flutuante em dois lugares: a página da playlist e a página
+da faixa. Cada conversa fica presa ao que está na tela:
+
+| Escopo | Ferramenta | O que faz |
+| --- | --- | --- |
+| Playlist | `analisar_esta_playlist` | gêneros, subgêneros, artistas frequentes, amostra de faixas |
+| Playlist | `buscar_nesta_playlist` | busca semântica recortada pelos ids da própria playlist |
+| Playlist | `grupos_desta_playlist` | os grupos de clima, para o modelo dar nome a cada um |
+| Faixa | `analisar_esta_faixa` | tags do Last.fm, tags do artista, BPM e prévia do Deezer |
+| Faixa | `faixas_parecidas` | vizinhas no índice vetorial — dentro do que já foi analisado no app, e o modelo é instruído a dizer isso |
 
 Por que assim:
 
-- **Extensibilidade**: adicionar busca ou recomendação é registrar uma ferramenta
-  nova em `build_tools()`. Nada mais no arquivo muda.
-- **Sem alucinação de dados**: o modelo não tem como inventar uma playlist que
-  não existe, porque os nomes e números vêm da ferramenta.
-- **Custo controlado**: cada ferramenta tem teto de tamanho. Uma playlist de 300
-  faixas devolve ~1.300 tokens (15 gêneros, 10 artistas, amostra de 40 faixas), e
-  o resultado avisa ao modelo que é uma amostra — em vez de despejar as 300.
-- **O fan-out caro mora na ferramenta, não no laço do modelo.** Perguntas amplas
-  levavam o modelo a analisar uma playlist por turno: 59s e nenhuma resposta,
-  porque estourava o limite de chamadas. A `visao_geral` analisa várias em
-  paralelo numa chamada só — o mesmo cenário caiu para 3,9s. Vale registrar que
-  o `gpt-oss-120b` ignora a instrução de agrupar chamadas num mesmo turno, então
-  a solução não podia depender da colaboração do modelo.
-- **Amostragem honesta**: a visão geral pega as *maiores* playlists (mais faixas,
-  mais sinal) em vez das primeiras da lista, e devolve a cobertura real em faixas
-  e porcentagem, que o modelo é instruído a declarar na resposta.
+- **Escopo pela forma, não pelo prompt**: a requisição traz `playlist_id` *ou*
+  `track_id`, e as ferramentas são closures presas a esse id — nenhuma aceita id
+  como parâmetro. O modelo não tem como pedir outra playlist, mesmo que queira.
+  Isso é testado em `tests/test_scope.py`.
+- **Extensibilidade**: uma ferramenta nova é um registro a mais em `build_tools()`.
+- **Sem alucinação de dados**: o modelo não tem como inventar uma faixa que não
+  existe, porque os nomes e números vêm da ferramenta.
+- **Custo controlado**: cada ferramenta tem teto de tamanho (15 gêneros, 10
+  artistas, amostra de 40 faixas, 12 resultados de busca), e o resultado avisa ao
+  modelo quando é uma amostra — em vez de despejar a playlist inteira.
+- **Uma varredura por turno, não por ferramenta**: analisar e depois buscar na
+  mesma playlist reaproveita a análise em cache, sem refazer Spotify + Last.fm.
+- **Modelos menores que repetem chamadas**: no Groq, uma chamada idêntica à
+  anterior recebe o resultado já calculado com um aviso para responder, e ao
+  atingir o limite de iterações o agente fecha a resposta com o que tem.
 - **Credencial fora do alcance do modelo**: o token do Spotify fica capturado no
   closure das ferramentas, não como parâmetro delas.
 - **Troca de provedor**: as ferramentas vivem em `ai_tools.py`, neutras. Os
@@ -110,8 +163,9 @@ Por que assim:
   compatível com OpenAI, não com a Anthropic, e serve para testar sem custo).
   Ambos emitem os mesmos eventos SSE, então o frontend não sabe qual respondeu.
 
-O chat é opcional: sem `ANTHROPIC_API_KEY`, o `/api/chat/status` responde
-`available: false` e a interface esconde a aba, com o resto do app intacto.
+O chat é opcional: sem a chave do provedor configurado em `CHAT_PROVIDER`, o
+`/api/chat/status` responde `available: false` e a interface esconde o botão,
+com o resto do app intacto.
 
 ## Servidor MCP
 
@@ -328,8 +382,13 @@ docker compose up --build
 ```
 
 Sobe backend (`127.0.0.1:8000`) e frontend servido por nginx
-(`127.0.0.1:5173`), com o índice vetorial num volume. O modelo de embeddings é
-baixado durante o build da imagem, não no primeiro uso.
+(`127.0.0.1:5173`). O índice vetorial, os resumos do perfil e o estado do
+Spotify (bloqueio e listagem) ficam em três volumes nomeados, então recriar os
+containers não zera nada. O modelo de embeddings é baixado durante o build da
+imagem, não no primeiro uso.
+
+O endereço da API (`VITE_API_URL`) entra no bundle do frontend no build: para
+apontar para outro backend, é preciso reconstruir a imagem.
 
 Útil por si só, e ainda contorna um problema real de desenvolvimento aqui: o
 projeto mora numa pasta do OneDrive, onde o observador de arquivos do uvicorn
@@ -420,15 +479,26 @@ Abra **`http://127.0.0.1:5173`** e clique em **Entrar com Spotify**.
   concorrência define o tempo total. Medido contra a API real com 60 buscas:
   8 → 1,69s · 16 → 1,22s · 24 → 1,08s · 32 → 0,74s, sem nenhum 429. O projeto usa
   24, e uma busca que falhe degrada para "sem tags" em vez de derrubar a análise.
-- **Cache**: em memória, TTL de um dia, por processo — reiniciar o backend zera.
-  As exceções ficam em disco: os resumos do perfil (veja [Perfil](#perfil)), o
-  bloqueio do Spotify e a última listagem de playlists (veja [Limites do Spotify](#limites-do-spotify)).
+- **Cache**: em memória, por processo — reiniciar o backend zera. Tags do Last.fm
+  valem um dia; a análise de uma playlist, 10 minutos; a listagem de playlists, 5
+  minutos. O detalhe de faixa fica 25 minutos, porque carrega a URL assinada da
+  prévia do Deezer, que expira. As exceções ficam em disco: os resumos do perfil (veja
+  [Perfil](#perfil)), o bloqueio do Spotify e a última listagem de playlists (veja
+  [Limites do Spotify](#limites-do-spotify)).
 - **Dados faltando**: faixas locais e indisponíveis vêm com campos `null` (não
   ausentes), então o código usa `.get(x) or default` em vez de `.get(x, default)`.
-- **Gráficos**: barras horizontais, uma cor por gráfico. Gênero é categoria
-  nominal — colorir cada barra de um jeito duplicaria o comprimento na cor sem
-  agregar informação. A cor das barras foi validada para contraste e banda de
-  luminosidade sobre o fundo escuro.
+- **Gráficos**: todos desenhados à mão em SVG ou canvas, sem biblioteca. A paleta
+  categórica (`SERIES` em `charts/chartKit.js`) tem seis cores validadas para
+  contraste e para distinção entre daltônicos sobre o fundo escuro; categorias
+  além delas viram "outros". Barras de distribuição usam uma cor só, exceto quando
+  acompanham as cores do fluxo de gêneros. Nos grupos de clima, cada grupo tem cor
+  **e** forma, porque cor sozinha não garante separação entre todos os pares.
+- **BPM no navegador foi testado e removido**: um detector por autocorrelação
+  acertou 60% das vezes em que respondeu (erros de oitava e tercina) contra os
+  dados do Deezer. O BPM exibido vem só do Deezer.
+- **React StrictMode** dispara efeitos duas vezes em desenvolvimento. O `api.js`
+  junta GETs idênticos em andamento numa só requisição, para isso não virar o
+  dobro de chamadas ao backend (e, por tabela, ao Spotify).
 
 ## Limitações conhecidas / próximos passos
 
@@ -438,18 +508,26 @@ Abra **`http://127.0.0.1:5173`** e clique em **Entrar com Spotify**.
 - **Cobertura de gênero**: artistas independentes ou pouco conhecidos podem não
   ter tags no Last.fm — isso aparece no contador de "músicas sem gênero
   identificado".
-- **Chat**: o histórico vive no estado do React; recarregar a página zera a
-  conversa. Não há persistência entre sessões.
-- **Ideias de evolução**: ferramentas de busca e recomendação no agente;
-  classificação por IA para as faixas que o Last.fm não cobre; comparar playlists
-  entre si; exportar a análise.
+- **Chat**: o histórico vive no estado do React; recarregar a página ou mudar de
+  playlist/faixa zera a conversa. Não há persistência entre sessões.
+- **Métricas do chat**: ficam em memória e zeram quando o backend reinicia.
+- **Busca em português**: veja a limitação do modelo de embeddings em
+  [Busca semântica](#busca-semântica).
+- **Faixas parecidas** só encontram faixas já indexadas — não é recomendação sobre
+  o catálogo inteiro.
+- **Frontend sem testes nem lint**: a garantia hoje é o `npm run build` no CI.
+- **Ideias de evolução**: classificação por IA para as faixas que o Last.fm não
+  cobre; um modelo de embeddings multilíngue; exportar a análise.
 
 ## Testando rapidamente
 
 ```bash
 # backend
-cd backend && python -m py_compile app/*.py   # checagem de sintaxe rápida
+cd backend && python -m pytest                 # suíte sem rede
 
 # frontend
 cd frontend && npm run build                   # garante que o build de produção funciona
 ```
+
+Para o mapa detalhado do código — módulos, rotas, fluxos e armadilhas — veja
+[docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md).

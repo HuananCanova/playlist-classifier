@@ -117,7 +117,7 @@ export default function PlaylistDetail() {
             <div className="stat-row">
               <Stat value={playlist.track_count} label="faixas" />
               <Stat value={genre_distribution.length} label="gêneros" />
-              <Stat value={subgenre_distribution.length} label="subgêneros" />
+              {subgenre_distribution.length > 0 && <Stat value={subgenre_distribution.length} label="subgêneros" />}
               <Stat value={pct(identified, playlist.track_count)} label="com gênero identificado" />
               {average_bpm != null && <Stat value={Math.round(average_bpm)} label="BPM médio" />}
             </div>
@@ -133,7 +133,8 @@ export default function PlaylistDetail() {
 
         <GenreFlow tracks={tracks} genreDistribution={genre_distribution} trackCount={playlist.track_count} />
 
-        <div className="charts-grid">
+        {/* Sem subgênero próprio, o painel sairia vazio: gêneros ocupa a linha sozinho. */}
+        <div className={subgenre_distribution.length > 0 ? "charts-grid" : undefined}>
           <DistributionBarChart
             data={genre_distribution}
             total={playlist.track_count}
@@ -141,12 +142,14 @@ export default function PlaylistDetail() {
             subtitle="Tags do artista no Last.fm. As cores são as mesmas do caminho acima."
             colorFor={colorFor}
           />
-          <DistributionBarChart
-            data={subgenre_distribution}
-            total={playlist.track_count}
-            title="Subgêneros"
-            subtitle="Tags de cada faixa no Last.fm"
-          />
+          {subgenre_distribution.length > 0 && (
+            <DistributionBarChart
+              data={subgenre_distribution}
+              total={playlist.track_count}
+              title="Subgêneros"
+              subtitle="Tags de cada faixa no Last.fm que não aparecem entre os gêneros"
+            />
+          )}
         </div>
 
         <div className="charts-grid charts-grid-wide">

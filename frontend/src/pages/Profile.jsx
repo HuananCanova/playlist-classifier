@@ -36,6 +36,12 @@ function decimal(v) {
   return v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 }
 
+// Número efetivo (gêneros, artistas) dito como quantidade: "196,3 artistas"
+// sugere uma precisão que a medida não tem, e ninguém tem 0,3 de artista.
+function effective(v) {
+  return `≈${nf.format(Math.max(1, Math.round(v)))}`;
+}
+
 // "~18 h" / "~25 min", e o horário em que libera.
 function blockText(seconds) {
   const until = new Date(Date.now() + seconds * 1000);
@@ -252,7 +258,7 @@ export default function Profile() {
               />
             )}
             {stats && stats.top_genres.length > 0 && (
-              <Stat value={decimal(stats.library.genre_diversity)} label="gêneros efetivos" />
+              <Stat value={effective(stats.library.genre_diversity)} label="gêneros efetivos" />
             )}
             {stats && !partial && <Stat value={hours(stats.library.total_duration_ms)} label="de música" />}
             {!stats && overview.playlists > 0 && <Stat value={nf.format(overview.playlists)} label="playlists" />}
@@ -433,7 +439,7 @@ function IndexPanel({ index }) {
 }
 
 function Dashboard({ stats, coverage }) {
-  const { library: lib, top_genres, top_artists, top_tags, decades, taste_timeline, popularity_bands, tempo_zones, deep_cuts, playlists } =
+  const { library: lib, top_genres, top_artists, top_tags, decades, taste_timeline, popularity_bands, deep_cuts, playlists } =
     stats;
 
   const topGenre = top_genres[0];
@@ -464,17 +470,6 @@ function Dashboard({ stats, coverage }) {
     [popularity_bands],
   );
 
-  const tempoData = useMemo(
-    () =>
-      tempo_zones.map((z) => ({
-        key: z.label,
-        label: z.label,
-        tooltip: z.to > 1000 ? `${z.label} (acima de ${z.from} BPM)` : `${z.label} (${z.from}–${z.to} BPM)`,
-        count: z.count,
-      })),
-    [tempo_zones],
-  );
-
   const timelineYears = taste_timeline?.years ?? [];
 
   return (
@@ -490,7 +485,7 @@ function Dashboard({ stats, coverage }) {
         )}
         <Facet
           kicker="Variedade"
-          value={`${decimal(lib.genre_diversity)} gêneros`}
+          value={`${effective(lib.genre_diversity)} gêneros`}
           sub={reading(VARIETY, lib.genre_diversity)[1]}
           hint="Número efetivo de gêneros: quantos gêneros igualmente frequentes dariam a mesma variedade."
         />
@@ -503,7 +498,7 @@ function Dashboard({ stats, coverage }) {
         )}
         <Facet
           kicker="Fidelidade"
-          value={`${decimal(lib.artist_diversity)} artistas`}
+          value={`${effective(lib.artist_diversity)} artistas`}
           sub={reading(LOYALTY, lib.artist_diversity)[1]}
           hint="Número efetivo de artistas: quantos artistas igualmente presentes dariam o mesmo espalhamento."
         />
@@ -536,6 +531,7 @@ function Dashboard({ stats, coverage }) {
           title="Do que seu gosto é feito"
           subtitle={`Gêneros dos artistas no Last.fm, sobre ${nf.format(lib.unique_tracks)} faixas únicas`}
           colorFor={genreColor}
+          shareOf="do acervo"
           foot={
             lib.tracks_with_genre < lib.unique_tracks
               ? `${nf.format(lib.unique_tracks - lib.tracks_with_genre)} faixas ficaram sem gênero. Uma faixa pode ter vários gêneros.`
@@ -553,19 +549,23 @@ function Dashboard({ stats, coverage }) {
       </div>
 
       {timelineYears.length >= 2 && (
-        <section className="panel">
+        <section className="panel panel-flow">
           <header className="panel-head">
             <h3>Como seu gosto mudou</h3>
             <p className="panel-sub">
-              As faixas que entraram nas suas playlists a cada ano, divididas pelos gêneros que você mais escolhe. A
-              altura é quanta música entrou; a divisão da coluna é do que ela era feita.
+              As faixas que entraram nas suas playlists a cada ano. Cada linha é um dos gêneros que você mais escolhe; a
+              coluna ao fundo é o total do ano. Passe o mouse para ver o ano; clique na legenda para isolar um gênero.
             </p>
           </header>
           <TasteTimeline genres={taste_timeline.genres} years={timelineYears} />
+          <p className="panel-foot muted">
+            Aqui conta cada vez que uma faixa entrou numa playlist, e só as que têm data. Uma faixa com vários desses
+            gêneros é repartida entre eles, por isso os números não batem com os de “Do que seu gosto é feito”.
+          </p>
         </section>
       )}
 
-      <div className="charts-grid">
+      <div className={top_tags.length > 0 ? "charts-grid" : undefined}>
         <section className="panel">
           <header className="panel-head">
             <h3>De que época você ouve</h3>
@@ -579,43 +579,30 @@ function Dashboard({ stats, coverage }) {
             </p>
           )}
         </section>
-        <DistributionBarChart
-          data={top_tags.slice(0, 10)}
-          total={lib.unique_tracks}
-          limit={10}
-          title="O gosto em detalhe"
-          subtitle="Tags das próprias faixas, mais finas que o gênero do artista"
-          foot={null}
-        />
+        {top_tags.length > 0 && (
+          <DistributionBarChart
+            data={top_tags.slice(0, 10)}
+            total={lib.unique_tracks}
+            limit={10}
+            title="O gosto em detalhe"
+            subtitle="Tags das próprias faixas que não aparecem entre os gêneros"
+            shareOf="do acervo"
+            foot={null}
+          />
+        )}
       </div>
 
-      {(popularityData.length > 0 || tempoData.length > 0) && (
-        <div className="charts-grid">
-          {popularityData.length > 0 && (
-            <section className="panel">
-              <header className="panel-head">
-                <h3>Entre o hit e o garimpo</h3>
-                <p className="panel-sub">
-                  Quantas faixas suas caem em cada nível de popularidade no Spotify, das desconhecidas às que todo
-                  mundo ouve.
-                </p>
-              </header>
-              <ColumnChart data={popularityData} ariaLabel="Faixas por nível de popularidade no Spotify" />
-            </section>
-          )}
-          {tempoData.length > 0 && (
-            <section className="panel">
-              <header className="panel-head">
-                <h3>Em que ritmo</h3>
-                <p className="panel-sub">
-                  Faixas por andamento, em {nf.format(lib.bpm_known)} com BPM conhecido — o que sobra depois do
-                  cruzamento com o Deezer.
-                </p>
-              </header>
-              <ColumnChart data={tempoData} ariaLabel="Faixas por faixa de andamento" />
-            </section>
-          )}
-        </div>
+      {popularityData.length > 0 && (
+        <section className="panel">
+          <header className="panel-head">
+            <h3>Entre o hit e o garimpo</h3>
+            <p className="panel-sub">
+              Quantas faixas suas caem em cada nível de popularidade no Spotify, das desconhecidas às que todo mundo
+              ouve.
+            </p>
+          </header>
+          <ColumnChart data={popularityData} ariaLabel="Faixas por nível de popularidade no Spotify" />
+        </section>
       )}
 
       {deep_cuts.length > 0 && (
@@ -716,7 +703,7 @@ function PlaylistTable({ rows, partial }) {
         <p className="panel-sub">
           {eclectic && focused && eclectic.id !== focused.id ? (
             <>
-              A mais eclética é <b>{eclectic.name}</b> ({decimal(eclectic.genre_diversity)} gêneros efetivos); a mais
+              A mais eclética é <b>{eclectic.name}</b> ({effective(eclectic.genre_diversity)} gêneros efetivos); a mais
               focada é <b>{focused.name}</b>, quase toda {focused.top_genre}.
             </>
           ) : (

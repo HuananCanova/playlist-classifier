@@ -214,11 +214,8 @@ def build_profile_stats(playlists: list[dict], digests: dict[str, dict]) -> dict
             genre_counter[key] += 1
             genre_label.setdefault(key, label)
 
-        # Tags da faixa que não são os gêneros amplos do artista: o nível fino.
         for tag in t.get("tags") or []:
             key = tag.lower()
-            if key in genres:
-                continue
             tag_counter[key] += 1
             tag_label.setdefault(key, tag)
 
@@ -226,6 +223,12 @@ def build_profile_stats(playlists: list[dict], digests: dict[str, dict]) -> dict
         if year:
             decades[(year // 10) * 10] += 1
             years.append((year, t))
+
+    # O nível fino é só o que não é gênero amplo: uma tag que é gênero de qualquer
+    # artista do acervo já aparece em "Do que seu gosto é feito", mesmo que tenha
+    # vindo de outra faixa.
+    for key in [k for k in tag_counter if k in genre_counter]:
+        del tag_counter[key]
 
     popularity = [t["popularity"] for t in unique if t.get("popularity") is not None]
     bpms = [t["bpm"] for t in unique if t.get("bpm")]
