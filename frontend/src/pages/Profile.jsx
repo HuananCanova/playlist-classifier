@@ -433,8 +433,26 @@ function IndexPanel({ index }) {
 }
 
 function Dashboard({ stats, coverage }) {
-  const { library: lib, top_genres, top_artists, top_tags, decades, taste_timeline, popularity_bands, tempo_zones, deep_cuts, playlists } =
-    stats;
+  // Os padrões não são zelo à toa: quem atualiza o código e esquece de
+  // reiniciar o backend continua recebendo o formato antigo, sem estas chaves.
+  // Sem eles, o primeiro `.map` numa chave ausente derruba a página inteira em
+  // branco — e uma página em branco não diz o que fazer. Com eles, o que o
+  // backend velho sabe responder aparece, e o aviso abaixo explica o resto.
+  const {
+    library: lib,
+    top_genres,
+    top_artists,
+    top_tags,
+    decades,
+    playlists,
+    taste_timeline,
+    popularity_bands = [],
+    tempo_zones = [],
+    deep_cuts = [],
+  } = stats;
+
+  // `taste_timeline` só existe na versão nova: serve de marca do descompasso.
+  const backendAntigo = !taste_timeline;
 
   const topGenre = top_genres[0];
   const topDecade = decades.reduce((a, b) => (b.count > (a?.count ?? -1) ? b : a), null);
@@ -479,6 +497,14 @@ function Dashboard({ stats, coverage }) {
 
   return (
     <>
+      {backendAntigo && (
+        <p className="note" role="status">
+          O backend em execução é de uma versão anterior: ele ainda não calcula a linha do gosto, as escalas de
+          popularidade e andamento, nem os garimpos. Reinicie o backend para ver a página inteira — o que aparece
+          abaixo é o que a versão antiga sabe responder.
+        </p>
+      )}
+
       <section className="facet-grid" aria-label="As facetas do seu gosto">
         {topGenre && (
           <Facet
@@ -501,12 +527,14 @@ function Dashboard({ stats, coverage }) {
             sub={`${pct(topDecade.count, decadeTotal)} das faixas com data${lib.median_release_year ? `; metade é de ${lib.median_release_year} ou antes` : ""}`}
           />
         )}
-        <Facet
-          kicker="Fidelidade"
-          value={`${decimal(lib.artist_diversity)} artistas`}
-          sub={reading(LOYALTY, lib.artist_diversity)[1]}
-          hint="Número efetivo de artistas: quantos artistas igualmente presentes dariam o mesmo espalhamento."
-        />
+        {lib.artist_diversity != null && (
+          <Facet
+            kicker="Fidelidade"
+            value={`${decimal(lib.artist_diversity)} artistas`}
+            sub={reading(LOYALTY, lib.artist_diversity)[1]}
+            hint="Número efetivo de artistas: quantos artistas igualmente presentes dariam o mesmo espalhamento."
+          />
+        )}
         {lib.avg_popularity != null && (
           <Facet
             kicker="No radar"
