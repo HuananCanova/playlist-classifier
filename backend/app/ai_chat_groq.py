@@ -38,6 +38,7 @@ def _to_openai_schema(tool: Tool) -> dict:
 
 async def stream_chat(
     access_token: str,
+    owner: str,
     messages: list[dict],
     emit,
     playlist_id: str | None = None,
@@ -55,7 +56,7 @@ async def stream_chat(
 
     tools = {
         t.name: t
-        for t in build_tools(access_token, playlist_id=playlist_id, track_id=track_id)
+        for t in build_tools(access_token, owner, playlist_id=playlist_id, track_id=track_id)
     }
     schemas = [_to_openai_schema(t) for t in tools.values()]
 

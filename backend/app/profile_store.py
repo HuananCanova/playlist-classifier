@@ -63,6 +63,10 @@ def digest_from_analysis(analysis: PlaylistAnalysis, *, has_audio: bool) -> dict
                 "id": t.track_id,
                 "name": t.name,
                 "artists": t.artists,
+                # Campo novo, sem subir a VERSION de propósito: resumos antigos
+                # simplesmente não o têm, e quem lê usa `.get()`. Subir a versão
+                # invalidaria o acervo inteiro e forçaria uma varredura nova.
+                "artist_ids": t.artist_ids,
                 "image": t.image,
                 "duration_ms": t.duration_ms,
                 "popularity": t.popularity,

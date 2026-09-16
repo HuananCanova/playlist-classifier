@@ -198,6 +198,14 @@ class SpotifyClient:
         resp = await self._get(client, f"{BASE_URL}/tracks/{track_id}")
         return resp.json()
 
+    async def get_artist(self, client: httpx.AsyncClient, artist_id: str) -> dict:
+        resp = await self._get(client, f"{BASE_URL}/artists/{artist_id}")
+        return resp.json()
+
+    # Não há `get_artist_top_tracks`: `/artists/{id}/top-tracks` responde 403
+    # para apps criados depois de 27/11/2024. As mais tocadas vêm do Deezer
+    # (deezer_client.get_artist_top), como já acontece com BPM e prévia.
+
     async def get_all_playlists(self, client: httpx.AsyncClient, user_id: str | None = None) -> list[dict]:
         """Playlists da conta cujas faixas o Spotify deixa ler.
 

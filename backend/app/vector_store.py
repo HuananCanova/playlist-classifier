@@ -24,6 +24,13 @@ já está em cache, então a lista sai de graça.
 **O corpus é o que você já olhou.** Indexar acontece como efeito colateral da
 análise de uma playlist, com os dados que já foram buscados. Nenhuma chamada
 externa a mais: o índice cresce conforme você navega, e nunca sozinho.
+
+**Um índice, várias contas.** A coleção é única, mas cada documento pertence a
+uma conta: o id é `{dono}:{id da faixa}` e o dono também vai nos metadados.
+Toda consulta filtra por `owner`. São duas barreiras de propósito — o prefixo
+no id impede que o `upsert` de uma conta sobrescreva a faixa de outra (duas
+pessoas podem ter a mesma música), e o `where` impede que a busca por
+similaridade, que varre a coleção inteira, devolva a faixa de um estranho.
 """
 import asyncio
 import logging
@@ -36,10 +43,24 @@ logger = logging.getLogger(__name__)
 CHROMA_PATH = Path(__file__).resolve().parent.parent / ".chroma"
 COLLECTION = "faixas"
 
+
 # Carregar o modelo ONNX leva alguns segundos; só acontece no primeiro uso, e
 # não no import, para não atrasar o boot do FastAPI.
 _collection: Any = None
 _lock = asyncio.Lock()
+
+# Ver `_adopt_legacy`, no fim do arquivo: documentos anteriores à separação
+# por conta já foram adotados nesta coleção?
+_adopted = False
+
+
+def _doc_id(owner: str, track_id: str) -> str:
+    return f"{owner}:{track_id}"
+
+
+def _track_id(doc_id: str) -> str:
+    """Desfaz o prefixo do dono. Ids do Spotify são base62, nunca têm `:`."""
+    return doc_id.split(":", 1)[1] if ":" in doc_id else doc_id
 
 
 def _build_collection() -> Any:
@@ -58,11 +79,15 @@ def _build_collection() -> Any:
 
 
 async def _get_collection() -> Any:
-    global _collection
+    global _collection, _adopted
     if _collection is None:
         async with _lock:
             if _collection is None:
                 _collection = await asyncio.to_thread(_build_collection)
+                # A adoção do índice antigo vale por coleção, não por processo:
+                # amarrada aqui, trocar a coleção (nos testes, por exemplo) não
+                # deixa para trás um sinalizador dizendo que já foi feita.
+                _adopted = False
                 logger.info("Índice vetorial pronto em %s", CHROMA_PATH)
     return _collection
 
@@ -84,18 +109,20 @@ def _documento(nome: str, artistas: list[str], album: str | None, tags: list[str
     return "".join(partes)
 
 
-async def index_tracks(tracks: list[dict]) -> int:
-    """Indexa (ou reindexa) faixas. Cada dict traz track_id, nome, artistas, album, tags.
+async def index_tracks(owner: str, tracks: list[dict]) -> int:
+    """Indexa (ou reindexa) faixas no acervo de uma conta.
 
-    Usa `upsert`: reanalisar a mesma playlist atualiza os documentos em vez de
-    duplicá-los, e uma faixa que ganhou tags novas no Last.fm reflete isso.
+    Cada dict traz track_id, nome, artistas, album, tags. Usa `upsert`:
+    reanalisar a mesma playlist atualiza os documentos em vez de duplicá-los,
+    e uma faixa que ganhou tags novas no Last.fm reflete isso.
     """
     uteis = [t for t in tracks if t.get("track_id")]
-    if not uteis:
+    if not uteis or not owner:
         return 0
 
     col = await _get_collection()
-    ids = [t["track_id"] for t in uteis]
+    await _adopt_legacy(owner)
+    ids = [_doc_id(owner, t["track_id"]) for t in uteis]
     documentos = [
         _documento(
             t.get("nome") or "",
@@ -107,6 +134,7 @@ async def index_tracks(tracks: list[dict]) -> int:
     ]
     metadados = [
         {
+            "owner": owner,
             "nome": t.get("nome") or "",
             # Chroma só guarda escalares nos metadados, então a lista vira texto.
             "artistas": ", ".join(t.get("artistas") or []),
@@ -127,7 +155,8 @@ def _formatar(resultado: dict, pular: str | None = None) -> list[dict]:
     distancias = (resultado.get("distances") or [[]])[0]
 
     saida = []
-    for track_id, meta, distancia in zip(ids, metadados, distancias):
+    for doc_id, meta, distancia in zip(ids, metadados, distancias):
+        track_id = _track_id(doc_id)
         if pular is not None and track_id == pular:
             continue
         meta = meta or {}
@@ -146,33 +175,49 @@ def _formatar(resultado: dict, pular: str | None = None) -> list[dict]:
     return saida
 
 
-async def search(consulta: str, limite: int = 20, track_ids: list[str] | None = None) -> list[dict]:
-    """Busca semântica. `track_ids` restringe a busca a um subconjunto (uma playlist)."""
-    if not consulta.strip():
+async def search(
+    owner: str, consulta: str, limite: int = 20, track_ids: list[str] | None = None
+) -> list[dict]:
+    """Busca semântica no acervo de uma conta.
+
+    `track_ids` restringe a busca a um subconjunto (uma playlist).
+    """
+    if not consulta.strip() or not owner:
         return []
 
     col = await _get_collection()
     if await asyncio.to_thread(col.count) == 0:
         return []
+    await _adopt_legacy(owner)
 
     # O recorte por playlist vai em `ids`, não em `where`: `where` filtra
     # metadados, e a playlist não é um deles — uma faixa pertence a várias.
-    kwargs: dict = {"query_texts": [consulta], "n_results": limite}
+    # O dono, esse sim, é metadado, e é o que separa uma conta da outra.
+    kwargs: dict = {
+        "query_texts": [consulta],
+        "n_results": limite,
+        "where": {"owner": owner},
+    }
     if track_ids:
-        kwargs["ids"] = track_ids
+        kwargs["ids"] = [_doc_id(owner, t) for t in track_ids]
 
     resultado = await asyncio.to_thread(col.query, **kwargs)
     return _formatar(resultado)
 
 
-async def similar_to_track(track_id: str, limite: int = 10) -> list[dict]:
-    """Vizinhos mais próximos de uma faixa já indexada.
+async def similar_to_track(owner: str, track_id: str, limite: int = 10) -> list[dict]:
+    """Vizinhos mais próximos de uma faixa, dentro do acervo da conta.
 
     Consulta pelo embedding que já está guardado, em vez de reembutir o texto:
     é o mesmo vetor e evita rodar o modelo à toa.
     """
+    if not owner:
+        return []
     col = await _get_collection()
-    existente = await asyncio.to_thread(col.get, ids=[track_id], include=["embeddings"])
+    await _adopt_legacy(owner)
+    existente = await asyncio.to_thread(
+        col.get, ids=[_doc_id(owner, track_id)], include=["embeddings"]
+    )
     embeddings = existente.get("embeddings")
     if embeddings is None or len(embeddings) == 0:
         return []
@@ -182,25 +227,89 @@ async def similar_to_track(track_id: str, limite: int = 10) -> list[dict]:
         query_embeddings=[embeddings[0]],
         # Um a mais: a própria faixa volta como o vizinho mais próximo dela mesma.
         n_results=limite + 1,
+        where={"owner": owner},
     )
     return _formatar(resultado, pular=track_id)[:limite]
 
 
-async def stats() -> dict:
-    col = await _get_collection()
-    total = await asyncio.to_thread(col.count)
+async def stats(owner: str) -> dict:
+    """Quantas faixas esta conta tem no índice."""
+    total, _ = await all_metadata(owner)
     return {"faixas_indexadas": total, "caminho": str(CHROMA_PATH)}
 
 
-async def all_metadata() -> tuple[int, list[dict]]:
-    """Metadados de todas as faixas indexadas, sem embeddings.
+async def all_metadata(owner: str) -> tuple[int, list[dict]]:
+    """Metadados das faixas desta conta no índice, sem embeddings.
 
     Alimenta o perfil com o que já está no índice — artistas e tags de milhares
     de faixas sem nenhuma chamada ao Spotify.
     """
-    col = await _get_collection()
-    total = await asyncio.to_thread(col.count)
-    if not total:
+    if not owner:
         return 0, []
-    resultado = await asyncio.to_thread(col.get, include=["metadatas"])
-    return total, [m or {} for m in resultado.get("metadatas") or []]
+    col = await _get_collection()
+    if not await asyncio.to_thread(col.count):
+        return 0, []
+    await _adopt_legacy(owner)
+    resultado = await asyncio.to_thread(
+        col.get, where={"owner": owner}, include=["metadatas"]
+    )
+    metadados = [m or {} for m in resultado.get("metadatas") or []]
+    return len(metadados), metadados
+
+
+# ── Documentos anteriores à separação por conta ─────────────────────────
+#
+# O índice existia antes de haver dono: os documentos tinham o id da faixa
+# puro e nenhum `owner`. Sem migrar, eles ficariam invisíveis para todo mundo
+# (o `where` nunca casaria) e a alternativa seria reindexar — o que significa
+# reanalisar playlists, ou seja, chamadas ao Spotify em volume, exatamente o
+# que já rendeu uma suspensão de 18 horas.
+#
+# Então eles são adotados no lugar, reaproveitando o embedding que já está
+# gravado: nada é recalculado e nada sai para a rede. Roda uma vez por
+# processo. Numa instalação nova não há nada para adotar e isto é um `count`.
+#
+# Quem chega primeiro adota tudo. Não há como saber de quem eram os documentos
+# antigos — o índice não guardava dono —, e numa instalação nova não existe
+# legado nenhum, então o caso ambíguo só aparece em quem já usava o app sozinho.
+
+
+async def _adopt_legacy(owner: str) -> int:
+    """Dá dono aos documentos gravados antes de o índice separar contas."""
+    global _adopted
+    if _adopted or not owner:
+        return 0
+    _adopted = True
+
+    col = await _get_collection()
+    if not await asyncio.to_thread(col.count):
+        return 0
+
+    # Uma varredura dos metadados, uma vez por coleção carregada. Filtrar pelo
+    # servidor não serve aqui: o Chroma responde vazio — e não com erro — a uma
+    # consulta por um campo que documento nenhum tem, então "sem `owner`" e
+    # "nada encontrado" seriam indistinguíveis.
+    todos = await asyncio.to_thread(col.get, include=["metadatas"])
+    ids = [
+        doc_id
+        for doc_id, meta in zip(todos.get("ids") or [], todos.get("metadatas") or [])
+        if not (meta or {}).get("owner")
+    ]
+    if not ids:
+        return 0
+
+    # `add` com o embedding que já está gravado: o modelo não roda de novo e
+    # nada sai para a rede.
+    dados = await asyncio.to_thread(
+        col.get, ids=ids, include=["metadatas", "documents", "embeddings"]
+    )
+    await asyncio.to_thread(
+        col.add,
+        ids=[_doc_id(owner, _track_id(i)) for i in dados["ids"]],
+        embeddings=dados["embeddings"],
+        documents=dados["documents"],
+        metadatas=[{**(m or {}), "owner": owner} for m in dados["metadatas"]],
+    )
+    await asyncio.to_thread(col.delete, ids=dados["ids"])
+    logger.info("Adotadas %d faixas do índice antigo para a conta %s", len(ids), owner)
+    return len(ids)

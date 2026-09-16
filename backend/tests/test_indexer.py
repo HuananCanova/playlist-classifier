@@ -19,19 +19,22 @@ def estado_tmp(tmp_path, monkeypatch):
     return indexer.ESTADO
 
 
+DONO = "dono"
+
+
 def _pl(pid: str, snapshot: str) -> dict:
     return {"id": pid, "name": f"Playlist {pid}", "snapshot_id": snapshot}
 
 
 def test_playlist_nunca_vista_esta_pendente():
     playlists = [_pl("a", "s1"), _pl("b", "s1")]
-    assert indexer._pendentes(playlists, {}) == playlists
+    assert indexer._pendentes(playlists, {}, DONO) == playlists
 
 
 def test_playlist_ja_indexada_e_intacta_e_pulada():
     playlists = [_pl("a", "s1"), _pl("b", "s1")]
-    estado = {"a": "s1", "b": "s1"}
-    assert indexer._pendentes(playlists, estado) == []
+    estado = {f"{DONO}:a": "s1", f"{DONO}:b": "s1"}
+    assert indexer._pendentes(playlists, estado, DONO) == []
 
 
 def test_playlist_alterada_volta_para_a_fila():
@@ -41,9 +44,9 @@ def test_playlist_alterada_volta_para_a_fila():
     varredura a refazer todas as outras.
     """
     playlists = [_pl("a", "s2"), _pl("b", "s1")]
-    estado = {"a": "s1", "b": "s1"}
+    estado = {f"{DONO}:a": "s1", f"{DONO}:b": "s1"}
 
-    pendentes = indexer._pendentes(playlists, estado)
+    pendentes = indexer._pendentes(playlists, estado, DONO)
 
     assert [p["id"] for p in pendentes] == ["a"]
 
@@ -52,8 +55,8 @@ def test_playlist_sem_snapshot_nao_quebra():
     """Nem toda resposta traz snapshot_id; a ausência não pode virar KeyError."""
     playlists = [{"id": "a", "name": "Sem snapshot"}]
 
-    assert indexer._pendentes(playlists, {}) == playlists
-    assert indexer._pendentes(playlists, {"a": "sem-snapshot"}) == []
+    assert indexer._pendentes(playlists, {}, DONO) == playlists
+    assert indexer._pendentes(playlists, {f"{DONO}:a": "sem-snapshot"}, DONO) == []
 
 
 def test_estado_sobrevive_a_ida_e_volta(estado_tmp):
@@ -89,7 +92,7 @@ async def test_nao_dispara_duas_varreduras(monkeypatch, estado_tmp, tmp_path):
     profile_store.clear_memo()
     chamadas = []
 
-    async def fake_rodar(refresh_token, fila):
+    async def fake_rodar(refresh_token, owner, fila):
         chamadas.append(refresh_token)
         # Fica "rodando" o suficiente para a segunda chamada encontrar a
         # primeira em andamento.
@@ -99,12 +102,12 @@ async def test_nao_dispara_duas_varreduras(monkeypatch, estado_tmp, tmp_path):
     monkeypatch.setattr(indexer, "_progress", indexer.IndexProgress())
 
     playlists = [{**_pl("a", "s1"), "track_count": 3}]
-    primeira = await indexer.start("refresh-token", playlists)
+    primeira = await indexer.start("refresh-token", "dono", playlists)
     # `create_task` só agenda; sem devolver o controle ao loop, a corrotina
     # ainda não rodou e `chamadas` estaria vazia por tempo, não por lógica.
     await asyncio.sleep(0)
 
-    segunda = await indexer.start("refresh-token", playlists)
+    segunda = await indexer.start("refresh-token", "dono", playlists)
 
     assert primeira.running
     assert segunda is primeira, "a segunda chamada deveria devolver a varredura em curso"
@@ -163,7 +166,7 @@ def _conta(n=4):
 async def test_bloqueio_longo_para_tudo_e_sobrevive_ao_reinicio(monkeypatch, varredura_fake, spotify_state_tmp):
     chamadas = []
 
-    async def indexar(token, playlist):
+    async def indexar(token, owner, playlist):
         chamadas.append(playlist["id"])
         # O que o spotify_client faz ao receber a resposta: grava o bloqueio.
         spotify_state_tmp._set_global_block(65527)
@@ -171,7 +174,7 @@ async def test_bloqueio_longo_para_tudo_e_sobrevive_ao_reinicio(monkeypatch, var
 
     monkeypatch.setattr(indexer, "_indexar_uma", indexar)
 
-    await indexer.start("r", _conta())
+    await indexer.start("r", "dono", _conta())
     await indexer._task
 
     assert chamadas == ["p0"], "depois do primeiro bloqueio longo nenhuma playlist pode ser tentada"
@@ -180,7 +183,7 @@ async def test_bloqueio_longo_para_tudo_e_sobrevive_ao_reinicio(monkeypatch, var
     # "Reinício": memória zerada, bloqueio lido do disco — não começa de novo.
     monkeypatch.setattr(spotify_state_tmp, "_global_until", None)
     monkeypatch.setattr(indexer, "_progress", indexer.IndexProgress())
-    progresso = await indexer.start("r", _conta())
+    progresso = await indexer.start("r", "dono", _conta())
     assert not progresso.running
     assert chamadas == ["p0"]
 
@@ -189,7 +192,7 @@ async def test_bloqueio_longo_para_tudo_e_sobrevive_ao_reinicio(monkeypatch, var
 async def test_espera_curta_repete_a_mesma_playlist(monkeypatch, varredura_fake):
     tentativas = []
 
-    async def indexar(token, playlist):
+    async def indexar(token, owner, playlist):
         tentativas.append(playlist["id"])
         if playlist["id"] == "p0" and tentativas.count("p0") == 1:
             raise _erro_429("3")
@@ -197,25 +200,25 @@ async def test_espera_curta_repete_a_mesma_playlist(monkeypatch, varredura_fake)
 
     monkeypatch.setattr(indexer, "_indexar_uma", indexar)
 
-    await indexer.start("r", _conta(2))
+    await indexer.start("r", "dono", _conta(2))
     await indexer._task
 
     # Antes, um 429 curto pulava a playlist até a próxima varredura.
     assert tentativas == ["p0", "p0", "p1"]
     assert varredura_fake == [3.0]
     assert indexer.progress_dict()["done"] == 2
-    assert indexer._carregar_estado() == {"p0": "s", "p1": "s"}
+    assert indexer._carregar_estado() == {f"{DONO}:p0": "s", f"{DONO}:p1": "s"}
 
 
 @pytest.mark.asyncio
 async def test_teto_por_hora_espera_em_vez_de_acelerar(monkeypatch, varredura_fake):
-    async def indexar(token, playlist):
+    async def indexar(token, owner, playlist):
         return 1
 
     monkeypatch.setattr(indexer, "_indexar_uma", indexar)
     monkeypatch.setattr(indexer, "MAX_PLAYLISTS_POR_HORA", 2)
 
-    await indexer.start("r", _conta(3))
+    await indexer.start("r", "dono", _conta(3))
     await indexer._task
 
     assert indexer.progress_dict()["done"] == 3
@@ -227,7 +230,7 @@ def test_cobertura_nao_chama_o_spotify(estado_tmp, tmp_path, monkeypatch):
 
     monkeypatch.setattr(profile_store, "STORE_PATH", tmp_path / "profile")
     profile_store.clear_memo()
-    cobertura = indexer.coverage(_conta(2) + [{"id": "vazia", "name": "V", "track_count": 0}])
+    cobertura = indexer.coverage(_conta(2) + [{"id": "vazia", "name": "V", "track_count": 0}], DONO)
     assert cobertura == {
         "total_playlists": 2,
         "indexed_playlists": 0,

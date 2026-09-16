@@ -41,7 +41,7 @@ def active_provider() -> str | None:
 
 
 def _anthropic_tools(
-    access_token: str, playlist_id: str | None, track_id: str | None
+    access_token: str, owner: str, playlist_id: str | None, track_id: str | None
 ) -> list:
     """Traduz as ferramentas neutras para o formato do SDK da Anthropic.
 
@@ -49,7 +49,7 @@ def _anthropic_tools(
     APIs enxergam exatamente os mesmos argumentos.
     """
     tools = []
-    for tool in build_tools(access_token, playlist_id=playlist_id, track_id=track_id):
+    for tool in build_tools(access_token, owner, playlist_id=playlist_id, track_id=track_id):
 
         async def call(_run=tool.run, **kwargs) -> str:
             return await _run(**kwargs)
@@ -67,6 +67,7 @@ def _anthropic_tools(
 
 async def _run_anthropic(
     access_token: str,
+    owner: str,
     messages: list[dict],
     emit,
     playlist_id: str | None,
@@ -80,7 +81,7 @@ async def _run_anthropic(
         model=MODEL,
         max_tokens=MAX_TOKENS,
         system=system_prompt(playlist_id=playlist_id, track_id=track_id),
-        tools=_anthropic_tools(access_token, playlist_id, track_id),
+        tools=_anthropic_tools(access_token, owner, playlist_id, track_id),
         messages=messages,
         stream=True,
         # A conversa envolve raciocinar sobre os dados que voltam das ferramentas.
@@ -112,6 +113,7 @@ async def _run_anthropic(
 
 async def stream_chat(
     access_token: str,
+    owner: str,
     messages: list[dict],
     playlist_id: str | None = None,
     track_id: str | None = None,
@@ -150,9 +152,13 @@ async def stream_chat(
             if provider == "groq":
                 from .ai_chat_groq import stream_chat as run_groq
 
-                await run_groq(access_token, messages, emit, playlist_id, track_id, turno)
+                await run_groq(
+                    access_token, owner, messages, emit, playlist_id, track_id, turno
+                )
             else:
-                await _run_anthropic(access_token, messages, emit, playlist_id, track_id, turno)
+                await _run_anthropic(
+                    access_token, owner, messages, emit, playlist_id, track_id, turno
+                )
 
             turno.finish()
 

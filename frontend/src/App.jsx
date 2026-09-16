@@ -9,6 +9,7 @@ import PlaylistDetail from "./pages/PlaylistDetail.jsx";
 import Profile from "./pages/Profile.jsx";
 import Search from "./pages/Search.jsx";
 import TrackDetail from "./pages/TrackDetail.jsx";
+import ArtistDetail from "./pages/ArtistDetail.jsx";
 
 function BrandMark() {
   return (
@@ -129,6 +130,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <TrackDetail />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/artista/:id"
+            element={
+              <RequireAuth>
+                <ArtistDetail />
               </RequireAuth>
             }
           />

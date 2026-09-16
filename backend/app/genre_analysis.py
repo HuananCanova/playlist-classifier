@@ -31,14 +31,18 @@ LASTFM_CONCURRENCY = 24
 HTTP_LIMITS = httpx.Limits(max_connections=64, max_keepalive_connections=64)
 
 
-# Análises em andamento, por (playlist, com_audio). A varredura da busca, a do
-# perfil e a própria página podem pedir a mesma playlist ao mesmo tempo; sem
-# isto cada uma repetiria as chamadas ao Spotify.
-_in_flight: dict[tuple[str, bool], asyncio.Task] = {}
+# Análises em andamento, por (conta, playlist, com_audio). A varredura da
+# busca, a do perfil e a própria página podem pedir a mesma playlist ao mesmo
+# tempo; sem isto cada uma repetiria as chamadas ao Spotify.
+#
+# A conta entra na chave junto com o cache: sem ela, duas pessoas pedindo a
+# mesma playlist compartilhariam a tarefa, e a segunda receberia o resultado
+# obtido com o token da primeira — sem nunca passar pela permissão do Spotify.
+_in_flight: dict[tuple[str, str, bool], asyncio.Task] = {}
 
 
 async def build_playlist_analysis(
-    access_token: str, playlist_id: str, *, include_audio: bool = True
+    access_token: str, playlist_id: str, *, owner: str, include_audio: bool = True
 ) -> PlaylistAnalysis:
     """Análise completa da playlist.
 
@@ -48,25 +52,32 @@ async def build_playlist_analysis(
     resto termina em segundos. Uma análise sem áudio nunca entra no
     `playlist_analysis_cache`, para a página da playlist não receber BPM vazio.
     """
-    cached = playlist_analysis_cache.get(playlist_id)
+    # A chave carrega a conta: o conteúdo de uma playlist privada não pode sair
+    # do cache para quem o Spotify nunca autorizou a vê-la. `owner` é
+    # obrigatório justamente para que um chamador novo não esqueça disso.
+    cached = playlist_analysis_cache.get(f"{owner}:{playlist_id}")
     if cached is not None:
         return cached
 
     # Uma análise completa já em voo serve também a quem não precisa de áudio.
-    keys = [(playlist_id, True)] if include_audio else [(playlist_id, False), (playlist_id, True)]
+    keys = (
+        [(owner, playlist_id, True)]
+        if include_audio
+        else [(owner, playlist_id, False), (owner, playlist_id, True)]
+    )
     for key in keys:
         task = _in_flight.get(key)
         if task is not None:
             return await asyncio.shield(task)
 
-    key = (playlist_id, include_audio)
-    task = asyncio.create_task(_build(access_token, playlist_id, include_audio))
+    key = (owner, playlist_id, include_audio)
+    task = asyncio.create_task(_build(access_token, playlist_id, include_audio, owner))
     _in_flight[key] = task
     task.add_done_callback(lambda t: _forget(key, t))
     return await asyncio.shield(task)
 
 
-def _forget(key: tuple[str, bool], task: asyncio.Task) -> None:
+def _forget(key: tuple[str, str, bool], task: asyncio.Task) -> None:
     _in_flight.pop(key, None)
     # Se quem pediu desistiu (página fechada), ninguém lê o erro; lê-lo aqui
     # evita o aviso de "exception was never retrieved".
@@ -74,7 +85,9 @@ def _forget(key: tuple[str, bool], task: asyncio.Task) -> None:
         task.exception()
 
 
-async def _build(access_token: str, playlist_id: str, include_audio: bool) -> PlaylistAnalysis:
+async def _build(
+    access_token: str, playlist_id: str, include_audio: bool, owner: str
+) -> PlaylistAnalysis:
     spotify = SpotifyClient(access_token)
 
     async with httpx.AsyncClient(timeout=20.0, limits=HTTP_LIMITS) as client:
@@ -129,9 +142,11 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
     bpm_values: list[float] = []
 
     for track, lastfm_tags, deezer in zip(tracks, all_tags, all_deezer):
-        track_artist_names = [
-            a["name"] for a in (track.get("artists") or []) if a and a.get("name")
-        ]
+        track_artists = [a for a in (track.get("artists") or []) if a and a.get("name")]
+        track_artist_names = [a["name"] for a in track_artists]
+        # Um artista sem id vira string vazia para as duas listas ficarem
+        # alinhadas por posição — o front lê o nome e o id pelo mesmo índice.
+        track_artist_ids = [a.get("id") or "" for a in track_artists]
         track_genres: list[str] = []
         for name in track_artist_names:
             track_genres.extend(artist_genres.get(name, []))
@@ -161,6 +176,7 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
                 track_id=track["id"],
                 name=track.get("name") or "(sem título)",
                 artists=track_artist_names,
+                artist_ids=track_artist_ids,
                 album=album.get("name"),
                 image=images[0]["url"] if images else None,
                 duration_ms=track.get("duration_ms") or 0,
@@ -203,7 +219,7 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         tracks_missing_bpm=len(track_infos) - len(bpm_values),
     )
     if include_audio:
-        playlist_analysis_cache[playlist_id] = analysis
+        playlist_analysis_cache[f"{owner}:{playlist_id}"] = analysis
 
     # Toda análise vira resumo em disco para o perfil — inclusive as da página e
     # da varredura da busca, que assim adiantam o trabalho do perfil de graça.

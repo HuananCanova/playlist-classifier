@@ -14,9 +14,9 @@ from app.chat import ChatRequest
 
 def test_escopo_exige_exatamente_um():
     with pytest.raises(ValueError):
-        build_tools("token")
+        build_tools("token", "dono")
     with pytest.raises(ValueError):
-        build_tools("token", playlist_id="p", track_id="t")
+        build_tools("token", "dono", playlist_id="p", track_id="t")
 
 
 def test_ferramentas_da_playlist_nao_aceitam_id():
@@ -25,7 +25,7 @@ def test_ferramentas_da_playlist_nao_aceitam_id():
     `buscar_nesta_playlist` recebe `consulta` — texto livre, não um ponteiro
     para outro recurso. Se um id aparecer aqui, o escopo virou sugestão.
     """
-    tools = build_tools("token", playlist_id="p1")
+    tools = build_tools("token", "dono", playlist_id="p1")
     assert [t.name for t in tools] == [
         "analisar_esta_playlist",
         "buscar_nesta_playlist",
@@ -37,7 +37,7 @@ def test_ferramentas_da_playlist_nao_aceitam_id():
 
 
 def test_ferramentas_da_faixa_nao_aceitam_id():
-    tools = build_tools("token", track_id="t1")
+    tools = build_tools("token", "dono", track_id="t1")
     assert [t.name for t in tools] == ["analisar_esta_faixa", "faixas_parecidas"]
     for tool in tools:
         assert tool.parameters.get("properties") == {}

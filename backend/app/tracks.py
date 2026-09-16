@@ -4,7 +4,7 @@ import asyncio
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
-from .auth import get_valid_access_token
+from .auth import get_valid_access_token, user_key
 from .cache import track_detail_cache
 from .deezer_client import buscar_faixa
 from .lastfm_client import get_artist_tags, get_track_tags
@@ -84,7 +84,7 @@ async def track_similar(track_id: str, request: Request, limit: int = 8):
     cresce quando você analisa a playlist que a contém.
     """
     await get_valid_access_token(request)
-    return await similar_to_track(track_id, limite=limit)
+    return await similar_to_track(user_key(request), track_id, limite=limit)
 
 
 async def _buscar_em_paralelo(client, artista: str, titulo: str, duracao_ms):

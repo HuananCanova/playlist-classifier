@@ -18,6 +18,10 @@ class TrackGenreInfo(BaseModel):
     track_id: str
     name: str
     artists: list[str]
+    # Ids do Spotify na mesma ordem de `artists`. Já vinham na resposta das
+    # faixas e eram descartados; são o que liga cada nome à página do artista,
+    # sem uma busca por nome (que erra em nomes repetidos).
+    artist_ids: list[str] = []
     album: str | None = None
     image: str | None = None
     duration_ms: int
@@ -143,3 +147,65 @@ class PlaylistAnalysis(BaseModel):
     average_bpm: float | None = None
     tracks_missing_genre: int
     tracks_missing_bpm: int = 0
+
+
+class ArtistTrack(BaseModel):
+    """Uma faixa do artista, para as listas da página dele.
+
+    Vem de duas origens: do acervo (id do Spotify, abre a página da faixa) ou
+    das mais tocadas no Deezer (sem id do Spotify, mas com prévia tocável).
+    """
+
+    track_id: str | None = None
+    name: str
+    album: str | None = None
+    image: str | None = None
+    spotify_url: str | None = None
+    preview_url: str | None = None
+    deezer_url: str | None = None
+    # Só nas faixas que vieram do acervo do usuário: onde ela está.
+    playlist_id: str | None = None
+    playlist_name: str | None = None
+
+
+class SimilarArtist(BaseModel):
+    name: str
+    # O Last.fm dá o nome e o link dele; o id do Spotify sai de uma busca por
+    # nome, e fica `None` quando a busca não acha ninguém com confiança.
+    lastfm_url: str | None = None
+    spotify_id: str | None = None
+    image: str | None = None
+
+
+class ArtistProfile(BaseModel):
+    """Tudo que a página do artista mostra, de três fontes.
+
+    Spotify dá identidade (foto, seguidores, link); Last.fm dá contexto
+    (biografia, audiência, tags, parecidos); o acervo em disco diz onde o
+    artista aparece nas playlists de quem está logado.
+    """
+
+    id: str
+    name: str
+    image: str | None = None
+    spotify_url: str | None = None
+    # Sem `followers`/`popularity`: desde a migração de 2026 o objeto do artista
+    # do Spotify não traz mais esses campos (nem `genres`). A audiência aqui é a
+    # do Last.fm, logo abaixo.
+
+    lastfm_url: str | None = None
+    listeners: int | None = None
+    playcount: int | None = None
+    bio: str | None = None
+    tags: list[str] = []
+
+    top_tracks: list[ArtistTrack] = []
+    similar: list[SimilarArtist] = []
+
+    # O artista dentro do acervo de quem está logado.
+    library_tracks: list[ArtistTrack] = []
+    library_track_count: int = 0
+    library_playlists: list[PlaylistSummary] = []
+    # `False` quando nenhuma playlist foi analisada ainda — a página distingue
+    # "não aparece no seu acervo" de "seu acervo ainda não foi varrido".
+    library_scanned: bool = False

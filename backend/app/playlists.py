@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
-from .auth import get_valid_access_token
+from .auth import get_valid_access_token, user_key
 from .clustering import cluster_playlist
 from .cache import playlist_analysis_cache, user_playlists_cache
 from .genre_analysis import build_playlist_analysis
@@ -76,13 +76,12 @@ def _spotify_error(exc: httpx.HTTPStatusError) -> HTTPException:
 
 
 def _user_cache_key(request: Request) -> str:
-    """Chave estável por usuário, sem guardar o token em lugar nenhum.
+    """Chave por usuário. Uma só no app inteiro, definida em `auth.user_key`.
 
-    Usa o refresh token porque o access token muda a cada renovação e jogaria
-    o cache fora sem motivo.
+    O nome do arquivo em disco precisa ser seguro para caminho, e o id do
+    Spotify não é — daí o hash aqui, e não na origem.
     """
-    seed = request.session.get("refresh_token") or request.session.get("access_token") or ""
-    return hashlib.sha256(seed.encode()).hexdigest()[:32]
+    return hashlib.sha256(user_key(request).encode()).hexdigest()[:32]
 
 
 # ── última listagem em disco ────────────────────────────────────────────────
@@ -204,19 +203,20 @@ async def analyze_playlist(
     # em cache seria devolvida a outra conta sem passar pela permissão do
     # Spotify. Este app é de um usuário só, mas o cache não deveria ser o
     # lugar onde essa garantia se perde.
-    cache_key = f"{_user_cache_key(request)}:{playlist_id}"
+    owner = user_key(request)
+    cache_key = f"{owner}:{playlist_id}"
     if not refresh:
         cached = playlist_analysis_cache.get(cache_key)
         if cached is not None:
             return cached
 
     try:
-        analysis = await build_playlist_analysis(token, playlist_id)
+        analysis = await build_playlist_analysis(token, playlist_id, owner=owner)
     except httpx.HTTPStatusError as exc:
         raise _spotify_error(exc) from exc
 
     playlist_analysis_cache[cache_key] = analysis
-    background.add_task(_index_analysis, analysis)
+    background.add_task(_index_analysis, owner, analysis)
     return analysis
 
 
@@ -229,7 +229,9 @@ async def playlist_clusters(playlist_id: str, request: Request):
     """
     token = await get_valid_access_token(request)
     try:
-        analysis = await build_playlist_analysis(token, playlist_id)
+        analysis = await build_playlist_analysis(
+            token, playlist_id, owner=user_key(request)
+        )
     except httpx.HTTPStatusError as exc:
         raise _spotify_error(exc) from exc
 
@@ -256,10 +258,11 @@ async def playlist_clusters(playlist_id: str, request: Request):
     )
 
 
-async def _index_analysis(analysis: PlaylistAnalysis) -> None:
+async def _index_analysis(owner: str, analysis: PlaylistAnalysis) -> None:
     """Alimenta o índice vetorial com as faixas de uma análise já pronta."""
     try:
         await index_tracks(
+            owner,
             [
                 {
                     "track_id": t.track_id,

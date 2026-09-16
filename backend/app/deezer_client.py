@@ -165,7 +165,7 @@ async def buscar_faixa(
     }
     deezer_cache[chave] = resultado
     return resultado
-from .cache import deezer_track_cache
+from .cache import deezer_artist_cache, deezer_track_cache
 
 SEARCH_URL = "https://api.deezer.com/search"
 TRACK_URL = "https://api.deezer.com/track"
@@ -309,3 +309,74 @@ async def get_many(client: httpx.AsyncClient, pairs: list[tuple[str, str]]) -> l
             return await get_track_info(client, artist, track)
 
     return await asyncio.gather(*(one(a, t) for a, t in pairs))
+
+
+# Mais tocadas do artista, por nome. O `/artists/{id}/top-tracks` do Spotify
+# responde 403 para apps criados depois de 27/11/2024 — a mesma migração de
+# 2026 que levou `audio-features` e `preview_url`. O Deezer continua aberto e,
+# além do título, devolve capa e prévia, então a lista é tocável no próprio app.
+async def get_artist_top(
+    client: httpx.AsyncClient, artist_name: str, limit: int = 10
+) -> list[dict]:
+    if not artist_name:
+        return []
+
+    cache_key = f"top::{artist_name.lower()}"
+    if cache_key in deezer_artist_cache:
+        return deezer_artist_cache[cache_key]
+
+    try:
+        busca = await client.get(
+            f"{BASE_URL}/search/artist",
+            params={"q": artist_name, "limit": 5},
+            timeout=10.0,
+        )
+        busca.raise_for_status()
+        candidatos = (busca.json() or {}).get("data") or []
+    except (httpx.HTTPError, ValueError):
+        return []
+
+    # Duas exigências, nesta ordem. Primeiro o nome normalizado igual: o Deezer
+    # ordena por relevância, e "Astrix" também casa com "Astrix Tribute".
+    # Depois o número de fãs: o catálogo tem entradas duplicadas com o mesmo
+    # nome exato, e a que vem primeiro costuma ser a vazia — foi o que
+    # devolveu uma lista em branco para um artista com 278 mil ouvintes.
+    alvo = _normalize(artist_name)
+    exatos = sorted(
+        (c for c in candidatos if _normalize(c.get("name", "")) == alvo),
+        key=lambda c: c.get("nb_fan") or 0,
+        reverse=True,
+    )
+    if not exatos:
+        deezer_artist_cache[cache_key] = []
+        return []
+
+    # A duplicata vazia nem sempre é a de menos fãs, então o segundo candidato
+    # ainda é tentado. Para no primeiro que devolve faixas.
+    faixas: list[dict] = []
+    for artista in exatos[:2]:
+        try:
+            resp = await client.get(
+                f"{BASE_URL}/artist/{artista['id']}/top", params={"limit": limit}, timeout=10.0
+            )
+            resp.raise_for_status()
+            faixas = (resp.json() or {}).get("data") or []
+        except (httpx.HTTPError, ValueError):
+            return []
+        if faixas:
+            break
+
+    top = [
+        {
+            "id": str(f.get("id")),
+            "title": f.get("title") or "(sem título)",
+            "album": (f.get("album") or {}).get("title"),
+            "image": (f.get("album") or {}).get("cover_medium"),
+            "preview_url": f.get("preview") or None,
+            "deezer_url": f.get("link") or None,
+        }
+        for f in faixas
+        if f and f.get("id")
+    ]
+    deezer_artist_cache[cache_key] = top
+    return top

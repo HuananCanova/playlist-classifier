@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
 from .ai_chat import active_provider, stream_chat
-from .auth import get_valid_access_token
+from .auth import get_valid_access_token, user_key
 from .metrics import recent, summary
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -63,6 +63,7 @@ async def chat(payload: ChatRequest, request: Request):
     return StreamingResponse(
         stream_chat(
             token,
+            user_key(request),
             messages,
             playlist_id=payload.playlist_id,
             track_id=payload.track_id,

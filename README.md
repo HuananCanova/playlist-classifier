@@ -43,6 +43,7 @@ playlist-classifier/
 │       ├── lastfm_client.py   # tags de artista e de faixa (a fonte de gênero)
 │       ├── genre_analysis.py  # combina as duas fontes e agrega distribuições
 │       ├── playlists.py       # rotas /api/playlists
+│       ├── artists.py         # /api/artists/{id} — Spotify + Last.fm + acervo
 │       ├── ai_tools.py        # as ferramentas do agente (neutras de provedor)
 │       ├── ai_chat.py         # adaptador Claude + streaming SSE
 │       ├── ai_chat_groq.py    # adaptador Groq (testes sem custo)
@@ -52,8 +53,9 @@ playlist-classifier/
 └── frontend/         React + Vite — login, lista de playlists, gráficos (Recharts)
     └── src/
         ├── App.jsx / AuthContext.jsx
-        ├── pages/    Login, PlaylistList, PlaylistDetail, Chat
-        └── components/  gráficos de barras, tabela de faixas, loader da análise
+        ├── pages/    Login, PlaylistList, PlaylistDetail, TrackDetail, ArtistDetail
+        ├── charts/   GenreFlow (fita + atos + faixas por gênero)
+        └── components/  gráficos de barras, tabela de faixas, lista de artistas
 ```
 
 **Por que essa stack:** backend em Python/FastAPI porque é onde fica a lógica de
@@ -163,6 +165,32 @@ Em clientes que leem um JSON de configuração, o equivalente é `command` apont
 para o Python do venv, `args` com `["-m", "app.mcp_server"]` e `cwd` na pasta
 `backend`.
 
+## A página do artista
+
+Cada nome na lista de artistas de uma playlist abre uma página própria, montada
+de quatro fontes e sem nenhuma chamada nova ao Spotify além de uma:
+
+| Seção | Fonte | Custo |
+|---|---|---|
+| Foto, nome, link | Spotify `/artists/{id}` | 1 chamada, cache de 1 h |
+| Biografia, tags, ouvintes, parecidos | Last.fm `artist.getInfo` | 1 chamada, cache de 24 h |
+| Mais tocadas (com prévia tocável) | Deezer `/artist/{id}/top` | 2 chamadas, cache de 24 h |
+| "No seu acervo" | `profile_store` em disco | nenhuma |
+
+O id do artista **já vinha** na resposta das faixas da playlist (`artists(id,name)`)
+e era descartado; guardá-lo é o que liga a lista à página sem uma busca por nome,
+que erraria em artistas homônimos.
+
+"No seu acervo" é um índice reverso `id do artista -> faixas` montado a partir dos
+resumos em disco e refeito só quando o acervo muda (a assinatura é a quantidade de
+arquivos e o mtime mais recente). Um artista parecido que também está no seu acervo
+vira link interno; o resto aponta para o Last.fm — resolver o id de cada parecido
+pela busca do Spotify custaria uma chamada por nome, oito por página.
+
+A desambiguação no Deezer olha o número de fãs, não a ordem de relevância: o
+catálogo tem entradas duplicadas com o mesmo nome exato, e a primeira costuma ser a
+vazia — foi o que devolveu uma lista em branco para um artista com 278 mil ouvintes.
+
 ## Busca semântica
 
 A análise de gênero conta tags exatas: ela sabe que 14 faixas têm a tag
@@ -263,6 +291,56 @@ cada playlist concluída.
 
 Análises simultâneas da mesma playlist (página + varredura) viram uma só.
 
+## Várias contas
+
+O login sempre foi por usuário (OAuth com PKCE, tokens num cookie de sessão
+assinado que o JavaScript não lê). O que não era por usuário é o **estado do
+servidor** — e é aí que dois usuários se enxergariam:
+
+| Estado | Como é separado |
+|---|---|
+| Índice da busca (Chroma) | Id do documento é `{conta}:{faixa}` e toda consulta filtra por `owner` |
+| Cache da análise de playlist | Chave `{conta}:{playlist}`, dentro de `build_playlist_analysis` |
+| Análises em voo (dedupe) | Chave `(conta, playlist, com_áudio)` |
+| Estado da varredura | Chave `{conta}:{playlist}` no `indexed_playlists.json` |
+| Listagem de playlists em disco | Nome do arquivo com o hash da conta |
+| Estatísticas do índice no perfil | Cache por conta |
+| "No seu acervo", na página do artista | Filtrado pelas playlists que o Spotify acabou de listar |
+
+A identidade vem de uma função só, `auth.user_key()`, e é o id do Spotify.
+Existir em um lugar só é o ponto: um caminho novo que precise separar contas não
+tem como inventar a própria chave e escapar do filtro sem querer.
+
+Duas barreiras no índice, de propósito. O prefixo no id impede que o `upsert`
+de uma conta sobrescreva a faixa de outra — duas pessoas podem ter a mesma
+música, e com o id sendo só o da faixa a segunda apagava a da primeira. O
+`where` impede que a busca por vizinho mais próximo, que varre a coleção
+inteira, devolva a faixa de um estranho.
+
+**Migração, não reindexação.** O índice e o estado da varredura já existiam sem
+dono. Reindexar significaria reanalisar playlists no Spotify — exatamente o que
+já rendeu uma suspensão de 18 horas. Então os dois são adotados no lugar:
+o índice reaproveita os embeddings já gravados (nada recalcula, nada vai à
+rede) e o estado tem as chaves reescritas. Quem chega primeiro adota tudo;
+não há como saber de quem era, e numa instalação nova não existe legado.
+
+### O que ainda falta para produção
+
+O que está aqui torna o app **correto** para várias contas. Para colocá-lo na
+internet ainda faltam decisões de infraestrutura:
+
+- `ENVIRONMENT=production` liga o cookie só-HTTPS e recusa subir com o
+  `SESSION_SECRET` de exemplo — mas ainda é preciso um proxy com TLS na frente.
+- Os tokens moram dentro do cookie. Não dá para revogar uma sessão, e trocar o
+  segredo desloga todo mundo. Multiusuário de verdade pede um id opaco e uma
+  sessão do lado do servidor (Redis, banco).
+- O estado é disco local (`.chroma`, `.profile_cache`, `.state`): uma instância
+  só, sem escala horizontal.
+- O bloqueio do Spotify é global do processo — um usuário pesado trava todos.
+- Não há limite de requisições por usuário no próprio app.
+- A cota do Spotify é um portão externo: apps em modo de desenvolvimento têm
+  teto de usuários até você pedir a extensão de cota no dashboard.
+
 ## Limites do Spotify
 
 Em setembro de 2026 o Spotify suspendeu o app por ~18 horas (`Retry-After:
@@ -339,6 +417,8 @@ e março de 2026 quebraram algumas suposições do projeto:
 | Campo `genres` removido do objeto de artista | Spotify deixou de fornecer gênero | Gênero passou a vir das tags de artista do Last.fm |
 | Contagem migrou de `tracks.total` para `items.total` | Toda playlist aparecia com 0 músicas | Lê `items.total` com fallback pro campo deprecado |
 | `/playlists/{id}/items` só responde para playlists do usuário ou colaborativas | 403 ao abrir playlists apenas seguidas | A listagem filtra por dono (`/me`) ou `collaborative`; um 403 vira mensagem, não logout |
+| `GET /artists/{id}/top-tracks` responde 403 | Página do artista ficaria sem "mais tocadas" | As mais tocadas vêm do Deezer (`/artist/{id}/top`), com capa e prévia |
+| Campos `followers` e `popularity` removidos do objeto de artista | Sem número de audiência do Spotify | A audiência da página do artista é a do Last.fm (ouvintes e execuções) |
 
 A terceira é a mais estrutural: o Spotify não fornece mais dado de gênero
 nenhum, então o Last.fm deixou de ser complemento e virou a única fonte.

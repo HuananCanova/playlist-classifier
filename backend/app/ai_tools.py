@@ -37,10 +37,10 @@ class Tool:
     run: Callable[..., Awaitable[str]]
 
 
-async def analisar_playlist_json(access_token: str, playlist_id: str) -> str:
+async def analisar_playlist_json(access_token: str, owner: str, playlist_id: str) -> str:
     """Análise completa de uma playlist, serializada para o modelo."""
     try:
-        analysis = await build_playlist_analysis(access_token, playlist_id)
+        analysis = await build_playlist_analysis(access_token, playlist_id, owner=owner)
     except httpx.HTTPStatusError as exc:
         return json.dumps(
             {
@@ -133,14 +133,16 @@ def _resumir_hits(hits: list[dict]) -> list[dict]:
     ]
 
 
-async def buscar_na_playlist_json(access_token: str, playlist_id: str, consulta: str) -> str:
+async def buscar_na_playlist_json(
+    access_token: str, owner: str, playlist_id: str, consulta: str
+) -> str:
     """Busca semântica restrita às faixas de uma playlist.
 
     O recorte vem dos ids da própria análise, então a ferramenta não consegue
     vazar faixas de fora do escopo da conversa nem que o modelo peça.
     """
     try:
-        analysis = await build_playlist_analysis(access_token, playlist_id)
+        analysis = await build_playlist_analysis(access_token, playlist_id, owner=owner)
     except httpx.HTTPStatusError as exc:
         return json.dumps(
             {"erro": f"Não consegui ler essa playlist (HTTP {exc.response.status_code})."},
@@ -148,7 +150,7 @@ async def buscar_na_playlist_json(access_token: str, playlist_id: str, consulta:
         )
 
     ids = [t.track_id for t in analysis.tracks]
-    hits = await vector_search(consulta, limite=MAX_BUSCA, track_ids=ids)
+    hits = await vector_search(owner, consulta, limite=MAX_BUSCA, track_ids=ids)
 
     if not hits:
         return json.dumps(
@@ -178,10 +180,10 @@ async def buscar_na_playlist_json(access_token: str, playlist_id: str, consulta:
     )
 
 
-async def grupos_da_playlist_json(access_token: str, playlist_id: str) -> str:
+async def grupos_da_playlist_json(access_token: str, owner: str, playlist_id: str) -> str:
     """Grupos de clima da playlist, calculados por k-means sobre as tags."""
     try:
-        analysis = await build_playlist_analysis(access_token, playlist_id)
+        analysis = await build_playlist_analysis(access_token, playlist_id, owner=owner)
     except httpx.HTTPStatusError as exc:
         return json.dumps(
             {"erro": f"Não consegui ler essa playlist (HTTP {exc.response.status_code})."},
@@ -217,9 +219,9 @@ async def grupos_da_playlist_json(access_token: str, playlist_id: str) -> str:
     )
 
 
-async def faixas_parecidas_json(track_id: str) -> str:
+async def faixas_parecidas_json(owner: str, track_id: str) -> str:
     """Vizinhos semânticos de uma faixa, dentro do acervo já indexado."""
-    hits = await similar_to_track(track_id, limite=8)
+    hits = await similar_to_track(owner, track_id, limite=8)
 
     if not hits:
         return json.dumps(
@@ -249,24 +251,31 @@ async def faixas_parecidas_json(track_id: str) -> str:
 
 def build_tools(
     access_token: str,
+    owner: str,
     *,
     playlist_id: str | None = None,
     track_id: str | None = None,
 ) -> list[Tool]:
-    """Cria as ferramentas ligadas à sessão do usuário, restritas ao escopo da tela."""
+    """Cria as ferramentas ligadas à sessão do usuário, restritas ao escopo da tela.
+
+    `access_token` e `owner` ficam capturados no closure, nunca como parâmetro
+    de ferramenta: o modelo escolhe o que chamar, não em nome de quem.
+    """
     if (playlist_id is None) == (track_id is None):
         raise ValueError("Informe exatamente um escopo: playlist_id ou track_id.")
 
     if playlist_id is not None:
 
         async def analisar_esta_playlist() -> str:
-            return await analisar_playlist_json(access_token, playlist_id)
+            return await analisar_playlist_json(access_token, owner, playlist_id)
 
         async def buscar_nesta_playlist(consulta: str) -> str:
-            return await buscar_na_playlist_json(access_token, playlist_id, consulta)
+            return await buscar_na_playlist_json(
+                access_token, owner, playlist_id, consulta
+            )
 
         async def grupos_desta_playlist() -> str:
-            return await grupos_da_playlist_json(access_token, playlist_id)
+            return await grupos_da_playlist_json(access_token, owner, playlist_id)
 
         return [
             Tool(
@@ -319,7 +328,7 @@ def build_tools(
         return await analisar_faixa_json(access_token, track_id)  # type: ignore[arg-type]
 
     async def faixas_parecidas() -> str:
-        return await faixas_parecidas_json(track_id)  # type: ignore[arg-type]
+        return await faixas_parecidas_json(owner, track_id)  # type: ignore[arg-type]
 
     return [
         Tool(

@@ -164,8 +164,8 @@ def test_pendentes_ignoram_vazias_e_frescas_e_vem_menores_primeiro(store_tmp):
         {"id": "empty", "name": "vazia", "track_count": 0, "snapshot_id": "x"},
         {"id": "small", "name": "pequena", "track_count": 12, "snapshot_id": "x"},
     ]
-    estado = {"p1": "s1", "big": "x"}  # "big" já está no índice, mas sem resumo
-    assert [p["id"] for p in indexer.pendentes_da_conta(playlists, estado)] == ["small", "big"]
+    estado = {"dono:p1": "s1", "dono:big": "x"}  # "big" já está no índice, mas sem resumo
+    assert [p["id"] for p in indexer.pendentes_da_conta(playlists, "dono", estado)] == ["small", "big"]
 
 
 def test_estimativa_de_chamadas():
@@ -218,7 +218,7 @@ def fake_sources(monkeypatch, store_tmp):
 
 
 async def test_sem_audio_pula_o_deezer_e_nao_ocupa_o_cache_da_pagina(fake_sources, store_tmp):
-    analysis = await genre_analysis.build_playlist_analysis("tok", "p9", include_audio=False)
+    analysis = await genre_analysis.build_playlist_analysis("tok", "p9", owner="dono", include_audio=False)
 
     assert fake_sources["deezer"] == 0
     assert analysis.tracks[0].bpm is None
@@ -231,10 +231,10 @@ async def test_sem_audio_pula_o_deezer_e_nao_ocupa_o_cache_da_pagina(fake_source
 
 async def test_pedidos_simultaneos_da_mesma_playlist_viram_uma_analise(fake_sources):
     results = await asyncio.gather(
-        genre_analysis.build_playlist_analysis("tok", "p9"),
-        genre_analysis.build_playlist_analysis("tok", "p9"),
+        genre_analysis.build_playlist_analysis("tok", "p9", owner="dono"),
+        genre_analysis.build_playlist_analysis("tok", "p9", owner="dono"),
         # Quem não precisa de áudio aproveita a análise completa em voo.
-        genre_analysis.build_playlist_analysis("tok", "p9", include_audio=False),
+        genre_analysis.build_playlist_analysis("tok", "p9", owner="dono", include_audio=False),
     )
     assert fake_sources["spotify"] == 1
     assert fake_sources["deezer"] == 1

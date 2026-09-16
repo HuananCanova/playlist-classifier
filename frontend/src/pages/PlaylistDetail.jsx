@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api.js";
 import DistributionBarChart from "../components/DistributionBarChart.jsx";
-import TopArtistsChart from "../components/TopArtistsChart.jsx";
+import ArtistsPanel from "../components/ArtistsPanel.jsx";
 import TrackTable from "../components/TrackTable.jsx";
 import ClusterPanel from "../components/ClusterPanel.jsx";
 import BpmChart from "../components/BpmChart.jsx";
@@ -85,7 +85,6 @@ export default function PlaylistDetail() {
     tracks,
     genre_distribution,
     subgenre_distribution,
-    top_artists,
     average_bpm,
     tracks_missing_genre,
     tracks_missing_bpm,
@@ -149,10 +148,9 @@ export default function PlaylistDetail() {
           />
         </div>
 
-        <div className="charts-grid charts-grid-wide">
-          <BpmChart tracks={tracks} averageBpm={average_bpm} missing={tracks_missing_bpm} />
-          <TopArtistsChart data={top_artists} total={playlist.track_count} />
-        </div>
+        <BpmChart tracks={tracks} averageBpm={average_bpm} missing={tracks_missing_bpm} />
+
+        <ArtistsPanel tracks={tracks} total={playlist.track_count} />
 
         <ClusterPanel playlistId={id} tracks={tracks} />
 

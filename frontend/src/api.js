@@ -65,6 +65,9 @@ export const api = {
     get(`/api/playlists${refresh ? "?refresh=true" : ""}`),
   getPlaylistAnalysis: (id) => get(`/api/playlists/${id}/analysis`),
   getTrack: (id) => request(`/api/tracks/${id}`),
+  // Pelo `get` (com dedupe): o StrictMode monta o efeito duas vezes, e a
+  // página do artista custa duas chamadas ao Spotify.
+  getArtist: (id) => get(`/api/artists/${id}`),
   getSimilarTracks: (id, limit = 8) =>
     request(`/api/tracks/${id}/similar?limit=${limit}`),
   search: (q, limit = 20) =>

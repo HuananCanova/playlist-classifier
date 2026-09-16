@@ -119,7 +119,9 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
     if name == "listar_playlists":
         payload = await _listar_playlists_json(token)
     elif name == "analisar_playlist":
-        payload = await analisar_playlist_json(token, arguments["playlist_id"])
+        payload = await analisar_playlist_json(
+            token, await _owner(token), arguments["playlist_id"]
+        )
     elif name == "analisar_faixa":
         payload = await analisar_faixa_json(token, arguments["track_id"])
     else:
@@ -145,3 +147,23 @@ if __name__ == "__main__":
 
     logging.basicConfig(level=logging.INFO)
     asyncio.run(main())
+
+
+# ── Dono das chamadas do MCP ────────────────────────────────────────────
+#
+# O servidor MCP não tem sessão: ele roda com o refresh token do .env, sempre
+# da mesma conta. Mas o cache da análise e o índice da busca são separados por
+# conta, então ele precisa dizer de quem é — e tem que ser o mesmo id que a
+# sessão do navegador usa, senão o MCP teria um acervo paralelo e reanalisaria
+# tudo de novo (chamadas ao Spotify à toa).
+#
+# Uma consulta por processo: o id de uma conta não muda.
+_owner_id: str | None = None
+
+
+async def _owner(token: str) -> str:
+    global _owner_id
+    if _owner_id is None:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            _owner_id = await SpotifyClient(token).get_current_user_id(client) or "mcp"
+    return _owner_id

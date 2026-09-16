@@ -16,7 +16,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 
 from . import indexer, profile_store
-from .auth import get_me, get_valid_access_token
+from .auth import get_me, get_valid_access_token, user_key
 from .playlists import get_playlist_summaries
 from .profile_stats import build_index_stats, build_profile_stats
 from .spotify_client import global_block_remaining
@@ -26,24 +26,29 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
-# Estatísticas do índice por tamanho do índice: só recalcula quando entram faixas.
-_index_stats_cache: dict = {"count": None, "stats": None}
+# Estatísticas do índice por tamanho do índice: só recalcula quando entram
+# faixas. Por conta, senão o painel de uma mostraria o número da outra.
+_index_stats_cache: dict[str, dict] = {}
 
 
-async def _index_stats() -> dict | None:
+async def _index_stats(owner: str) -> dict | None:
     try:
-        count, metadatas = await all_metadata()
+        count, metadatas = await all_metadata(owner)
     except Exception:
         # O índice é complemento; se o Chroma falhar, o painel segue sem ele.
         logger.exception("Não consegui ler o índice para o perfil")
         return None
-    if count != _index_stats_cache["count"]:
-        _index_stats_cache["stats"] = await asyncio.to_thread(build_index_stats, metadatas)
-        _index_stats_cache["count"] = count
-    return _index_stats_cache["stats"]
+    entrada = _index_stats_cache.get(owner)
+    if entrada is None or entrada["count"] != count:
+        entrada = {
+            "count": count,
+            "stats": await asyncio.to_thread(build_index_stats, metadatas),
+        }
+        _index_stats_cache[owner] = entrada
+    return entrada["stats"]
 
 
-def _snapshot(playlists) -> dict:
+def _snapshot(playlists, owner: str) -> dict:
     """Números gerais, coberturas e estatísticas — tudo síncrono e local."""
     rows = [p.model_dump() for p in playlists]
     non_empty = [p for p in playlists if p.track_count]
@@ -54,7 +59,7 @@ def _snapshot(playlists) -> dict:
     stale = [p for p in non_empty if digests[p.id] and p.id not in fresh_ids]
 
     largest = max(playlists, key=lambda p: p.track_count, default=None)
-    account = indexer.coverage(rows)
+    account = indexer.coverage(rows, owner)
 
     return {
         "overview": {
@@ -98,7 +103,10 @@ async def get_profile(request: Request):
         if exc.status_code != 429:
             raise
         playlists = []
-    data, index = await asyncio.gather(asyncio.to_thread(_snapshot, playlists), _index_stats())
+    owner = user_key(request)
+    data, index = await asyncio.gather(
+        asyncio.to_thread(_snapshot, playlists, owner), _index_stats(owner)
+    )
     return {
         "user": {k: v for k, v in user.items() if k != "fetched_at"},
         **data,
@@ -130,7 +138,9 @@ async def start_build(request: Request, refresh: bool = False):
         raise HTTPException(status_code=401, detail="Sessão sem refresh token; entre de novo.")
 
     playlists = await get_playlist_summaries(request, refresh=refresh and not global_block_remaining())
-    await indexer.start(refresh_token, [p.model_dump() for p in playlists])
+    await indexer.start(
+        refresh_token, user_key(request), [p.model_dump() for p in playlists]
+    )
     return indexer.progress_dict()
 
 

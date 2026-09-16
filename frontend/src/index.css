@@ -1138,8 +1138,12 @@ svg:focus-visible {
 
 .panel-flow {
   padding-bottom: 20px;
+  /* O mesmo florescer verde que fica atrás do relevo na tela de entrada, aqui
+     centrado na altura da fita em vez de no rodapé do painel: é o que tira a
+     fita da superfície e a coloca dentro do painel. */
   background:
-    radial-gradient(80% 60% at 50% 100%, rgba(29, 185, 84, 0.08), transparent 70%),
+    radial-gradient(64% 46% at 50% 56%, rgba(29, 185, 84, 0.13), transparent 72%),
+    radial-gradient(90% 60% at 50% 104%, rgba(29, 185, 84, 0.06), transparent 70%),
     var(--surface);
 }
 
@@ -1172,7 +1176,11 @@ svg:focus-visible {
   transition-delay: 0.5s, 0s;
 }
 
+/* Cada fita projeta sombra na de baixo: é o que faz a pilha parecer camadas
+   empilhadas de verdade em vez de faixas coladas lado a lado. A sombra é curta
+   e bem abaixo — luz de cima, como o sombreado dentro de cada fita. */
 .flow-layer {
+  filter: drop-shadow(0 3px 4px rgba(0, 0, 0, 0.5));
   transition: opacity 0.25s ease;
 }
 
@@ -1186,6 +1194,204 @@ svg:focus-visible {
   font-weight: 600;
   letter-spacing: -0.01em;
   pointer-events: none;
+}
+
+/* A frase que descreve o arco: é a leitura do gráfico, então tem peso de
+   texto principal, não de legenda. */
+.flow-arc {
+  margin: 10px 0 0;
+  max-width: 62ch;
+  font-size: 16.5px;
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  text-wrap: balance;
+}
+
+.flow-scale {
+  flex-shrink: 0;
+  font-size: 12.5px;
+  color: var(--faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.panel-flow .panel-sub {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--faint);
+}
+
+.flow-act-divider {
+  stroke: rgba(10, 10, 10, 0.55);
+  stroke-width: 1;
+  stroke-dasharray: 2 4;
+  pointer-events: none;
+}
+
+/* ── Os três atos ───────────────────────────────────────────────────── */
+
+.flow-acts {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 18px 0 0;
+  padding: 0;
+}
+
+/* Vidro, como os cartões flutuantes da tela de entrada: o painel por baixo
+   atravessa desfocado, então o trecho parece pousado sobre a fita e não um
+   bloco novo empilhado embaixo dela.
+
+   Sem filete colorido na lateral: a cor do gênero já está na bolinha ao lado
+   do nome, onde ela quer dizer alguma coisa. Repetida como enfeite, os três
+   cartões viravam só três caixas iguais. */
+.flow-act {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(40, 40, 40, 0.42);
+  box-shadow: var(--ring-top);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
+}
+
+/* Realça o trecho onde está a faixa sob o cursor na fita. */
+.flow-act.is-hover {
+  border-color: var(--line-strong);
+  background: rgba(52, 52, 52, 0.55);
+  box-shadow: var(--shadow-float), var(--ring-top);
+}
+
+.flow-act-name {
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--faint);
+}
+
+.flow-act-genre {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+.flow-act-range {
+  font-size: 12.5px;
+  color: var(--muted);
+}
+
+.flow-act-share {
+  color: var(--faint);
+}
+
+/* ── Faixas por gênero ──────────────────────────────────────────────── */
+
+.flow-lanes {
+  margin-top: 22px;
+  padding-top: 18px;
+  border-top: 1px solid var(--line);
+}
+
+.flow-lanes-head {
+  margin: 0 0 12px;
+  max-width: 72ch;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--faint);
+}
+
+.flow-lanes ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.flow-lane {
+  display: grid;
+  grid-template-columns: minmax(96px, 150px) 1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 3px 8px;
+  margin: 0 -8px;
+  border-radius: var(--r-small);
+  transition: opacity 0.2s ease, background 0.2s ease;
+}
+
+.flow-lane:hover {
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.flow-lane.is-dim {
+  opacity: 0.25;
+}
+
+.flow-lane-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 13px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* O SVG tem a largura do painel inteiro (a mesma escala da fita acima); a
+   célula recorta, e assim as faixas ficam alinhadas com o gráfico. */
+.flow-lane-plot {
+  position: relative;
+  min-width: 0;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.flow-lane-plot svg {
+  display: block;
+}
+
+.flow-lane-value {
+  min-width: 68px;
+  text-align: right;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.flow-lane-share {
+  display: inline-block;
+  min-width: 38px;
+  text-align: right;
+  color: var(--faint);
+}
+
+@media (max-width: 640px) {
+  .flow-acts {
+    grid-template-columns: 1fr;
+  }
+
+  .flow-arc {
+    font-size: 15px;
+  }
+
+  .flow-lane {
+    grid-template-columns: minmax(80px, 110px) 1fr auto;
+    gap: 10px;
+  }
+
+  .flow-lane-value {
+    min-width: 56px;
+  }
 }
 
 /* ── Barras de distribuição ─────────────────────────────────────────── */
@@ -3179,4 +3385,260 @@ body:has(.nowplaying) .chat-drawer {
   .chat-drawer {
     transform: none;
   }
+}
+
+/* ── Artistas: lista completa da playlist ───────────────────────────── */
+
+.artist-filter {
+  margin: 0 0 14px;
+}
+
+.artist-filter .search {
+  width: 100%;
+  max-width: 320px;
+}
+
+.artist-rows {
+  list-style: none;
+  margin: 0 -10px;
+  padding: 0;
+  counter-reset: artist;
+}
+
+.artist-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(60px, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 7px 10px;
+  border-radius: var(--r-small);
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.artist-row.is-link:hover,
+.artist-row.is-link:focus-visible {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+}
+
+/* A seta só aparece no que é clicável — um artista sem id do Spotify fica na
+   lista, mas não promete uma página que não existe. */
+.artist-row.is-link .artist-row-name::after {
+  content: "›";
+  margin-left: 8px;
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.artist-row.is-link:hover .artist-row-name::after,
+.artist-row.is-link:focus-visible .artist-row-name::after {
+  opacity: 1;
+}
+
+.artist-row-name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 14px;
+}
+
+.artist-row-track {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  overflow: hidden;
+}
+
+.artist-row-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--green-deep);
+}
+
+.artist-row-value {
+  min-width: 74px;
+  text-align: right;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+
+.artist-row-share {
+  display: inline-block;
+  min-width: 42px;
+  text-align: right;
+  color: var(--faint);
+}
+
+.artist-more {
+  margin-top: 12px;
+}
+
+/* ── Página do artista ──────────────────────────────────────────────── */
+
+.hero-kicker {
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--faint);
+}
+
+.hero-art-round {
+  border-radius: 50%;
+}
+
+.hero-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 14px;
+}
+
+.artist-bio {
+  margin: 0;
+  max-width: 76ch;
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--ink-2);
+  white-space: pre-line;
+}
+
+.track-lines {
+  list-style: none;
+  margin: 0 -10px;
+  padding: 0;
+}
+
+.track-line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px;
+  border-radius: var(--r-small);
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+a.track-line:hover,
+a.track-line:focus-visible {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink);
+}
+
+.track-line-art {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--raised);
+}
+
+.track-line-art-empty {
+  display: block;
+}
+
+.track-line-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.track-line-name {
+  font-size: 14px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.track-line-sub {
+  font-size: 12.5px;
+  color: var(--faint);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.artist-playlists,
+.artist-similar {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 16px;
+  padding: 0;
+}
+
+.artist-similar {
+  margin-bottom: 0;
+}
+
+.chip-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--ink-2);
+  font-size: 13px;
+  text-decoration: none;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.chip-link:hover,
+.chip-link:focus-visible {
+  border-color: var(--line-strong);
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink);
+}
+
+.chip-link img {
+  width: 20px;
+  height: 20px;
+  border-radius: 4px;
+  object-fit: cover;
+}
+
+.chip-link-strong {
+  border-color: rgba(30, 215, 96, 0.35);
+}
+
+.chip-note {
+  font-size: 11px;
+  color: var(--green-soft);
+}
+
+@media (max-width: 640px) {
+  .artist-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  /* A barra sai: em tela estreita ela roubaria o espaço do nome, e o número
+     ao lado já diz o tamanho. */
+  .artist-row-track {
+    display: none;
+  }
+}
+
+.track-line-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.track-line-actions .is-playing {
+  border-color: rgba(30, 215, 96, 0.4);
+  color: var(--green-soft);
 }

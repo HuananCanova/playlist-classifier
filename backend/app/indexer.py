@@ -82,12 +82,43 @@ _lock = asyncio.Lock()
 
 # ── estado persistido ────────────────────────────────────────────────────────
 
-def _carregar_estado() -> dict[str, str]:
-    """Mapa playlist_id -> snapshot_id da última indexação."""
+def _chave(owner: str, playlist_id: str) -> str:
+    """A conta entra na chave do estado da varredura.
+
+    O estado responde "esta playlist, nesta versão, já entrou no índice?" — e
+    o índice é de uma conta. Sem a conta na chave, a varredura da segunda
+    pessoa pularia tudo que a primeira já tinha indexado e deixaria o índice
+    dela vazio, sem erro nenhum aparecendo.
+    """
+    return f"{owner}:{playlist_id}"
+
+
+def _carregar_estado(owner: str = "") -> dict[str, str]:
+    """Mapa `conta:playlist_id` -> snapshot_id da última indexação.
+
+    Com `owner`, adota de uma vez as entradas gravadas antes de a chave ter
+    conta (só o id da playlist). Sem isso a conta que já usava o app veria
+    todas as playlists voltarem para a fila e a varredura reanalisaria a
+    biblioteca inteira no Spotify — o caminho conhecido para uma suspensão.
+
+    Ids do Spotify são base62, então a ausência de `:` identifica o formato
+    antigo sem ambiguidade.
+    """
     try:
-        return json.loads(ESTADO.read_text(encoding="utf-8"))
+        estado = json.loads(ESTADO.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+
+    if not owner:
+        return estado
+
+    legado = [k for k in estado if ":" not in k]
+    if legado:
+        for chave in legado:
+            estado[_chave(owner, chave)] = estado.pop(chave)
+        _salvar_estado(estado)
+        logger.info("Estado da varredura: %d entradas adotadas por %s", len(legado), owner)
+    return estado
 
 
 def _salvar_estado(estado: dict[str, str]) -> None:
@@ -102,25 +133,27 @@ def _snapshot(playlist: dict) -> str:
     return playlist.get("snapshot_id") or "sem-snapshot"
 
 
-def _pendentes(playlists: list[dict], estado: dict[str, str]) -> list[dict]:
-    """Playlists nunca indexadas, ou que mudaram desde a última vez.
+def _pendentes(playlists: list[dict], estado: dict[str, str], owner: str) -> list[dict]:
+    """Playlists nunca indexadas por esta conta, ou que mudaram desde então.
 
     O `snapshot_id` do Spotify muda a cada alteração de conteúdo, então ele
     responde exatamente a pergunta certa — e evita reindexar 40 playlists
     intactas toda vez que a varredura roda.
     """
-    return [p for p in playlists if estado.get(p["id"]) != _snapshot(p)]
+    return [p for p in playlists if estado.get(_chave(owner, p["id"])) != _snapshot(p)]
 
 
-def pendentes_da_conta(playlists: list[dict], estado: dict[str, str] | None = None) -> list[dict]:
+def pendentes_da_conta(
+    playlists: list[dict], owner: str, estado: dict[str, str] | None = None
+) -> list[dict]:
     """O que a varredura faria agora: falta no índice OU falta resumo do perfil.
 
     Playlists vazias ficam de fora (não há o que ler), e as menores vêm antes —
     a cobertura sobe mais rápido e as gigantes ficam para o fim.
     Lê disco; chame fora do event loop.
     """
-    estado = _carregar_estado() if estado is None else estado
-    sem_indice = {p["id"] for p in _pendentes(playlists, estado)}
+    estado = _carregar_estado(owner) if estado is None else estado
+    sem_indice = {p["id"] for p in _pendentes(playlists, estado, owner)}
     fila = [
         p
         for p in playlists
@@ -140,9 +173,12 @@ def estimar_chamadas(playlists: list[dict]) -> int:
 
 # ── varredura ────────────────────────────────────────────────────────────────
 
-async def _indexar_uma(token: str, playlist: dict) -> int:
-    analysis = await build_playlist_analysis(token, playlist["id"], include_audio=False)
+async def _indexar_uma(token: str, owner: str, playlist: dict) -> int:
+    analysis = await build_playlist_analysis(
+        token, playlist["id"], owner=owner, include_audio=False
+    )
     return await index_tracks(
+        owner,
         [
             {
                 "track_id": t.track_id,
@@ -171,8 +207,8 @@ async def _esperar(segundos: float) -> None:
         _progress.waiting_seconds = None
 
 
-async def _rodar(refresh_token: str, fila: list[dict]) -> None:
-    estado = _carregar_estado()
+async def _rodar(refresh_token: str, owner: str, fila: list[dict]) -> None:
+    estado = _carregar_estado(owner)
     token: str | None = None
     token_em = 0.0
     feitas_na_hora: deque[float] = deque()
@@ -198,9 +234,9 @@ async def _rodar(refresh_token: str, fila: list[dict]) -> None:
                     token = await access_token_from_refresh_token(refresh_token)
                     token_em = time.time()
 
-                n = await _indexar_uma(token, playlist)
+                n = await _indexar_uma(token, owner, playlist)
                 _progress.indexed_tracks += n
-                estado[playlist["id"]] = _snapshot(playlist)
+                estado[_chave(owner, playlist["id"])] = _snapshot(playlist)
                 _salvar_estado(estado)
                 break
 
@@ -252,7 +288,7 @@ def _finalizar(task: asyncio.Task) -> None:
         task.result()
 
 
-async def start(refresh_token: str, playlists: list[dict]) -> IndexProgress:
+async def start(refresh_token: str, owner: str, playlists: list[dict]) -> IndexProgress:
     """Dispara a varredura do que falta, se já não houver uma rodando.
 
     `playlists` vem da listagem em cache de quem chama: a varredura não lista a
@@ -269,13 +305,13 @@ async def start(refresh_token: str, playlists: list[dict]) -> IndexProgress:
             _progress = IndexProgress(blocked_seconds=bloqueio, finished_at=_progress.finished_at)
             return _progress
 
-        fila = await asyncio.to_thread(pendentes_da_conta, playlists)
+        fila = await asyncio.to_thread(pendentes_da_conta, playlists, owner)
         if not fila:
             _progress = IndexProgress(finished_at=time.time())
             return _progress
 
         _progress = IndexProgress(running=True, total=len(fila), started_at=time.time())
-        _task = asyncio.create_task(_rodar(refresh_token, fila))
+        _task = asyncio.create_task(_rodar(refresh_token, owner, fila))
         _task.add_done_callback(_finalizar)
         return _progress
 
@@ -291,14 +327,14 @@ def progress() -> IndexProgress:
     return _progress
 
 
-def coverage(playlists: list[dict]) -> dict:
+def coverage(playlists: list[dict], owner: str) -> dict:
     """Quanto da conta já está pronto — sem chamar o Spotify.
 
     É o número que transforma "a busca não achou" em "a busca ainda não viu".
     Lê disco; chame fora do event loop.
     """
     com_faixas = [p for p in playlists if p.get("track_count", 1)]
-    fila = pendentes_da_conta(com_faixas)
+    fila = pendentes_da_conta(com_faixas, owner)
     return {
         "total_playlists": len(com_faixas),
         "indexed_playlists": len(com_faixas) - len(fila),

@@ -22,6 +22,26 @@ from .spotify_client import SpotifyClient, global_block_remaining
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
+def user_key(request: Request) -> str:
+    """Identidade estável da conta logada, para separar dados entre usuários.
+
+    É o id do Spotify, que não muda. O hash do refresh token é só a saída de
+    emergência para uma sessão criada antes de `me` existir — ele serve como
+    chave, mas troca quando o Spotify rotaciona o token, o que faria a mesma
+    pessoa parecer outra e perder o próprio cache.
+
+    Tudo que é guardado por usuário (cache de análise, índice da busca,
+    listagem em disco) passa por aqui: com uma função só, não há como um
+    caminho novo esquecer de separar e acabar servindo dado de outra conta.
+    """
+    me_id = (request.session.get("me") or {}).get("id")
+    if me_id:
+        return str(me_id)
+
+    seed = request.session.get("refresh_token") or request.session.get("access_token") or ""
+    return "anon:" + hashlib.sha256(seed.encode()).hexdigest()[:32]
+
+
 def _make_pkce_pair() -> tuple[str, str]:
     verifier = base64.urlsafe_b64encode(secrets.token_bytes(64)).rstrip(b"=").decode("ascii")
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode("ascii")).digest()).rstrip(b"=").decode("ascii")
