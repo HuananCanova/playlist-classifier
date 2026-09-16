@@ -38,7 +38,14 @@ export default function TasteTimeline({ genres, years }) {
   const [wrapRef, width] = useWidth();
   const mounted = useMounted();
   const [hover, setHover] = useState(null);
-  const [focus, setFocus] = useState(null);
+  // Duas fontes para o mesmo destaque, e a distinção importa: o mouse por cima
+  // destaca enquanto estiver lá, o clique prende. Com um estado só, o
+  // `mouseenter` do próprio clique já deixava a série destacada, o clique via
+  // que ela era a atual e desprendia — no mouse, clicar na legenda nunca
+  // prendia nada.
+  const [pinned, setPinned] = useState(null);
+  const [hoveredSeries, setHoveredSeries] = useState(null);
+  const focus = pinned ?? hoveredSeries;
 
   const series = useMemo(
     () =>
@@ -111,17 +118,18 @@ export default function TasteTimeline({ genres, years }) {
 
   return (
     <>
-      <ul className="viz-legend" onMouseLeave={() => setFocus(null)}>
+      <ul className="viz-legend" onMouseLeave={() => setHoveredSeries(null)}>
         {shown.map((s) => (
           <li key={s.label}>
             <button
               type="button"
               className={`viz-legend-item${focus != null && focus !== s.i ? " is-dim" : ""}`}
-              onMouseEnter={() => setFocus(s.i)}
-              onFocus={() => setFocus(s.i)}
-              onBlur={() => setFocus(null)}
-              onClick={() => setFocus((f) => (f === s.i ? null : s.i))}
-              aria-pressed={focus === s.i}
+              onMouseEnter={() => setHoveredSeries(s.i)}
+              onFocus={() => setHoveredSeries(s.i)}
+              onBlur={() => setHoveredSeries(null)}
+              onClick={() => setPinned((p) => (p === s.i ? null : s.i))}
+              aria-pressed={pinned === s.i}
+              title={pinned === s.i ? "Clique para soltar" : `Isolar ${s.label}`}
             >
               <span className="viz-swatch" style={{ background: s.color }} aria-hidden="true" />
               {s.label}
