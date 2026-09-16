@@ -12,6 +12,7 @@ import { NEUTRAL, SERIES, pct, plural, useMounted } from "../charts/chartKit.js"
  *
  * `detailFor(row)` troca a porcentagem por outro texto curto (ex.: "em 4
  * playlists"), e `foot` substitui a nota de rodapé — `null` a esconde.
+ * `shareOf` diz ao leitor de tela de onde é a porcentagem ("do acervo").
  */
 export default function DistributionBarChart({
   data,
@@ -23,6 +24,7 @@ export default function DistributionBarChart({
   colorFor = null,
   detailFor = null,
   foot = undefined,
+  shareOf = "da playlist",
 }) {
   const mounted = useMounted();
   const [hovered, setHovered] = useState(null);
@@ -58,7 +60,7 @@ export default function DistributionBarChart({
                 tabIndex={0}
                 onFocus={() => setHovered(i)}
                 onBlur={() => setHovered(null)}
-                aria-label={`${r.label}: ${plural(r.count, unit[0], unit[1])}${share ? `, ${share}${detailFor ? "" : " da playlist"}` : ""}`}
+                aria-label={`${r.label}: ${plural(r.count, unit[0], unit[1])}${share ? `, ${share}${detailFor ? "" : ` ${shareOf}`}` : ""}`}
               >
                 <span className="bar-label" title={r.label}>
                   {r.label}

@@ -103,6 +103,107 @@ export function smoothPath(points, { move = true } = {}) {
   return d;
 }
 
+// Onde tentar pôr um rótulo em relação ao ponto da linha, na ordem de preferência.
+const CALLOUT_OFFSETS = [
+  [0, -30],
+  [0, 30],
+  [-54, -26],
+  [54, -26],
+  [-54, 26],
+  [54, 26],
+  [0, -50],
+  [0, 50],
+];
+const CALLOUT_H = 18;
+
+/**
+ * Rótulos com fio para gráficos de linhas. Para cada série, procura o ponto em
+ * que a linha dela está mais longe das outras e tenta encaixar o nome em volta
+ * dele sem encostar em outro rótulo, numa área reservada (`reserved`, caixas
+ * {x0, x1, y0, y1}) nem cruzar uma linha. Se nada couber, a série fica só na
+ * legenda — um rótulo em cima de uma linha atrapalha mais do que ajuda.
+ *
+ * `series[k].label` dá o texto; `lines[k].pts` são os pontos [x, y] em pixels,
+ * igualmente espaçados em x. Devolve, por rótulo posto: o ponto (x, y), o
+ * centro do texto (lx, ly) e as pontas do fio (sx, sy → ex, ey).
+ */
+export function placeCallouts(series, lines, { left, right, top, bottom, reserved = [] }) {
+  const boxes = [...reserved];
+  const out = [];
+  const n = lines[0]?.pts.length ?? 0;
+  if (!n) return out;
+
+  const hits = (b) =>
+    boxes.some((o) => b.x0 < o.x1 + 6 && b.x1 > o.x0 - 6 && b.y0 < o.y1 + 4 && b.y1 > o.y0 - 4);
+
+  // A altura de uma linha num x qualquer, entre os dois pontos vizinhos.
+  const yAtX = (pts, x) => {
+    if (n === 1) return pts[0][1];
+    const step = (pts[n - 1][0] - pts[0][0]) / (n - 1) || 1;
+    const f = Math.max(0, Math.min(n - 1, (x - pts[0][0]) / step));
+    const i = Math.min(n - 2, Math.floor(f));
+    return pts[i][1] + (pts[i + 1][1] - pts[i][1]) * (f - i);
+  };
+  const crossesLine = (b) =>
+    lines.some(({ pts }) =>
+      [0, 0.25, 0.5, 0.75, 1].some((t) => {
+        const y = yAtX(pts, b.x0 + (b.x1 - b.x0) * t);
+        return y > b.y0 - 3 && y < b.y1 + 3;
+      }),
+    );
+
+  const lo = Math.ceil(n * 0.08);
+  const hi = Math.floor(n * 0.92);
+  const step = Math.max(1, Math.floor(n / 30));
+
+  series.forEach((s, k) => {
+    const own = lines[k].pts;
+    const candidates = [];
+    for (let i = lo; i <= hi && i < n; i += step) {
+      const y = own[i][1];
+      if (bottom - y < 6) continue; // colada no chão: ali o gênero quase não existe
+      const sep = Math.min(80, ...lines.map((l, j) => (j === k ? 80 : Math.abs(l.pts[i][1] - y))));
+      candidates.push({ i, sep, y });
+    }
+    candidates.sort((a, b) => b.sep - a.sep || a.y - b.y);
+
+    const w = s.label.length * 7 + 8;
+    for (const c of candidates.slice(0, 14)) {
+      const [x, y] = own[c.i];
+      const dot = { x0: x - 5, x1: x + 5, y0: y - 5, y1: y + 5 };
+      if (hits(dot)) continue;
+      const spot = CALLOUT_OFFSETS.map(([dx, dy]) => {
+        const lx = x + dx;
+        const ly = y + dy;
+        return { lx, ly, box: { x0: lx - w / 2, x1: lx + w / 2, y0: ly - CALLOUT_H / 2, y1: ly + CALLOUT_H / 2 } };
+      }).find(
+        ({ box }) =>
+          box.x0 >= left && box.x1 <= right && box.y0 >= top && box.y1 <= bottom && !hits(box) && !crossesLine(box),
+      );
+      if (!spot) continue;
+
+      boxes.push(spot.box, dot);
+      // O fio sai da borda do ponto e termina na borda do rótulo.
+      const ex = spot.lx;
+      const ey = spot.ly < y ? spot.box.y1 + 2 : spot.box.y0 - 2;
+      const len = Math.hypot(ex - x, ey - y) || 1;
+      out.push({
+        k,
+        x,
+        y,
+        lx: spot.lx,
+        ly: spot.ly,
+        sx: x + ((ex - x) / len) * 6,
+        sy: y + ((ey - y) / len) * 6,
+        ex,
+        ey,
+      });
+      break;
+    }
+  });
+  return out;
+}
+
 /** Suavização gaussiana de uma série, com as bordas renormalizadas. */
 export function gaussianSmooth(values, sigma) {
   const n = values.length;

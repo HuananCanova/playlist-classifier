@@ -1,12 +1,12 @@
-import React, { useMemo, useState } from "react";
+import React, { useId, useMemo, useState } from "react";
 import ChartTooltip from "./ChartTooltip.jsx";
 import {
   INK_MUTED,
   NEUTRAL,
   SERIES,
-  SURFACE,
   gaussianSmooth,
   pct,
+  placeCallouts,
   smoothPath,
   useMounted,
   useWidth,
@@ -15,18 +15,10 @@ import {
 const MAX_SERIES = 5; // + "outros" = seis cores, o teto validado da paleta
 const OTHER = "outros";
 const PAD_X = 8;
+const PAD_TOP = 26;
+const AXIS_H = 40;
 const MIN_TRACKS = 6;
-
-/** Cor de texto que passa contraste dentro de um preenchimento colorido. */
-function inkOn(hex) {
-  const n = parseInt(hex.slice(1), 16);
-  const lin = (c) => {
-    const s = c / 255;
-    return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-  };
-  const L = 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
-  return L > 0.2 ? "#0a0a0a" : "#ffffff";
-}
+const HOVER_RADIUS = 26; // distância, em px, até onde o cursor "pega" uma linha
 
 /**
  * Parcela de cada gênero em cada posição da playlist.
@@ -36,7 +28,7 @@ function inkOn(hex) {
  * com uma. Só vai para "outros" a faixa que não tem nenhum gênero principal:
  * uma faixa de techno com uma tag rara a mais continua sendo techno, e dar
  * uma fatia a "outros" por isso inflava o cinza até dominar o desenho.
- * Faixas sem gênero valem zero, e o vão aparece como um estreitamento.
+ * Faixas sem gênero valem zero para todas as linhas.
  */
 export function buildFlow(tracks, genreDistribution) {
   const top = genreDistribution.slice(0, MAX_SERIES).map((g) => g.label);
@@ -72,83 +64,100 @@ export function buildFlow(tracks, genreDistribution) {
   return series;
 }
 
+/** Teto do eixo em quartos: a linha mais alta usa a altura, sem colar no topo. */
+function yCeiling(peak) {
+  return Math.min(1, Math.max(0.25, Math.ceil(peak * 1.12 * 4) / 4));
+}
+
 export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
   const [wrapRef, width] = useWidth();
   const mounted = useMounted();
+  const uid = useId().replace(/:/g, "");
   const [hoverIndex, setHoverIndex] = useState(null);
-  const [focusSeries, setFocusSeries] = useState(null);
   const [pointer, setPointer] = useState(null);
+  // Como no gosto ano a ano: passar o mouse destaca enquanto estiver lá, o
+  // clique na legenda prende até o próximo clique.
+  const [hoveredSeries, setHoveredSeries] = useState(null);
+  const [pinned, setPinned] = useState(null);
+  const focus = pinned ?? hoveredSeries;
 
   const series = useMemo(() => buildFlow(tracks, genreDistribution), [tracks, genreDistribution]);
   const n = tracks.length;
-  const height = width < 560 ? 190 : 250;
+  const compact = width < 560;
+  const plotH = compact ? 190 : 260;
+  const baseline = PAD_TOP + plotH;
   const plotW = Math.max(width - PAD_X * 2, 1);
   const xAt = (i) => PAD_X + (n <= 1 ? plotW / 2 : (i / (n - 1)) * plotW);
 
-  // Empilhamento centrado (silhueta): o total em cada ponto é a fração da faixa
-  // que tem gênero, então a fita afina onde há faixas sem tag.
-  const layout = useMemo(() => {
+  const model = useMemo(() => {
     if (!width || n < MIN_TRACKS || !series.length) return null;
-    const bands = series.map(() => ({ top: [], bottom: [] }));
-    for (let i = 0; i < n; i++) {
-      const total = series.reduce((sum, s) => sum + s.values[i], 0);
-      let y = ((1 - Math.min(total, 1)) / 2) * height;
-      series.forEach((s, k) => {
-        const h = s.values[i] * height;
-        bands[k].top.push([xAt(i), y]);
-        bands[k].bottom.push([xAt(i), y + h]);
-        y += h;
-      });
-    }
-    return bands.map((b, k) => {
-      const path =
-        smoothPath(b.top) + smoothPath(b.bottom.slice().reverse(), { move: false }) + "Z";
-      // Rótulo direto no ponto mais grosso da fita, se couber.
-      let best = 0;
-      let bestH = -1;
-      b.top.forEach(([, yTop], i) => {
-        const h = b.bottom[i][1] - yTop;
-        if (h > bestH) {
-          bestH = h;
-          best = i;
-        }
-      });
-      const labelW = series[k].label.length * 6.6 + 16;
-      const lx = Math.min(Math.max(xAt(best), PAD_X + labelW / 2), width - PAD_X - labelW / 2);
-      return {
-        path,
-        // Em tela estreita os rótulos se atropelam; ali a legenda basta.
-        label:
-          width >= 560 && bestH >= 22 && labelW < plotW / 3
-            ? { x: lx, y: b.top[best][1] + bestH / 2 }
-            : null,
-        bands: b,
-      };
+    let peak = 0.01;
+    series.forEach((s) => s.values.forEach((v) => (peak = Math.max(peak, v))));
+    const ceil = yCeiling(peak);
+    const yAt = (v) => baseline - (v / ceil) * plotH;
+
+    const lines = series.map((s) => {
+      const pts = s.values.map((v, i) => [xAt(i), yAt(v)]);
+      const line = smoothPath(pts);
+      return { pts, line, area: `${line}L${xAt(n - 1)},${baseline}L${xAt(0)},${baseline}Z` };
     });
-  }, [series, width, height, n]);
+
+    const gridY = [0.25, 0.5, 0.75, 1].map((f) => yAt(ceil * f));
+    const columns = Math.min(n - 1, compact ? 6 : 12);
+    const gridX = Array.from({ length: columns - 1 }, (_, c) => PAD_X + ((c + 1) / columns) * plotW);
+
+    // Em tela estreita os rótulos se atropelam; ali a legenda basta.
+    const callouts = compact
+      ? []
+      : placeCallouts(series, lines, { left: PAD_X + 4, right: PAD_X + plotW - 4, top: 2, bottom: baseline - 4 });
+
+    return { lines, gridY, gridX, callouts };
+    // xAt depende só de width e n, que já estão na lista.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [series, width, n, plotH, baseline, compact]);
 
   if (n < MIN_TRACKS || !series.length) return null;
 
-  const active = focusSeries;
   const hovered = hoverIndex != null ? tracks[hoverIndex] : null;
-
-  function indexFromEvent(e) {
-    const r = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - r.left;
-    const i = Math.round(((x - PAD_X) / plotW) * (n - 1));
-    return { i: Math.max(0, Math.min(n - 1, i)), x, y: e.clientY - r.top };
-  }
+  const dim = (k) => focus != null && focus !== k;
+  const state = (k) => `${dim(k) ? " is-dim" : ""}${focus === k ? " is-focus" : ""}`;
+  // O gênero em foco é desenhado por último, por cima dos outros.
+  const order = series.map((_, k) => k).sort((a, b) => (a === focus) - (b === focus));
 
   function onMove(e) {
-    const { i, x, y } = indexFromEvent(e);
+    if (!model) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - r.left;
+    const y = e.clientY - r.top;
+    const i = Math.max(0, Math.min(n - 1, Math.round(((x - PAD_X) / plotW) * (n - 1))));
     setHoverIndex(i);
     setPointer({ x, y });
-    // Qual fita está sob o cursor, nesta posição.
-    const k = layout?.findIndex((l) => y >= l.bands.top[i][1] && y <= l.bands.bottom[i][1]);
-    setFocusSeries(k != null && k >= 0 ? k : null);
+
+    // A linha mais perto do cursor nesta faixa ganha o destaque.
+    let best = null;
+    let bestD = HOVER_RADIUS;
+    model.lines.forEach((l, k) => {
+      if (series[k].values[i] < 0.01) return;
+      const d = Math.abs(l.pts[i][1] - y);
+      if (d < bestD) {
+        bestD = d;
+        best = k;
+      }
+    });
+    setHoveredSeries(best);
+  }
+
+  function onLeave() {
+    setHoverIndex(null);
+    setPointer(null);
+    setHoveredSeries(null);
   }
 
   function onKey(e) {
+    if (e.key === "Escape") {
+      setPinned(null);
+      return;
+    }
     if (e.key !== "ArrowRight" && e.key !== "ArrowLeft" && e.key !== "Home" && e.key !== "End") return;
     e.preventDefault();
     const cur = hoverIndex ?? -1;
@@ -156,16 +165,15 @@ export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
       e.key === "Home" ? 0 : e.key === "End" ? n - 1 : cur + (e.key === "ArrowRight" ? 1 : -1);
     const i = Math.max(0, Math.min(n - 1, next));
     setHoverIndex(i);
-    setPointer({ x: xAt(i), y: height * 0.3 });
+    setPointer({ x: xAt(i), y: PAD_TOP + plotH * 0.3 });
   }
 
   const mix =
     hoverIndex != null
       ? series
-          .map((s) => ({ ...s, v: s.values[hoverIndex] }))
+          .map((s, k) => ({ ...s, k, v: s.values[hoverIndex] }))
           .filter((s) => s.v > 0.02)
           .sort((a, b) => b.v - a.v)
-          .slice(0, 4)
       : [];
 
   const quarters = [0, 1, 2, 3].map((q) => {
@@ -174,28 +182,32 @@ export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
     return { from, to };
   });
 
+  const svgH = baseline + AXIS_H;
+
   return (
     <section className="panel panel-flow">
       <header className="panel-head">
         <h3>O caminho dos gêneros</h3>
         <p className="panel-sub">
-          Da primeira à última faixa, na ordem da playlist. A espessura de cada fita é a
-          parcela daquele gênero naquele trecho; onde a fita afina, há faixas sem gênero.
+          Da primeira à última faixa, na ordem da playlist. A altura de cada linha é a parcela daquele gênero naquele
+          trecho. Passe o mouse para ver faixa a faixa; clique na legenda para isolar um gênero.
         </p>
       </header>
 
-      <ul className="viz-legend" aria-label="Gêneros no gráfico">
+      <ul className="viz-legend" aria-label="Gêneros no gráfico" onMouseLeave={() => setHoveredSeries(null)}>
         {series.map((s, k) => (
           <li key={s.label}>
             <button
               type="button"
-              className={`viz-legend-item${active != null && active !== k ? " is-dim" : ""}`}
-              onMouseEnter={() => setFocusSeries(k)}
-              onMouseLeave={() => setFocusSeries(null)}
-              onFocus={() => setFocusSeries(k)}
-              onBlur={() => setFocusSeries(null)}
+              className={`viz-legend-item${dim(k) ? " is-dim" : ""}${pinned === k ? " is-pinned" : ""}`}
+              onMouseEnter={() => setHoveredSeries(k)}
+              onFocus={() => setHoveredSeries(k)}
+              onBlur={() => setHoveredSeries(null)}
+              onClick={() => setPinned((p) => (p === k ? null : k))}
+              aria-pressed={pinned === k}
+              title={pinned === k ? "Clique para soltar" : `Isolar ${s.label}`}
             >
-              <span className="viz-swatch" style={{ background: s.color }} aria-hidden="true" />
+              <span className="viz-swatch viz-swatch-dot" style={{ background: s.color, color: s.color }} aria-hidden="true" />
               {s.label}
               {s.total != null && <span className="viz-legend-value">{pct(s.total, trackCount)}</span>}
             </button>
@@ -204,77 +216,138 @@ export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
       </ul>
 
       <div className="flow-wrap" ref={wrapRef}>
-        {layout && (
+        {model && (
           <>
             <svg
-              className={`flow-plot${mounted ? " is-in" : ""}`}
+              className={`flow-plot${mounted ? " is-in" : ""}${focus != null ? " has-focus" : ""}`}
               width={width}
-              height={height + 34}
+              height={svgH}
               role="img"
-              aria-label={`Fluxo dos gêneros ao longo das ${n} faixas da playlist. Use as setas para percorrer as faixas.`}
+              aria-label={`Parcela de cada gênero ao longo das ${n} faixas da playlist. Use as setas para percorrer as faixas.`}
               tabIndex={0}
-              onMouseMove={onMove}
-              onMouseLeave={() => {
-                setHoverIndex(null);
-                setFocusSeries(null);
-              }}
+              onPointerMove={onMove}
+              onPointerLeave={onLeave}
               onKeyDown={onKey}
               onBlur={() => setHoverIndex(null)}
             >
               <defs>
-                <clipPath id="flow-round">
-                  <rect x={PAD_X} y={0} width={plotW} height={height} rx={14} />
+                {series.map((s, k) => (
+                  <linearGradient key={s.label} id={`${uid}-fill-${k}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0" stopColor={s.color} stopOpacity={0.42} />
+                    <stop offset="0.7" stopColor={s.color} stopOpacity={0.07} />
+                    <stop offset="1" stopColor={s.color} stopOpacity={0} />
+                  </linearGradient>
+                ))}
+                {/* Em espaço do usuário: numa linha reta a caixa do traço tem altura zero, e o filtro sumiria com ela. */}
+                <filter id={`${uid}-glow`} filterUnits="userSpaceOnUse" x={0} y={0} width={width} height={svgH}>
+                  <feGaussianBlur stdDeviation="5" />
+                </filter>
+                <clipPath id={`${uid}-plot`}>
+                  <rect x={PAD_X} y={PAD_TOP - 14} width={plotW} height={plotH + 14} rx={12} />
                 </clipPath>
               </defs>
 
-              <g clipPath="url(#flow-round)">
-              <g className="flow-layers">
-                {layout.map((l, k) => (
+              <rect className="flow-bg" x={PAD_X} y={PAD_TOP - 14} width={plotW} height={plotH + 14} rx={12} />
+              <g className="flow-grid" aria-hidden="true">
+                {model.gridY.map((y) => (
+                  <line key={`y${y}`} x1={PAD_X} x2={PAD_X + plotW} y1={y} y2={y} />
+                ))}
+                {model.gridX.map((x) => (
+                  <line key={`x${x}`} x1={x} x2={x} y1={PAD_TOP - 14} y2={baseline} />
+                ))}
+              </g>
+
+              <g className="flow-areas" clipPath={`url(#${uid}-plot)`}>
+                {order.map((k) => (
                   <path
                     key={series[k].label}
-                    d={l.path}
-                    fill={series[k].color}
-                    stroke={SURFACE}
-                    strokeWidth={2}
-                    strokeLinejoin="round"
-                    className={`flow-layer${active != null && active !== k ? " is-dim" : ""}`}
+                    d={model.lines[k].area}
+                    fill={`url(#${uid}-fill-${k})`}
+                    className={`flow-area${state(k)}`}
                   />
                 ))}
               </g>
+
+              <g className="flow-glows" filter={`url(#${uid}-glow)`} aria-hidden="true">
+                {order.map((k) => (
+                  <path
+                    key={series[k].label}
+                    d={model.lines[k].line}
+                    stroke={series[k].color}
+                    pathLength={1}
+                    className={`flow-glow${state(k)}`}
+                  />
+                ))}
               </g>
 
-              {layout.map((l, k) =>
-                l.label ? (
-                  <text
-                    key={`label-${series[k].label}`}
-                    x={l.label.x}
-                    y={l.label.y}
-                    className={`flow-label${active != null && active !== k ? " is-dim" : ""}`}
-                    fill={inkOn(series[k].color)}
-                    textAnchor="middle"
-                    dominantBaseline="central"
-                  >
-                    {series[k].label}
-                  </text>
-                ) : null,
+              <g className="flow-lines">
+                {order.map((k) => (
+                  <path
+                    key={series[k].label}
+                    d={model.lines[k].line}
+                    stroke={series[k].color}
+                    pathLength={1}
+                    className={`flow-line${state(k)}`}
+                  />
+                ))}
+              </g>
+
+              <g className="flow-callouts" aria-hidden="true">
+                {model.callouts.map((c) => (
+                  <g key={series[c.k].label} className={`flow-callout${state(c.k)}`}>
+                    <line x1={c.sx} y1={c.sy} x2={c.ex} y2={c.ey} stroke={series[c.k].color} className="flow-leader" />
+                    <circle cx={c.x} cy={c.y} r={4} fill={series[c.k].color} className="flow-callout-dot" />
+                    <text x={c.lx} y={c.ly} textAnchor="middle" dominantBaseline="central" className="flow-callout-text">
+                      {series[c.k].label}
+                    </text>
+                  </g>
+                ))}
+              </g>
+
+              {hoverIndex != null && (
+                <g className="flow-hover" aria-hidden="true">
+                  <line
+                    x1={xAt(hoverIndex)}
+                    x2={xAt(hoverIndex)}
+                    y1={PAD_TOP - 14}
+                    y2={baseline + 16}
+                    className="flow-hover-line"
+                  />
+                  {order.map((k) => {
+                    if (series[k].values[hoverIndex] < 0.01 || dim(k)) return null;
+                    const [x, y] = model.lines[k].pts[hoverIndex];
+                    return (
+                      <g key={series[k].label}>
+                        {focus === k && <circle cx={x} cy={y} r={11} fill={series[k].color} className="flow-hover-halo" />}
+                        <circle
+                          cx={x}
+                          cy={y}
+                          r={focus === k ? 5.5 : 4}
+                          fill={series[k].color}
+                          className="flow-hover-dot"
+                        />
+                      </g>
+                    );
+                  })}
+                </g>
               )}
 
-              {/* Uma marca por faixa: cheia se tem gênero, vazada se não tem. */}
-              <g transform={`translate(0, ${height + 10})`}>
+              {/* Uma marca por faixa: alta se tem gênero, baixa e apagada se não tem. */}
+              <g transform={`translate(0, ${baseline + 8})`} aria-hidden="true">
                 {tracks.map((t, i) => (
                   <rect
                     key={t.track_id}
-                    x={xAt(i) - 1}
+                    x={xAt(i) - 0.75}
                     y={0}
-                    width={2}
+                    width={1.5}
                     height={t.genres.length ? 8 : 4}
-                    rx={1}
+                    rx={0.75}
                     fill={t.genres.length ? INK_MUTED : "rgba(167,167,167,0.35)"}
-                    opacity={hoverIndex === i ? 1 : 0.55}
+                    opacity={hoverIndex === i ? 1 : 0.45}
                   />
                 ))}
               </g>
-              <g className="viz-axis" transform={`translate(0, ${height + 31})`}>
+              <g className="viz-axis" transform={`translate(0, ${baseline + 33})`}>
                 <text x={PAD_X} textAnchor="start">
                   faixa 1
                 </text>
@@ -285,22 +358,12 @@ export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
                   faixa {n}
                 </text>
               </g>
-
-              {hoverIndex != null && (
-                <line
-                  x1={xAt(hoverIndex)}
-                  x2={xAt(hoverIndex)}
-                  y1={0}
-                  y2={height + 18}
-                  className="viz-crosshair"
-                />
-              )}
             </svg>
 
             <ChartTooltip
               visible={hovered != null && pointer != null}
               x={pointer?.x ?? 0}
-              y={Math.min(pointer?.y ?? 0, height - 40)}
+              y={Math.max(40, Math.min(pointer?.y ?? 0, baseline - 40))}
               width={width}
             >
               {hovered && (
@@ -313,7 +376,7 @@ export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
                   {mix.length > 0 ? (
                     <ul className="viz-tooltip-list">
                       {mix.map((s) => (
-                        <li key={s.label}>
+                        <li key={s.label} className={focus === s.k ? "is-focus" : undefined}>
                           <span className="viz-swatch" style={{ background: s.color }} aria-hidden="true" />
                           <span>{s.label}</span>
                           <span className="viz-tooltip-num">{Math.round(s.v * 100)}%</span>

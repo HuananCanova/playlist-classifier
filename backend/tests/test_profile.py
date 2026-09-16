@@ -143,7 +143,7 @@ def test_decadas_tags_finas_e_medias_opcionais():
     stats = build_profile_stats([_pl("a", "A", 3)], digests)
 
     assert stats["decades"] == [{"decade": 1970, "count": 1}, {"decade": 1980, "count": 1}]
-    # "rock" é gênero amplo da faixa, então não se repete como tag fina;
+    # "rock" é gênero amplo, então não se repete como tag fina;
     # a caixa diferente de "Post-Punk" não divide a contagem.
     assert stats["top_tags"] == [{"label": "post-punk", "count": 2}]
     lib = stats["library"]
@@ -151,6 +151,21 @@ def test_decadas_tags_finas_e_medias_opcionais():
     assert lib["popularity_known"] == 2
     assert lib["tracks_with_genre"] == 2
     assert lib["oldest_track"]["year"] == 1979
+
+
+def test_tag_fina_que_e_genero_de_outro_artista_nao_se_repete():
+    digests = {
+        "a": {
+            "tracks": [
+                _t("1", ["A"], ["indie"], ["dream pop"]),
+                # "Indie" não é gênero do artista B, mas é do A: já está no quadro de gêneros.
+                _t("2", ["B"], ["folk"], ["Indie", "dream pop"]),
+            ]
+        }
+    }
+    stats = build_profile_stats([_pl("a", "A", 2)], digests)
+
+    assert stats["top_tags"] == [{"label": "dream pop", "count": 2}]
 
 
 def test_diversidade_efetiva():
@@ -273,6 +288,15 @@ async def test_sem_audio_pula_o_deezer_e_nao_ocupa_o_cache_da_pagina(fake_source
     assert "p9" not in playlist_analysis_cache
     # E ainda assim deixa o resumo para o perfil.
     assert store_tmp.load("p9")["snapshot_id"] == "s9"
+
+
+async def test_subgeneros_nao_repetem_os_generos(fake_sources, store_tmp):
+    analysis = await genre_analysis.build_playlist_analysis("tok", "p9", include_audio=False)
+
+    assert [g.label for g in analysis.genre_distribution] == ["rock"]
+    assert [g.label for g in analysis.subgenre_distribution] == ["britpop"]
+    # A faixa continua com todas as tags: agrupamento e busca usam as duas.
+    assert analysis.tracks[0].subgenre_tags == ["britpop", "rock"]
 
 
 async def test_pedidos_simultaneos_da_mesma_playlist_viram_uma_analise(fake_sources):

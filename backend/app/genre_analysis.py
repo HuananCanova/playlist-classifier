@@ -188,6 +188,13 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         snapshot_id=playlist_data.get("snapshot_id"),
     )
 
+    # A distribuição de subgêneros mostra só o que a de gêneros não mostra: uma tag
+    # que já é gênero de algum artista da playlist ficaria repetida nos dois
+    # gráficos. As tags de cada faixa seguem completas (agrupamento e busca usam).
+    genre_keys = {g.lower() for g in genre_counter}
+    for tag in [t for t in subgenre_counter if t.lower() in genre_keys]:
+        del subgenre_counter[tag]
+
     def top_counts(counter: Counter, limit: int = 25) -> list[GenreCount]:
         return [GenreCount(label=label, count=count) for label, count in counter.most_common(limit)]
 
