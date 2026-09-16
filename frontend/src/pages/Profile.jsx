@@ -4,27 +4,36 @@ import { api } from "../api.js";
 import { useAuth } from "../AuthContext.jsx";
 import ColumnChart from "../components/ColumnChart.jsx";
 import DistributionBarChart from "../components/DistributionBarChart.jsx";
-import { pct } from "../charts/chartKit.js";
+import TasteTimeline from "../charts/TasteTimeline.jsx";
+import { NEUTRAL, SERIES, pct } from "../charts/chartKit.js";
+
+/*
+ * O perfil é um retrato do gosto, não um relatório da biblioteca. Cada peça
+ * desta página responde "o que essa pessoa ouve?" — gênero, época, artistas,
+ * o quanto o gosto é concentrado, onde ele cai entre o hit e o garimpo, em que
+ * andamento, e como tudo isso mudou. Número que não responde a isso (faixa
+ * explícita, faixa repetida em duas playlists) não entra: é fato do acervo, e
+ * ocupa o lugar de algo que diria alguma coisa sobre a pessoa.
+ */
 
 // Enquanto a varredura roda, o painel se atualiza neste ritmo. Cada consulta é
 // barata no backend (lê resumos em disco), então dá para ser frequente.
 const POLL_MS = 2500;
 
-const nf = new Intl.NumberFormat("pt-BR");
-const monthFmt = new Intl.DateTimeFormat("pt-BR", { month: "short", year: "numeric", timeZone: "UTC" });
-const monthShort = new Intl.DateTimeFormat("pt-BR", { month: "short", timeZone: "UTC" });
-const dateFmt = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });
+// A mesma ordem de séries do backend (TASTE_SERIES) e da linha do gosto: o
+// gênero que é verde no gráfico continua verde na barra, na página inteira.
+const TASTE_SERIES = 5;
 
-const PRODUCTS = { premium: "Premium", free: "Free", open: "Free" };
+const nf = new Intl.NumberFormat("pt-BR");
+const dateFmt = new Intl.DateTimeFormat("pt-BR", { month: "long", year: "numeric", timeZone: "UTC" });
 
 function hours(ms) {
   const h = ms / 3_600_000;
   return h >= 10 ? `${nf.format(Math.round(h))} h` : `${h.toFixed(1).replace(".", ",")} h`;
 }
 
-function clock(ms) {
-  const s = Math.round(ms / 1000);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+function decimal(v) {
+  return v.toLocaleString("pt-BR", { maximumFractionDigits: 1 });
 }
 
 // "~18 h" / "~25 min", e o horário em que libera.
@@ -39,8 +48,71 @@ function blockText(seconds) {
   return `${span} (até ${at})`;
 }
 
-function monthDate(key) {
-  return new Date(`${key}-01T00:00:00Z`);
+// ── as leituras: o número vira uma frase sobre a pessoa ──────────────────────
+//
+// Cada escala tem duas formas do mesmo juízo: a frase, que é o que o cartão
+// mostra abaixo do número, e a palavra, curta o bastante para caber grifada no
+// meio do retrato. Escrever as duas à mão evita o grifo de meia linha que sai
+// de encurtar a frase na marra.
+
+const VARIETY = [
+  [12, "Um gosto que não cabe numa prateleira", "muito eclético"],
+  [7, "Eclético, com vários centros", "eclético"],
+  [4, "Variado, em torno de alguns estilos", "variado"],
+  [0, "Focado em poucos estilos", "focado"],
+];
+
+const POPULARITY = [
+  [65, "Quase tudo que você ouve, muita gente ouve", "bem mainstream"],
+  [45, "Mais conhecido do que obscuro", "mais pop que obscuro"],
+  [25, "Entre o hit e o garimpo", "entre o hit e o garimpo"],
+  [0, "Garimpo fundo, longe das paradas", "de garimpo fundo"],
+];
+
+const LOYALTY = [
+  [120, "Você raramente volta ao mesmo artista"],
+  [40, "Muita gente diferente, poucos favoritos fixos"],
+  [15, "Um punhado de artistas sustenta o acervo"],
+  [0, "Você volta sempre aos mesmos"],
+];
+
+const TEMPO = [
+  [160, "Frenético", "frenético"],
+  [135, "Acelerado", "acelerado"],
+  [115, "Dançante", "dançante"],
+  [90, "Moderado", "moderado"],
+  [0, "Lento", "lento"],
+];
+
+/** A primeira linha cujo piso o valor alcança. As tabelas vêm do maior ao menor. */
+function reading(table, value) {
+  return table.find(([floor]) => value >= floor) ?? table[table.length - 1];
+}
+
+/**
+ * O retrato em uma frase, montado dos mesmos números dos cartões abaixo.
+ *
+ * É a primeira coisa que se lê na página, e a única que tenta dizer o conjunto
+ * — os gráficos detalham, ela resume. Cada pedaço some sozinho quando o dado
+ * que o sustenta não existe, então a frase encolhe em vez de inventar.
+ */
+function signature({ library: lib, top_genres, decades }) {
+  const chunks = [];
+  const key = (text) => <b key={`${chunks.length}-${text}`}>{text}</b>;
+
+  if (top_genres.length === 0) return null;
+
+  chunks.push("Um gosto ", key(reading(VARIETY, lib.genre_diversity)[2]), ", ancorado em ", key(top_genres[0].label));
+  if (top_genres[1]) chunks.push(" e ", key(top_genres[1].label));
+
+  const topDecade = decades.reduce((a, b) => (b.count > (a?.count ?? -1) ? b : a), null);
+  if (topDecade) chunks.push(", com o centro de gravidade nos ", key(`anos ${topDecade.decade}`));
+
+  if (lib.avg_popularity != null) chunks.push(", ", key(reading(POPULARITY, lib.avg_popularity)[2]));
+  if (lib.avg_bpm != null) chunks.push(", em andamento ", key(reading(TEMPO, lib.avg_bpm)[2]));
+
+  chunks.push(".");
+  return chunks;
 }
 
 export default function Profile() {
@@ -137,10 +209,12 @@ export default function Profile() {
   if (!data) return <ProfileSkeleton user={sessionUser} />;
 
   const { user, overview, coverage, stats, index, build: progress } = data;
-  const blocked = progress.running ? null : progress.blocked_seconds || data.spotify_blocked_seconds;
+  // `|| null` importa: com 0 segundos, `{blocked && …}` imprimiria um "0" solto na página.
+  const blocked = progress.running ? null : progress.blocked_seconds || data.spotify_blocked_seconds || null;
   const name = user.display_name || sessionUser?.display_name || "Você";
   const image = user.image || sessionUser?.image;
   const partial = coverage.playlists_ready < coverage.playlists_total;
+  const portrait = stats && signature(stats);
 
   return (
     <div className="container page-enter">
@@ -154,28 +228,34 @@ export default function Profile() {
           </div>
         )}
         <div className="hero-body">
-          <p className="profile-kicker">Perfil</p>
+          <p className="profile-kicker">Retrato do seu gosto</p>
           <h1 className="hero-title">{name}</h1>
-          <p className="hero-meta">
-            {[
-              user.followers != null && `${nf.format(user.followers)} ${user.followers === 1 ? "seguidor" : "seguidores"}`,
-              PRODUCTS[user.product],
-              user.country,
-              stats?.library.first_added && `ouvindo e montando playlists desde ${dateFmt.format(new Date(stats.library.first_added))}`,
-            ]
-              .filter(Boolean)
-              .join(" · ")}
-          </p>
+
+          {portrait ? (
+            <p className="profile-signature">{portrait}</p>
+          ) : (
+            <p className="hero-meta">O retrato aparece aqui assim que suas playlists forem analisadas.</p>
+          )}
+
+          {stats?.library.first_added && (
+            <p className="profile-since">
+              Ouvindo e montando playlists desde {dateFmt.format(new Date(stats.library.first_added))}.
+            </p>
+          )}
+
           <div className="stat-row">
-            {overview.playlists > 0 && <Stat value={nf.format(overview.playlists)} label="playlists" />}
-            {overview.tracks_listed > 0 && <Stat value={nf.format(overview.tracks_listed)} label="faixas nas playlists" />}
+            {stats && <Stat value={nf.format(stats.library.unique_tracks)} label="faixas no acervo" />}
             {(stats || index) && (
               <Stat
                 value={nf.format(Math.max(stats?.library.unique_artists ?? 0, index?.unique_artists ?? 0))}
                 label="artistas"
               />
             )}
+            {stats && stats.top_genres.length > 0 && (
+              <Stat value={decimal(stats.library.genre_diversity)} label="gêneros efetivos" />
+            )}
             {stats && !partial && <Stat value={hours(stats.library.total_duration_ms)} label="de música" />}
+            {!stats && overview.playlists > 0 && <Stat value={nf.format(overview.playlists)} label="playlists" />}
           </div>
         </div>
       </section>
@@ -188,14 +268,14 @@ export default function Profile() {
 
       {!stats && !index && (
         <div className="empty-state">
-          <h2>{progress.running ? "Montando seu perfil" : blocked ? "O Spotify pausou o acesso" : "Nada para mostrar ainda"}</h2>
+          <h2>{progress.running ? "Montando seu retrato" : blocked ? "O Spotify pausou o acesso" : "Nada para mostrar ainda"}</h2>
           <p>
             {progress.running
               ? "O painel aparece aqui assim que a primeira playlist terminar."
               : blocked
                 ? `O Spotify suspendeu o acesso deste app por ${blockText(blocked)}. Volte depois desse horário.`
                 : overview.playlists === 0
-                  ? "Crie uma playlist no Spotify para ver suas estatísticas."
+                  ? "Crie uma playlist no Spotify para ver seu retrato."
                   : "Use o botão acima para analisar suas playlists."}
           </p>
         </div>
@@ -239,12 +319,12 @@ function Coverage({ coverage, progress, blocked, starting, onBuild }) {
         <span className="coverage-label">
           {done ? (
             <>
-              Estatísticas sobre <b>todas as {nf.format(playlists_total)}</b> playlists com faixas.
+              O retrato usa <b>todas as {nf.format(playlists_total)}</b> playlists com faixas.
             </>
           ) : (
             <>
-              Estatísticas completas de <b>{nf.format(playlists_ready)}</b> de <b>{nf.format(playlists_total)}</b>{" "}
-              playlists ({nf.format(tracks_ready)} de {nf.format(tracks_total)} faixas)
+              O retrato usa <b>{nf.format(playlists_ready)}</b> de <b>{nf.format(playlists_total)}</b> playlists (
+              {nf.format(tracks_ready)} de {nf.format(tracks_total)} faixas)
               {playlists_stale > 0 && <>, {playlists_stale} com dados de antes da última mudança</>}.
             </>
           )}
@@ -328,7 +408,7 @@ function IndexPanel({ index }) {
         <h2>Do seu acervo indexado</h2>
         <p className="panel-sub">
           {nf.format(index.tracks)} faixas que a busca já conhece, de todas as playlists indexadas. Mostra quem e o
-          quê aparece mais; em que playlist e quando cada faixa entrou só vem com a análise completa.
+          quê aparece mais; a época, o andamento e a mudança do gosto só vêm com a análise completa.
         </p>
       </header>
       <div className="charts-grid">
@@ -353,90 +433,95 @@ function IndexPanel({ index }) {
 }
 
 function Dashboard({ stats, coverage }) {
-  const { library: lib, top_genres, top_artists, top_tags, decades, added_timeline, repeated_tracks, playlists } = stats;
+  const { library: lib, top_genres, top_artists, top_tags, decades, taste_timeline, popularity_bands, tempo_zones, deep_cuts, playlists } =
+    stats;
 
   const topGenre = top_genres[0];
   const topDecade = decades.reduce((a, b) => (b.count > (a?.count ?? -1) ? b : a), null);
+  const decadeTotal = decades.reduce((s, d) => s + d.count, 0);
+
+  // A cor segue o gênero, não a posição na lista: o mesmo gênero é a mesma cor
+  // na linha do gosto e nas barras. Fora do topo, o cinza neutro — são muitos
+  // para ter nome de cor, e inventar uma sétima quebraria a paleta.
+  const genreColor = useMemo(() => {
+    const map = new Map(top_genres.slice(0, TASTE_SERIES).map((g, i) => [g.label, SERIES[i]]));
+    return (label) => map.get(label) ?? NEUTRAL;
+  }, [top_genres]);
 
   const decadeData = useMemo(
     () => decades.map((d) => ({ key: d.decade, label: `${String(d.decade).slice(2)}s`, tooltip: `Anos ${d.decade}`, count: d.count })),
     [decades],
   );
 
-  // Até 6 anos, um ponto por mês; acima disso, por ano — senão as colunas
-  // viram fios de 2px e o hover não tem onde pousar.
-  const timelineData = useMemo(() => {
-    if (added_timeline.length <= 72) {
-      return added_timeline.map((m) => {
-        const d = monthDate(m.month);
-        return {
-          key: m.month,
-          label: m.month.endsWith("-01") || added_timeline.length <= 14 ? monthFmt.format(d).replace(" de ", " ") : monthShort.format(d),
-          tooltip: monthFmt.format(d).replace(" de ", " "),
-          count: m.count,
-          major: m.month.endsWith("-01"),
-          majorLabel: m.month.slice(0, 4),
-        };
-      });
-    }
-    const years = new Map();
-    for (const m of added_timeline) years.set(m.month.slice(0, 4), (years.get(m.month.slice(0, 4)) ?? 0) + m.count);
-    return [...years].map(([y, count]) => ({ key: y, label: y, tooltip: y, count }));
-  }, [added_timeline]);
+  const popularityData = useMemo(
+    () =>
+      popularity_bands.map((b) => ({
+        key: b.label,
+        label: b.label,
+        tooltip: `${b.label} (${b.from}–${b.to - 1} de 100)`,
+        count: b.count,
+      })),
+    [popularity_bands],
+  );
 
-  const busiest = added_timeline.reduce((a, b) => (b.count > (a?.count ?? 0) ? b : a), null);
+  const tempoData = useMemo(
+    () =>
+      tempo_zones.map((z) => ({
+        key: z.label,
+        label: z.label,
+        tooltip: z.to > 1000 ? `${z.label} (acima de ${z.from} BPM)` : `${z.label} (${z.from}–${z.to} BPM)`,
+        count: z.count,
+      })),
+    [tempo_zones],
+  );
+
+  const timelineYears = taste_timeline?.years ?? [];
 
   return (
     <>
-      <section className="insight-grid" aria-label="Resumo">
+      <section className="facet-grid" aria-label="As facetas do seu gosto">
         {topGenre && (
-          <Insight
+          <Facet
             kicker="Gênero dominante"
             value={topGenre.label}
-            sub={`${pct(topGenre.count, lib.unique_tracks)} das faixas`}
+            sub={`${pct(topGenre.count, lib.unique_tracks)} das faixas do acervo`}
+            swatch={genreColor(topGenre.label)}
           />
         )}
-        <Insight
+        <Facet
           kicker="Variedade"
-          value={`≈ ${nf.format(lib.genre_diversity)} gêneros`}
-          sub={
-            lib.genre_diversity >= 12
-              ? "Seu gosto é bem eclético"
-              : lib.genre_diversity >= 5
-                ? "Um gosto variado, com alguns centros"
-                : "Um gosto focado em poucos estilos"
-          }
+          value={`${decimal(lib.genre_diversity)} gêneros`}
+          sub={reading(VARIETY, lib.genre_diversity)[1]}
           hint="Número efetivo de gêneros: quantos gêneros igualmente frequentes dariam a mesma variedade."
         />
         {topDecade && (
-          <Insight
-            kicker="Década favorita"
+          <Facet
+            kicker="Época"
             value={`Anos ${topDecade.decade}`}
-            sub={`${pct(topDecade.count, decades.reduce((s, d) => s + d.count, 0))} das faixas com data`}
+            sub={`${pct(topDecade.count, decadeTotal)} das faixas com data${lib.median_release_year ? `; metade é de ${lib.median_release_year} ou antes` : ""}`}
           />
         )}
-        {lib.avg_popularity != null && (
-          <Insight
-            kicker="Popularidade média"
-            value={`${Math.round(lib.avg_popularity)} de 100`}
-            sub={lib.avg_popularity >= 60 ? "Bem mainstream" : lib.avg_popularity >= 35 ? "Entre o hit e o garimpo" : "Muito garimpo fora do radar"}
-            meter={lib.avg_popularity / 100}
-          />
-        )}
-        <Insight
-          kicker="Faixas repetidas"
-          value={pct(lib.repeated_entries, lib.entries)}
-          sub={`${nf.format(lib.repeated_entries)} entradas estão em mais de uma playlist`}
+        <Facet
+          kicker="Fidelidade"
+          value={`${decimal(lib.artist_diversity)} artistas`}
+          sub={reading(LOYALTY, lib.artist_diversity)[1]}
+          hint="Número efetivo de artistas: quantos artistas igualmente presentes dariam o mesmo espalhamento."
         />
-        <Insight kicker="Duração média" value={clock(lib.avg_duration_ms)} sub="por faixa" />
-        {lib.explicit_share != null && (
-          <Insight kicker="Conteúdo explícito" value={pct(Math.round(lib.explicit_share * 1000), 1000)} sub="das faixas" />
+        {lib.avg_popularity != null && (
+          <Facet
+            kicker="No radar"
+            value={`${Math.round(lib.avg_popularity)} de 100`}
+            sub={`${reading(POPULARITY, lib.avg_popularity)[1]}, em ${nf.format(lib.popularity_known)} faixas`}
+            spectrum={{ value: lib.avg_popularity / 100, ends: ["garimpo", "hit"] }}
+            hint="Popularidade média das suas faixas no Spotify, de 0 a 100."
+          />
         )}
         {lib.avg_bpm != null && (
-          <Insight
-            kicker="BPM médio"
-            value={Math.round(lib.avg_bpm)}
-            sub={`em ${nf.format(lib.bpm_known)} faixas com BPM conhecido`}
+          <Facet
+            kicker="Andamento"
+            value={`${Math.round(lib.avg_bpm)} BPM`}
+            sub={`${reading(TEMPO, lib.avg_bpm)[1]}, em ${nf.format(lib.bpm_known)} faixas com BPM conhecido`}
+            spectrum={{ value: (lib.avg_bpm - 60) / 120, ends: ["60", "180"] }}
             hint="O BPM vem do Deezer e só existe para as playlists que você já abriu ou que a busca indexou."
           />
         )}
@@ -448,8 +533,9 @@ function Dashboard({ stats, coverage }) {
           data={top_genres.slice(0, 10)}
           total={lib.unique_tracks}
           limit={10}
-          title="Gêneros"
-          subtitle={`Tags dos artistas no Last.fm, sobre ${nf.format(lib.unique_tracks)} faixas únicas`}
+          title="Do que seu gosto é feito"
+          subtitle={`Gêneros dos artistas no Last.fm, sobre ${nf.format(lib.unique_tracks)} faixas únicas`}
+          colorFor={genreColor}
           foot={
             lib.tracks_with_genre < lib.unique_tracks
               ? `${nf.format(lib.unique_tracks - lib.tracks_with_genre)} faixas ficaram sem gênero. Uma faixa pode ter vários gêneros.`
@@ -459,34 +545,31 @@ function Dashboard({ stats, coverage }) {
         <DistributionBarChart
           data={top_artists.map((a) => ({ label: a.name, count: a.tracks, playlists: a.playlists }))}
           limit={12}
-          title="Artistas mais presentes"
+          title="Os nomes que se repetem"
           subtitle="Faixas únicas de cada artista nas suas playlists"
           detailFor={(r) => `em ${r.playlists} ${r.playlists === 1 ? "playlist" : "playlists"}`}
           foot={null}
         />
       </div>
 
-      <section className="panel">
-        <header className="panel-head">
-          <h3>Quando você adiciona músicas</h3>
-          <p className="panel-sub">
-            Faixas adicionadas às playlists por {timelineData.length && added_timeline.length > 72 ? "ano" : "mês"}.
-            {busiest && busiest.count > 0 && (
-              <> O pico foi em {monthFmt.format(monthDate(busiest.month)).replace(" de ", " ")}, com {nf.format(busiest.count)} faixas.</>
-            )}
-          </p>
-        </header>
-        <ColumnChart data={timelineData} ariaLabel="Faixas adicionadas às playlists ao longo do tempo" />
-      </section>
+      {timelineYears.length >= 2 && (
+        <section className="panel">
+          <header className="panel-head">
+            <h3>Como seu gosto mudou</h3>
+            <p className="panel-sub">
+              As faixas que entraram nas suas playlists a cada ano, divididas pelos gêneros que você mais escolhe. A
+              altura é quanta música entrou; a divisão da coluna é do que ela era feita.
+            </p>
+          </header>
+          <TasteTimeline genres={taste_timeline.genres} years={timelineYears} />
+        </section>
+      )}
 
       <div className="charts-grid">
         <section className="panel">
           <header className="panel-head">
-            <h3>Décadas</h3>
-            <p className="panel-sub">
-              Pelo ano de lançamento do álbum.
-              {lib.median_release_year && <> Metade das faixas é de {lib.median_release_year} ou antes.</>}
-            </p>
+            <h3>De que época você ouve</h3>
+            <p className="panel-sub">Pelo ano de lançamento do álbum.</p>
           </header>
           <ColumnChart data={decadeData} ariaLabel="Faixas por década de lançamento" />
           {lib.oldest_track && (
@@ -500,31 +583,64 @@ function Dashboard({ stats, coverage }) {
           data={top_tags.slice(0, 10)}
           total={lib.unique_tracks}
           limit={10}
-          title="Estilos em detalhe"
-          subtitle="Tags das próprias faixas, além do gênero do artista"
+          title="O gosto em detalhe"
+          subtitle="Tags das próprias faixas, mais finas que o gênero do artista"
           foot={null}
         />
       </div>
 
-      <PlaylistTable rows={playlists} partial={coverage.playlists_ready < coverage.playlists_total} />
+      {(popularityData.length > 0 || tempoData.length > 0) && (
+        <div className="charts-grid">
+          {popularityData.length > 0 && (
+            <section className="panel">
+              <header className="panel-head">
+                <h3>Entre o hit e o garimpo</h3>
+                <p className="panel-sub">
+                  Quantas faixas suas caem em cada nível de popularidade no Spotify, das desconhecidas às que todo
+                  mundo ouve.
+                </p>
+              </header>
+              <ColumnChart data={popularityData} ariaLabel="Faixas por nível de popularidade no Spotify" />
+            </section>
+          )}
+          {tempoData.length > 0 && (
+            <section className="panel">
+              <header className="panel-head">
+                <h3>Em que ritmo</h3>
+                <p className="panel-sub">
+                  Faixas por andamento, em {nf.format(lib.bpm_known)} com BPM conhecido — o que sobra depois do
+                  cruzamento com o Deezer.
+                </p>
+              </header>
+              <ColumnChart data={tempoData} ariaLabel="Faixas por faixa de andamento" />
+            </section>
+          )}
+        </div>
+      )}
 
-      {repeated_tracks.length > 0 && (
+      {deep_cuts.length > 0 && (
         <section className="panel">
           <header className="panel-head">
-            <h3>Faixas que você mais repete</h3>
-            <p className="panel-sub">As músicas que aparecem em mais playlists diferentes.</p>
+            <h3>Seus garimpos</h3>
+            <p className="panel-sub">
+              As faixas mais fora do radar que você guardou: as de menor popularidade no Spotify, entre as suas.
+            </p>
           </header>
-          <ol className="repeat-list">
-            {repeated_tracks.map((t) => (
+          <ol className="cut-list">
+            {deep_cuts.map((t) => (
               <li key={t.id}>
-                <Link to={`/faixa/${t.id}`} className="repeat-row">
-                  {t.image ? <img src={t.image} alt="" loading="lazy" /> : <span className="repeat-art-empty" aria-hidden="true" />}
-                  <span className="repeat-text">
-                    <span className="repeat-name">{t.name}</span>
-                    <span className="repeat-sub">{t.artists.join(", ")}</span>
+                <Link to={`/faixa/${t.id}`} className="cut-row">
+                  {t.image ? <img src={t.image} alt="" loading="lazy" /> : <span className="cut-art-empty" aria-hidden="true" />}
+                  <span className="cut-text">
+                    <span className="cut-name">{t.name}</span>
+                    <span className="cut-sub">
+                      {t.artists.join(", ")}
+                      {t.genre && <span className="cut-genre">{t.genre}</span>}
+                    </span>
                   </span>
-                  <span className="repeat-count" title={t.playlists.join(", ")}>
-                    em {t.playlists.length} playlists
+                  <span className="cut-score" title="Popularidade no Spotify, de 0 a 100">
+                    <span className="tabular">{t.popularity}</span>
+                    <span className="cut-score-unit">/100</span>
                   </span>
                 </Link>
               </li>
@@ -532,21 +648,37 @@ function Dashboard({ stats, coverage }) {
           </ol>
         </section>
       )}
+
+      <PlaylistTable rows={playlists} partial={coverage.playlists_ready < coverage.playlists_total} />
     </>
   );
 }
 
-function Insight({ kicker, value, sub, hint, meter }) {
+/**
+ * Uma faceta do gosto: o rótulo do eixo, a leitura em palavras e o número que
+ * a sustenta. O valor grande é uma frase, não um número solto — "garimpo
+ * fundo" diz mais que "23 de 100", e o número fica logo abaixo para quem quiser.
+ */
+function Facet({ kicker, value, sub, hint, spectrum, swatch }) {
   return (
-    <div className="insight" title={hint}>
-      <span className="insight-kicker">{kicker}</span>
-      <span className="insight-value">{value}</span>
-      {meter != null && (
-        <span className="meter" aria-hidden="true">
-          <span className="meter-fill" style={{ width: `${Math.max(0, Math.min(1, meter)) * 100}%` }} />
+    <div className="facet" title={hint}>
+      <span className="facet-kicker">{kicker}</span>
+      <span className="facet-value">
+        {swatch && <span className="viz-swatch facet-swatch" style={{ background: swatch }} aria-hidden="true" />}
+        {value}
+      </span>
+      {spectrum && (
+        <span className="spectrum" aria-hidden="true">
+          <span className="spectrum-track">
+            <span className="spectrum-dot" style={{ left: `${Math.max(0, Math.min(1, spectrum.value)) * 100}%` }} />
+          </span>
+          <span className="spectrum-ends">
+            <span>{spectrum.ends[0]}</span>
+            <span>{spectrum.ends[1]}</span>
+          </span>
         </span>
       )}
-      {sub && <span className="insight-sub">{sub}</span>}
+      {sub && <span className="facet-sub">{sub}</span>}
     </div>
   );
 }
@@ -554,7 +686,6 @@ function Insight({ kicker, value, sub, hint, meter }) {
 const COLUMNS = [
   { key: "name", label: "Playlist", numeric: false },
   { key: "tracks", label: "Faixas", numeric: true },
-  { key: "duration_ms", label: "Duração", numeric: true },
   { key: "artists", label: "Artistas", numeric: true },
   { key: "genre_diversity", label: "Variedade", numeric: true, title: "Número efetivo de gêneros" },
 ];
@@ -581,12 +712,12 @@ function PlaylistTable({ rows, partial }) {
   return (
     <section className="panel">
       <header className="panel-head">
-        <h3>Suas playlists lado a lado</h3>
+        <h3>Cada playlist é um lado seu</h3>
         <p className="panel-sub">
           {eclectic && focused && eclectic.id !== focused.id ? (
             <>
-              A mais eclética é <b>{eclectic.name}</b> (≈ {nf.format(eclectic.genre_diversity)} gêneros); a mais focada é{" "}
-              <b>{focused.name}</b>, quase toda {focused.top_genre}.
+              A mais eclética é <b>{eclectic.name}</b> ({decimal(eclectic.genre_diversity)} gêneros efetivos); a mais
+              focada é <b>{focused.name}</b>, quase toda {focused.top_genre}.
             </>
           ) : (
             "Clique no título de uma coluna para ordenar."
@@ -629,9 +760,8 @@ function PlaylistTable({ rows, partial }) {
                   </Link>
                 </td>
                 <td className="num">{nf.format(r.tracks)}</td>
-                <td className="num">{hours(r.duration_ms)}</td>
                 <td className="num">{nf.format(r.artists)}</td>
-                <td className="num">{r.top_genre ? nf.format(r.genre_diversity) : "—"}</td>
+                <td className="num">{r.top_genre ? decimal(r.genre_diversity) : "—"}</td>
                 <td className="pl-genre">{r.top_genre ?? "—"}</td>
               </tr>
             ))}
@@ -652,7 +782,7 @@ function ProfileSkeleton({ user }) {
           <div className="hero-art profile-avatar skeleton" />
         )}
         <div className="hero-body">
-          <p className="profile-kicker">Perfil</p>
+          <p className="profile-kicker">Retrato do seu gosto</p>
           <h1 className="hero-title">{user?.display_name ?? "…"}</h1>
           <div className="stat-row">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -664,9 +794,9 @@ function ProfileSkeleton({ user }) {
           </div>
         </div>
       </section>
-      <div className="insight-grid">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="insight">
+      <div className="facet-grid">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="facet">
             <span className="skeleton skeleton-line skeleton-line-short" />
             <span className="skeleton skeleton-stat" />
           </div>

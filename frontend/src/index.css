@@ -2673,7 +2673,7 @@ body:has(.nowplaying) .chat-drawer {
   height: min(680px, calc(100dvh - 116px));
 }
 
-/* ── Perfil ─────────────────────────────────────────────────────────── */
+/* ── Perfil: o retrato do gosto ─────────────────────────────────────── */
 
 .profile-kicker {
   margin: 0 0 6px;
@@ -2681,7 +2681,7 @@ body:has(.nowplaying) .chat-drawer {
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--ink-2);
+  color: var(--green-soft);
 }
 
 .profile-avatar {
@@ -2696,6 +2696,35 @@ body:has(.nowplaying) .chat-drawer {
   color: var(--green-soft);
 }
 
+/* O retrato em uma frase. É o maior bloco de texto do app de propósito: é a
+   única peça que tenta dizer o conjunto, e os gráficos abaixo detalham. */
+.profile-signature {
+  margin: 4px 0 0;
+  max-width: 54ch;
+  font-size: clamp(16px, 1.9vw, 21px);
+  line-height: 1.5;
+  letter-spacing: -0.01em;
+  color: var(--ink-2);
+  text-wrap: pretty;
+}
+
+/* O grifo é do gosto, não da cor de série: o texto continua com cor de texto,
+   e o verde só sublinha. */
+.profile-signature b {
+  font-weight: 600;
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: rgba(30, 215, 96, 0.5);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 4px;
+}
+
+.profile-since {
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: var(--faint);
+}
+
 .profile-coverage {
   margin: 0 0 20px;
 }
@@ -2707,68 +2736,107 @@ body:has(.nowplaying) .chat-drawer {
   margin-bottom: 6px;
 }
 
-.insight-grid {
+/* As facetas: um cartão por eixo do gosto. */
+
+.facet-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-  gap: 12px;
-  margin-bottom: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: 14px;
+  margin-bottom: 22px;
 }
 
-.insight {
+.facet {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
   min-width: 0;
-  padding: 16px 18px;
+  overflow: hidden;
+  padding: 17px 20px;
   border-radius: var(--r-item);
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: var(--ring-top);
+  transition: border-color 0.2s ease;
 }
 
-.insight[title] {
+.facet:hover {
+  border-color: var(--line-strong);
+}
+
+.facet[title] {
   cursor: help;
 }
 
-.insight-kicker {
-  font-size: 12.5px;
-  color: var(--muted);
+/* A cor do gênero, do mesmo jeito que na legenda dos gráficos: o cartão e a
+   barra do mesmo gênero se reconhecem. */
+.facet-swatch {
+  display: inline-block;
+  margin-right: 9px;
+  vertical-align: 0.08em;
 }
 
-.insight-value {
-  font-size: 22px;
-  font-weight: 700;
-  line-height: 1.2;
+.facet-kicker {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+
+.facet-value {
+  /* Empurra a escala e a leitura para o pé do cartão: numa fileira de alturas
+     desiguais, o vão fica no meio e não vira um buraco embaixo do número. */
+  margin-bottom: auto;
+  font-size: 23px;
+  font-weight: 600;
+  line-height: 1.25;
   letter-spacing: -0.02em;
   color: var(--ink);
+  text-wrap: balance;
   overflow-wrap: anywhere;
 }
 
-.insight-sub {
-  font-size: 13px;
-  color: var(--ink-2);
+.facet-sub {
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--muted);
 }
 
-.meter {
+/* Onde você cai numa escala com dois extremos — não é uma fração de um teto,
+   é uma posição, então o desenho é um ponto sobre o trilho, não um enchimento. */
+.spectrum {
   display: block;
-  height: 6px;
-  margin: 6px 0 2px;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  overflow: hidden;
+  margin: 9px 0 3px;
 }
 
-.meter-fill {
+.spectrum-track {
+  position: relative;
   display: block;
-  height: 100%;
+  height: 4px;
   border-radius: 999px;
-  background: var(--green-deep);
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.07), rgba(30, 215, 96, 0.4));
 }
 
-.bars-detail .bar-share {
-  width: auto;
-  min-width: 84px;
-  white-space: nowrap;
+.spectrum-dot {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  border-radius: 50%;
+  background: var(--green);
+  transform: translateY(-50%);
+  /* Anel da cor do cartão: o ponto se destaca do trilho sem ganhar contorno. */
+  box-shadow: 0 0 0 2px var(--surface);
+}
+
+.spectrum-ends {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--faint);
 }
 
 .section-head {
@@ -2786,7 +2854,13 @@ body:has(.nowplaying) .chat-drawer {
   color: var(--muted);
 }
 
-/* Colunas (décadas, linha do tempo) */
+.bars-detail .bar-share {
+  width: auto;
+  min-width: 84px;
+  white-space: nowrap;
+}
+
+/* Colunas (décadas, popularidade, andamento, linha do gosto) */
 
 .colchart-wrap {
   position: relative;
@@ -2804,6 +2878,17 @@ body:has(.nowplaying) .chat-drawer {
   transition: transform 0.7s var(--ease-out), opacity 0.15s ease;
 }
 
+/* A pilha inteira do ano cresce junta: o gráfico se monta ano a ano, da
+   esquerda para a direita, como a história que ele conta. */
+.taste-col {
+  transform-box: view-box;
+  transition: transform 0.8s var(--ease-out), opacity 0.15s ease;
+}
+
+.taste-col path {
+  transition: opacity 0.2s ease;
+}
+
 .colchart-grid {
   stroke: rgba(255, 255, 255, 0.06);
   stroke-width: 1;
@@ -2816,8 +2901,14 @@ body:has(.nowplaying) .chat-drawer {
   font-variant-numeric: tabular-nums;
 }
 
+button.viz-legend-item {
+  font: inherit;
+  cursor: pointer;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .colchart-col {
+  .colchart-col,
+  .taste-col {
     transition: opacity 0.15s ease;
     transform: none !important;
   }
@@ -2911,18 +3002,18 @@ body:has(.nowplaying) .chat-drawer {
   color: var(--muted);
 }
 
-/* Faixas repetidas */
+/* Garimpos */
 
-.repeat-list {
+.cut-list {
   list-style: none;
   margin: 0 -8px;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 2px 12px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 2px 14px;
 }
 
-.repeat-row {
+.cut-row {
   display: flex;
   align-items: center;
   gap: 12px;
@@ -2932,12 +3023,12 @@ body:has(.nowplaying) .chat-drawer {
   transition: background 0.15s ease;
 }
 
-.repeat-row:hover {
+.cut-row:hover {
   background: rgba(255, 255, 255, 0.045);
 }
 
-.repeat-row img,
-.repeat-art-empty {
+.cut-row img,
+.cut-art-empty {
   width: 44px;
   height: 44px;
   flex-shrink: 0;
@@ -2946,35 +3037,51 @@ body:has(.nowplaying) .chat-drawer {
   background: var(--raised);
 }
 
-.repeat-text {
+.cut-text {
   display: flex;
   flex-direction: column;
   min-width: 0;
   flex: 1;
 }
 
-.repeat-name,
-.repeat-sub {
+.cut-name,
+.cut-sub {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.repeat-name {
+.cut-name {
   font-weight: 600;
   color: var(--ink);
 }
 
-.repeat-sub {
+.cut-sub {
   font-size: 13px;
   color: var(--muted);
 }
 
-.repeat-count {
+.cut-genre::before {
+  content: " · ";
+  color: var(--faint);
+}
+
+.cut-score {
+  display: flex;
+  align-items: baseline;
+  gap: 1px;
   flex-shrink: 0;
   font-size: 12.5px;
-  color: var(--green-soft);
+  color: var(--muted);
+}
+
+.cut-score .tabular {
+  color: var(--ink-2);
   font-variant-numeric: tabular-nums;
+}
+
+.cut-score-unit {
+  color: var(--faint);
 }
 
 /* ── Responsivo ─────────────────────────────────────────────────────── */

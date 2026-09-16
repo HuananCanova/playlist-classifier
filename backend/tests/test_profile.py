@@ -47,41 +47,87 @@ def test_sem_resumo_nao_ha_estatistica():
     assert build_profile_stats([_pl("a", "A", 3)], {}) is None
 
 
-def test_faixas_repetidas_contam_uma_vez_no_acervo_e_duas_na_atividade():
+def test_faixa_repetida_conta_uma_vez_no_acervo_e_duas_na_linha_do_gosto():
+    """Repetir uma faixa não infla o artista, mas conta como escolher de novo."""
     digests = {
         "a": {"tracks": [_t("x", ["Slowdive"], ["shoegaze"]), _t("y", ["Slowdive"], ["shoegaze"])]},
         "b": {"tracks": [_t("x", ["Slowdive"], ["shoegaze"], added="2024-03-02T00:00:00Z")]},
     }
     stats = build_profile_stats([_pl("a", "A", 2), _pl("b", "B", 1)], digests)
 
-    lib = stats["library"]
-    assert lib["unique_tracks"] == 2
-    assert lib["entries"] == 3
-    assert lib["repeated_entries"] == 1
+    assert stats["library"]["unique_tracks"] == 2
     assert stats["top_artists"] == [{"name": "Slowdive", "tracks": 2, "playlists": 2}]
     assert stats["top_genres"] == [{"label": "shoegaze", "count": 2}]
-    assert [r["id"] for r in stats["repeated_tracks"]] == ["x"]
-    assert stats["repeated_tracks"][0]["playlists"] == ["A", "B"]
+    # As três adições são de 2024, inclusive a repetida.
+    assert stats["taste_timeline"]["years"] == [{"year": 2024, "tracks": 3, "counts": [3.0, 0.0]}]
 
 
-def test_linha_do_tempo_preenche_meses_vazios_e_ignora_data_desconhecida():
+def test_o_perfil_nao_fala_de_explicito_nem_de_repeticao():
+    """O painel é um retrato do gosto: estes números não descrevem gosto."""
+    digests = {"a": {"tracks": [_t("x", ["A"], ["rock"], explicit=True), _t("x", ["A"], ["rock"])]}}
+    stats = build_profile_stats([_pl("a", "A", 2)], digests)
+
+    assert "explicit_share" not in stats["library"]
+    assert "repeated_entries" not in stats["library"]
+    assert "repeated_tracks" not in stats
+    assert "added_timeline" not in stats
+
+
+def test_linha_do_gosto_reparte_a_faixa_entre_os_generos_e_preenche_anos_vazios():
     digests = {
         "a": {
             "tracks": [
-                _t("1", ["X"], added="2023-11-05T00:00:00Z"),
-                _t("2", ["X"], added="2024-02-01T00:00:00Z"),
-                _t("3", ["X"], added="1970-01-01T00:00:00Z"),
+                _t("1", ["A"], ["rock", "shoegaze"], added="2021-05-01T00:00:00Z"),
+                _t("2", ["B"], ["raro"], added="2023-02-01T00:00:00Z"),
+                _t("3", ["C"], [], added="2023-02-01T00:00:00Z"),
+                _t("4", ["D"], ["rock"], added="1970-01-01T00:00:00Z"),
+            ]
+        }
+    }
+    stats = build_profile_stats([_pl("a", "A", 4)], digests)
+    timeline = stats["taste_timeline"]
+
+    # Dois gêneros empatados: a ordem vem da contagem, com desempate estável.
+    assert set(timeline["genres"]) == {"rock", "shoegaze", "raro"}
+    rock = timeline["genres"].index("rock")
+    anos = {y["year"]: y for y in timeline["years"]}
+    # A faixa com dois gêneros vale meia em cada.
+    assert anos[2021]["counts"][rock] == 0.5
+    assert anos[2021]["tracks"] == 1
+    # 2022 não teve adição, mas continua no eixo.
+    assert anos[2022]["tracks"] == 0
+    # A faixa sem gênero nenhum não entra; a de gênero raro é do topo aqui.
+    assert anos[2023]["tracks"] == 1
+    # Data desconhecida (1970) não vira ano.
+    assert 1970 not in anos
+
+
+def test_faixas_e_andamentos_caem_nas_suas_faixas_de_escala():
+    digests = {
+        "a": {
+            "tracks": [
+                _t("1", ["A"], popularity=5, bpm=80.0),
+                _t("2", ["B"], popularity=95, bpm=128.0),
+                _t("3", ["C"], popularity=None, bpm=None),
             ]
         }
     }
     stats = build_profile_stats([_pl("a", "A", 3)], digests)
-    assert stats["added_timeline"] == [
-        {"month": "2023-11", "count": 1},
-        {"month": "2023-12", "count": 0},
-        {"month": "2024-01", "count": 0},
-        {"month": "2024-02", "count": 1},
-    ]
-    assert stats["library"]["first_added"] == "2023-11-05T00:00:00Z"
+
+    assert [b["count"] for b in stats["popularity_bands"]] == [1, 0, 0, 0, 1]
+    assert [z["count"] for z in stats["tempo_zones"]] == [1, 0, 1, 0, 0]
+    # Só a faixa realmente obscura vira garimpo.
+    assert [c["id"] for c in stats["deep_cuts"]] == ["1"]
+
+
+def test_sem_popularidade_nem_bpm_as_escalas_somem_em_vez_de_mentir_zero():
+    digests = {"a": {"tracks": [_t("1", ["A"], popularity=None, bpm=None)]}}
+    stats = build_profile_stats([_pl("a", "A", 1)], digests)
+
+    assert stats["popularity_bands"] == []
+    assert stats["tempo_zones"] == []
+    assert stats["deep_cuts"] == []
+    assert stats["library"]["avg_popularity"] is None
 
 
 def test_decadas_tags_finas_e_medias_opcionais():
