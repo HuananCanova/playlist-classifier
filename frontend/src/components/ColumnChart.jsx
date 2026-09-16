@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import ChartTooltip from "../charts/ChartTooltip.jsx";
-import { SERIES, useMounted, useWidth } from "../charts/chartKit.js";
+import { SERIES, niceMax, useMounted, useWidth } from "../charts/chartKit.js";
 
 const HEIGHT = 190;
 const PAD_TOP = 22;
@@ -13,14 +13,6 @@ function columnPath(x, y, w, h) {
   const r = Math.min(RADIUS, w / 2, h);
   if (h <= 0) return "";
   return `M${x},${y + h}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${y + h}Z`;
-}
-
-function niceMax(v) {
-  if (v <= 4) return 4;
-  const pow = 10 ** Math.floor(Math.log10(v));
-  const n = v / pow;
-  const step = n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10;
-  return step * pow;
 }
 
 /**

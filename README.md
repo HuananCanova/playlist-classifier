@@ -240,10 +240,19 @@ dominarem as tags.
 
 ## Perfil
 
-A aba **Perfil** agrega a conta inteira: artistas e gêneros mais presentes,
-variedade de gosto, décadas, quando você adiciona músicas, faixas que se
-repetem entre playlists e uma tabela comparando as playlists lado a lado. Só
-entram playlists que o Spotify deixa ler (suas e colaborativas).
+A aba **Perfil** é um **retrato do gosto**, não um relatório do acervo: o que
+essa pessoa ouve. Um retrato em uma frase abre a página, e abaixo dele vêm as
+facetas que o sustentam — gênero dominante, variedade, época, fidelidade a
+artistas, onde o gosto cai entre o hit e o garimpo, em que andamento —, os
+gêneros e artistas mais presentes, como o gosto mudou ano a ano, os garimpos
+mais fora do radar e uma tabela comparando as playlists lado a lado. Só entram
+playlists que o Spotify deixa ler (suas e colaborativas).
+
+O que **não** entra é tão deliberado quanto o que entra: faixas explícitas,
+faixas repetidas entre playlists, duração média e afins são fatos da
+biblioteca, e ocupariam o lugar de algo que diz alguma coisa sobre a pessoa. O
+critério para qualquer número novo é o mesmo: ele responde "o que essa pessoa
+ouve?" ou não entra.
 
 Abrir o perfil não chama o Spotify. O painel sai do que já existe:
 

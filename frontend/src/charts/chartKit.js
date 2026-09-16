@@ -125,6 +125,26 @@ export function gaussianSmooth(values, sigma) {
   });
 }
 
+/*
+ * Teto "redondo" para um eixo de valores. Sem isso o topo do eixo seria o
+ * próprio valor máximo, e as marcas de grade cairiam em números sem leitura
+ * (137, 68,5).
+ *
+ * Os passos são mais finos que o 1-2-5 de manual porque as marcas ficam em
+ * 50% e 100% do teto: a metade de cada um destes ainda é um número limpo
+ * (60 de 120, 120 de 240). Com só 1-2-5, um pico de 113 subia o eixo para 200
+ * e a coluna mais alta do gráfico mal passava da metade da altura — todo o
+ * desenho parecia pequeno por um arredondamento.
+ */
+const NICE_STEPS = [1, 1.2, 1.6, 2, 2.4, 3, 4, 5, 6, 8, 10];
+
+export function niceMax(v) {
+  if (v <= 4) return 4;
+  const pow = 10 ** Math.floor(Math.log10(v));
+  const n = v / pow;
+  return (NICE_STEPS.find((s) => n <= s) ?? 10) * pow;
+}
+
 export function pct(part, whole) {
   if (!whole) return "0%";
   const v = (part / whole) * 100;
