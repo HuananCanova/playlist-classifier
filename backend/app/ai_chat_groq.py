@@ -43,6 +43,7 @@ async def stream_chat(
     playlist_id: str | None = None,
     track_id: str | None = None,
     turno: TurnMetrics | None = None,
+    account_track_ids: list[str] | None = None,
 ):
     """Roda o agente no Groq, emitindo eventos pelo callback `emit`.
 
@@ -55,7 +56,9 @@ async def stream_chat(
 
     tools = {
         t.name: t
-        for t in build_tools(access_token, playlist_id=playlist_id, track_id=track_id)
+        for t in build_tools(
+            access_token, playlist_id=playlist_id, track_id=track_id, account_track_ids=account_track_ids
+        )
     }
     schemas = [_to_openai_schema(t) for t in tools.values()]
 

@@ -11,7 +11,9 @@ httpx==0.27.2
 pydantic>=2.13,<3
 pydantic-settings>=2.7,<3
 
-itsdangerous==2.2.0
+# Sessões no servidor (app/sessions.py): os dados de cada sessão, com os tokens
+# do Spotify, são criptografados no banco com Fernet.
+cryptography>=44,<52
 cachetools==5.5.0
 python-dotenv==1.0.1
 

@@ -8,6 +8,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 # (backend/, raiz do repo, runner da IDE) e não só de dentro de backend/.
 ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
 
+DEV_SESSION_SECRET = "dev-only-insecure-secret-change-me"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ENV_FILE, env_file_encoding="utf-8", extra="ignore")
@@ -36,8 +38,22 @@ class Settings(BaseSettings):
     # Precisa suportar tool calling — o agente funciona chamando ferramentas.
     groq_model: str = "openai/gpt-oss-120b"
 
+    # Onde fica o banco SQLite (app/db.py). Vazio = backend/.data. Em produção,
+    # aponte para um volume persistente: é ele que evita refazer as análises.
+    data_dir: str = ""
+
     frontend_url: str = "http://127.0.0.1:5173"
-    session_secret: str = "dev-only-insecure-secret-change-me"
+    session_secret: str = DEV_SESSION_SECRET
+    # Chave Fernet própria para criptografar as sessões guardadas no banco.
+    # Vazia = derivada do SESSION_SECRET. Definir as duas permite trocar uma
+    # sem invalidar a outra.
+    session_encryption_key: str = ""
+    # Em produção (HTTPS): true. Com true, o app se recusa a subir usando o
+    # segredo de desenvolvimento.
+    session_cookie_secure: bool = False
+    # "lax" funciona com frontend e backend no mesmo site (mesmo domínio, ou
+    # 127.0.0.1 em portas diferentes). Domínios diferentes pedem "none" + secure.
+    session_cookie_samesite: str = "lax"
 
     # Scopes needed to read the user's playlists (including private/collaborative ones)
     spotify_scopes: str = "playlist-read-private playlist-read-collaborative user-library-read"

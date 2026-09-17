@@ -77,3 +77,30 @@ async def test_busca_vazia_e_indice_vazio(chroma_tmp):
     assert await chroma_tmp.search("qualquer coisa") == []
     await chroma_tmp.index_tracks(FAIXAS)
     assert await chroma_tmp.search("   ") == []
+
+
+# ── uma conta não vê o acervo de outra ───────────────────────────────────────
+
+@pytest.mark.asyncio
+async def test_lista_vazia_nao_vira_indice_inteiro(chroma_tmp):
+    """Quem ainda não analisou nada tem uma lista vazia de faixas. Tratar isso
+    como "sem filtro" entregaria a essa conta as faixas de todas as outras."""
+    await chroma_tmp.index_tracks(FAIXAS)
+
+    assert await chroma_tmp.search("dream pop", track_ids=[]) == []
+    assert await chroma_tmp.similar_to_track("t1", track_ids=[]) == []
+    assert (await chroma_tmp.stats([]))["faixas_indexadas"] == 0
+    assert await chroma_tmp.all_metadata([]) == (0, [])
+
+
+@pytest.mark.asyncio
+async def test_faixas_parecidas_e_painel_ficam_no_acervo_da_conta(chroma_tmp):
+    await chroma_tmp.index_tracks(FAIXAS)
+    minhas = ["t1", "t3", "t4"]
+
+    vizinhos = await chroma_tmp.similar_to_track("t1", limite=5, track_ids=minhas)
+    assert vizinhos and {h["track_id"] for h in vizinhos} <= {"t3", "t4"}
+
+    total, metadados = await chroma_tmp.all_metadata(minhas)
+    assert total == 3 and {m["nome"] for m in metadados} == {"Space Song", "One More Time", "Around the World"}
+    assert (await chroma_tmp.stats(minhas))["faixas_indexadas"] == 3

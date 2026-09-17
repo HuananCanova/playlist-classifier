@@ -29,6 +29,9 @@ class TrackGenreInfo(BaseModel):
     bpm: float | None = None
     preview_url: str | None = None
     deezer_url: str | None = None
+    # A prévia é uma URL assinada que expira; análises guardadas no banco vêm
+    # sem ela, e o frontend resolve a prévia por este id na hora do play.
+    deezer_id: int | None = None
     spotify_url: str | None = None
     # Alimentam o perfil. Todos opcionais: vêm de campos que o Spotify já
     # tirou de outros objetos, e a ausência não pode derrubar a análise.
@@ -126,6 +129,8 @@ class IndexStatus(BaseModel):
     finished_at: float | None = None
     waiting_seconds: float | None = None
     blocked_seconds: float | None = None
+    # A varredura de outra conta está lendo o Spotify; esta espera a vez.
+    waiting_turn: bool = False
 
 
 class GenreCount(BaseModel):

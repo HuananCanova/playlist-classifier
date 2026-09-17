@@ -3,9 +3,12 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
+import httpx
+
 from .ai_chat import active_provider, stream_chat
 from .auth import get_valid_access_token
 from .metrics import recent, summary
+from .playlists import _spotify_error, account_track_ids, analysis_for_user
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -58,6 +61,15 @@ async def chat(payload: ChatRequest, request: Request):
             detail="Chat indisponível: configure ANTHROPIC_API_KEY ou GROQ_API_KEY no backend/.env.",
         )
 
+    if payload.playlist_id is not None:
+        # As ferramentas do agente leem a análise pelo id. Resolver aqui confere
+        # que esta conta pode ver a playlist (listagem ou 403 do Spotify) antes
+        # de o agente tocar nela, e deixa a análise quente no cache para elas.
+        try:
+            await analysis_for_user(request, payload.playlist_id)
+        except httpx.HTTPStatusError as exc:
+            raise _spotify_error(exc) from exc
+
     messages = [{"role": m.role, "content": m.content} for m in payload.messages]
 
     return StreamingResponse(
@@ -66,6 +78,8 @@ async def chat(payload: ChatRequest, request: Request):
             messages,
             playlist_id=payload.playlist_id,
             track_id=payload.track_id,
+            # Faixas parecidas só dentro do acervo desta conta.
+            account_track_ids=await account_track_ids(request) if payload.track_id else None,
         ),
         media_type="text/event-stream",
         headers={

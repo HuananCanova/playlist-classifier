@@ -1,8 +1,12 @@
 """FastAPI app entrypoint."""
+import asyncio
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
 
+from . import db, sessions
 from .auth import router as auth_router
 from .chat import router as chat_router
 from .config import get_settings
@@ -13,15 +17,30 @@ from .tracks import router as tracks_router
 from .spotify_client import throttle_state
 
 settings = get_settings()
+sessions.check_settings(settings)
 
-app = FastAPI(title="Playlist Classifier API")
 
-# Signed, httpOnly session cookie holding the Spotify tokens (see auth.py).
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Abre o banco e aplica as migrações na subida: um volume sem permissão de
+    # escrita ou uma migração quebrada aparecem no deploy, não na primeira visita.
+    await asyncio.to_thread(db.query, "SELECT 1")
+    removed = await asyncio.to_thread(sessions.delete_expired)
+    if removed:
+        logging.getLogger(__name__).info("Removidas %d sessões expiradas", removed)
+    yield
+    db.close()
+
+
+app = FastAPI(title="Playlist Classifier API", lifespan=lifespan)
+
+# Sessão no servidor: o cookie leva só um id opaco; os tokens do Spotify ficam
+# no banco, criptografados (sessions.py).
 app.add_middleware(
-    SessionMiddleware,
-    secret_key=settings.session_secret,
-    same_site="lax",
-    https_only=False,  # set True once this runs behind HTTPS
+    sessions.ServerSessionMiddleware,
+    secure=settings.session_cookie_secure,
+    same_site=settings.session_cookie_samesite,
 )
 
 app.add_middleware(

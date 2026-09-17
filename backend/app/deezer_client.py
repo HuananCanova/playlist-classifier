@@ -165,7 +165,8 @@ async def buscar_faixa(
     }
     deezer_cache[chave] = resultado
     return resultado
-from .cache import deezer_track_cache
+from . import enrichment_store
+from .cache import deezer_preview_cache, deezer_track_cache
 
 SEARCH_URL = "https://api.deezer.com/search"
 TRACK_URL = "https://api.deezer.com/track"
@@ -240,22 +241,34 @@ def _pick_best(candidates: list[dict], artist: str, track: str) -> dict | None:
     return best
 
 
-async def _search(client: httpx.AsyncClient, query: str) -> list[dict]:
+async def _search(client: httpx.AsyncClient, query: str) -> list[dict] | None:
+    """Os candidatos, ou None se o Deezer não respondeu de verdade.
+
+    A distinção importa porque "não achei" fica guardado por dias: o Deezer
+    devolve o estouro de cota com HTTP 200 e um `error` no corpo, e tratar isso
+    como lista vazia marcaria a faixa como inexistente."""
     try:
         resp = await client.get(SEARCH_URL, params={"q": query}, timeout=10.0)
         resp.raise_for_status()
-        return resp.json().get("data", []) or []
+        data = resp.json()
     except (httpx.HTTPError, ValueError):
-        return []
+        return None
+    if not isinstance(data, dict) or "error" in data:
+        return None
+    return data.get("data") or []
 
 
 async def get_track_info(client: httpx.AsyncClient, artist: str, track: str) -> dict:
-    """{'bpm': float|None, 'preview_url': str|None, 'deezer_url': str|None}.
+    """{'deezer_id': int|None, 'bpm': float|None, 'preview_url': str|None, 'deezer_url': str|None}.
 
     Nunca levanta: faixa sem correspondência no Deezer é normal, e uma análise
     de playlist inteira não pode quebrar por causa de uma música.
+
+    A correspondência (id, BPM, link) fica guardada no banco por semanas. A
+    prévia não: é uma URL assinada que expira, então quem vem do banco volta
+    com `preview_url` None e a prévia é resolvida no play (`get_preview_url`).
     """
-    empty = {"bpm": None, "preview_url": None, "deezer_url": None}
+    empty = {"deezer_id": None, "bpm": None, "preview_url": None, "deezer_url": None}
     if not artist or not track:
         return empty
 
@@ -263,41 +276,85 @@ async def get_track_info(client: httpx.AsyncClient, artist: str, track: str) -> 
     if cache_key in deezer_track_cache:
         return deezer_track_cache[cache_key]
 
+    stored = await asyncio.to_thread(enrichment_store.get_deezer_match, cache_key)
+    if stored is not None:
+        info = {**stored, "preview_url": None}
+        deezer_track_cache[cache_key] = info
+        return info
+
     # A busca vai com o título limpo: procurar "Money - 2011 Remastered Version"
     # literalmente volta vazio, porque o Deezer cataloga como "Money".
     clean_track = _strip_edition(track)
 
-    candidates = await _search(client, f'artist:"{artist}" track:"{clean_track}"')
+    strict = await _search(client, f'artist:"{artist}" track:"{clean_track}"')
+    candidates = strict
     if not candidates:
         candidates = await _search(client, f"{artist} {clean_track}")
+    if strict is None and candidates is None:
+        return empty  # o Deezer não respondeu: nada a guardar
 
-    match = _pick_best(candidates, artist, track)
+    match = _pick_best(candidates or [], artist, track)
     if not match:
         deezer_track_cache[cache_key] = empty
+        await asyncio.to_thread(enrichment_store.put_deezer_match, cache_key, None, None, None)
         return empty
 
     info = {
+        "deezer_id": match.get("id"),
         "bpm": None,
         "preview_url": match.get("preview") or None,
         "deezer_url": match.get("link") or None,
     }
 
     # O BPM só vem no detalhe da faixa; a busca não traz esse campo.
+    detail_ok = False
     try:
         resp = await client.get(f"{TRACK_URL}/{match['id']}", timeout=10.0)
         resp.raise_for_status()
         detail = resp.json()
-        bpm = detail.get("bpm")
-        # 0 é o "desconhecido" do Deezer — vira None para não virar "0 BPM".
-        if isinstance(bpm, (int, float)) and bpm > 0:
-            info["bpm"] = round(float(bpm), 1)
-        info["preview_url"] = detail.get("preview") or info["preview_url"]
-        info["deezer_url"] = detail.get("link") or info["deezer_url"]
+        if "error" not in detail:
+            bpm = detail.get("bpm")
+            # 0 é o "desconhecido" do Deezer — vira None para não virar "0 BPM".
+            if isinstance(bpm, (int, float)) and bpm > 0:
+                info["bpm"] = round(float(bpm), 1)
+            info["preview_url"] = detail.get("preview") or info["preview_url"]
+            info["deezer_url"] = detail.get("link") or info["deezer_url"]
+            detail_ok = True
     except (httpx.HTTPError, ValueError, KeyError):
         pass  # fica só com o que a busca já deu (prévia e link)
 
     deezer_track_cache[cache_key] = info
+    # Sem o detalhe, o BPM ficou desconhecido por falha, não por ausência:
+    # guardar isso esconderia o BPM por semanas. A próxima análise tenta de novo.
+    if detail_ok:
+        await asyncio.to_thread(
+            enrichment_store.put_deezer_match, cache_key, info["deezer_id"], info["bpm"], info["deezer_url"]
+        )
+    if info["preview_url"] and info["deezer_id"] is not None:
+        deezer_preview_cache[info["deezer_id"]] = info["preview_url"]
     return info
+
+
+async def get_preview_url(client: httpx.AsyncClient, deezer_id: int) -> str | None:
+    """URL atual da prévia de 30s de uma faixa do Deezer, pelo id.
+
+    As prévias são URLs assinadas que expiram, então não podem ser guardadas com
+    a análise. Resolver na hora do play custa uma chamada (em cache por menos
+    tempo que a validade da assinatura)."""
+    if deezer_id in deezer_preview_cache:
+        return deezer_preview_cache[deezer_id]
+    try:
+        resp = await client.get(f"{TRACK_URL}/{deezer_id}", timeout=10.0)
+        resp.raise_for_status()
+        detail = resp.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    if not isinstance(detail, dict) or "error" in detail:
+        return None
+    url = detail.get("preview") or None
+    if url:
+        deezer_preview_cache[deezer_id] = url
+    return url
 
 
 async def get_many(client: httpx.AsyncClient, pairs: list[tuple[str, str]]) -> list[dict]:

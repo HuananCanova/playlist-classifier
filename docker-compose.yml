@@ -17,7 +17,10 @@ services:
     volumes:
       # O índice vetorial persiste entre recriações do container.
       - chroma:/srv/.chroma
-      # Resumos do perfil: sem isso, cada recriação refaria a varredura inteira.
+      # Banco SQLite: análises, tags, correspondências do Deezer e listagens.
+      # Sem isso, cada recriação refaria todas as análises.
+      - data:/srv/.data
+      # Pasta antiga dos resumos do perfil, só para importar para o banco.
       - profile_cache:/srv/.profile_cache
       # Bloqueio do Spotify: recriar o container não pode esquecer que ele existe.
       - state:/srv/.state
@@ -36,5 +39,6 @@ services:
 
 volumes:
   chroma:
+  data:
   profile_cache:
   state:

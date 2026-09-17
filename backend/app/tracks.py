@@ -4,12 +4,13 @@ import asyncio
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
+from . import enrichment_store
 from .auth import get_valid_access_token
 from .cache import track_detail_cache
-from .deezer_client import buscar_faixa
+from .deezer_client import buscar_faixa, get_preview_url
 from .lastfm_client import get_artist_tags, get_track_tags
 from .models import SearchHit, TrackDetail
-from .playlists import _spotify_error
+from .playlists import _spotify_error, account_track_ids
 from .spotify_client import SpotifyClient
 from .vector_store import similar_to_track
 
@@ -30,9 +31,14 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
         return cached
 
     async with httpx.AsyncClient(timeout=20.0) as client:
-        # Pelo SpotifyClient, que respeita o bloqueio; por fora dele esta rota
-        # continuava chamando o Spotify durante um bloqueio.
-        faixa = await SpotifyClient(access_token).get_track(client, track_id)
+        # Faixa que já passou por uma análise de playlist tem os metadados no
+        # banco: abrir a página dela não custa nada no Spotify.
+        faixa = await asyncio.to_thread(enrichment_store.get_spotify_track, track_id)
+        if faixa is None:
+            # Pelo SpotifyClient, que respeita o bloqueio; por fora dele esta rota
+            # continuava chamando o Spotify durante um bloqueio.
+            faixa = _campos_usados(await SpotifyClient(access_token).get_track(client, track_id))
+            await asyncio.to_thread(enrichment_store.put_spotify_tracks, [faixa])
         artistas = [a["name"] for a in (faixa.get("artists") or []) if a and a.get("name")]
         nome = faixa.get("name") or "(sem título)"
         principal = artistas[0] if artistas else ""
@@ -64,6 +70,37 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
     return detail
 
 
+def _campos_usados(faixa: dict) -> dict:
+    """Só o que o app lê do objeto de faixa — o mesmo recorte que a listagem de
+    faixas de playlist pede ao Spotify, para as duas origens guardarem igual."""
+    album = faixa.get("album") or {}
+    return {
+        "id": faixa.get("id"),
+        "name": faixa.get("name"),
+        "duration_ms": faixa.get("duration_ms"),
+        "popularity": faixa.get("popularity"),
+        "explicit": faixa.get("explicit"),
+        "external_urls": faixa.get("external_urls"),
+        "album": {k: album.get(k) for k in ("name", "images", "release_date")},
+        "artists": [{"id": a.get("id"), "name": a.get("name")} for a in faixa.get("artists") or [] if a],
+    }
+
+
+@router.get("/preview/{deezer_id}")
+async def track_preview(deezer_id: int, request: Request):
+    """A URL atual da prévia de 30s no Deezer.
+
+    As análises guardadas não levam a prévia: ela é uma URL assinada que expira
+    em minutos. O player pede esta rota na hora do play, com o id do Deezer que
+    a faixa guarda."""
+    await get_valid_access_token(request)
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        url = await get_preview_url(client, deezer_id)
+    if not url:
+        raise HTTPException(status_code=404, detail="Esta faixa não tem prévia no Deezer.")
+    return {"preview_url": url}
+
+
 @router.get("/{track_id}", response_model=TrackDetail)
 async def track_detail(track_id: str, request: Request):
     """Tudo que a página da faixa precisa, resolvido a partir do id do Spotify."""
@@ -84,7 +121,8 @@ async def track_similar(track_id: str, request: Request, limit: int = 8):
     cresce quando você analisa a playlist que a contém.
     """
     await get_valid_access_token(request)
-    return await similar_to_track(track_id, limite=limit)
+    # Só entre as faixas desta conta: o índice é compartilhado entre contas.
+    return await similar_to_track(track_id, limite=limit, track_ids=await account_track_ids(request))
 
 
 async def _buscar_em_paralelo(client, artista: str, titulo: str, duracao_ms):

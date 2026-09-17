@@ -23,8 +23,13 @@ track_detail_cache: TTLCache = TTLCache(maxsize=5000, ttl=60 * 25)
 # ferramentas por escopo: sem o cache, analisar e depois buscar dentro da mesma
 # playlist refaria toda a varredura de Spotify + Last.fm no mesmo turno.
 playlist_analysis_cache: TTLCache = TTLCache(maxsize=200, ttl=60 * 10)
-# Deezer (BPM + prévia) — dado estável, mesmo TTL de um dia.
-deezer_track_cache: TTLCache = TTLCache(maxsize=10000, ttl=60 * 60 * 24)
+# Deezer (BPM + prévia) por faixa. Curto: o que vem da rede traz a URL da
+# prévia, que expira; a correspondência em si mora no banco (enrichment_store).
+deezer_track_cache: TTLCache = TTLCache(maxsize=10000, ttl=60 * 20)
+
+# URL da prévia por id do Deezer, resolvida na hora do play. Fica abaixo da
+# validade da assinatura da URL.
+deezer_preview_cache: TTLCache = TTLCache(maxsize=5000, ttl=60 * 20)
 
 # A lista de playlists do usuário — TTL curto porque ela muda quando ele mexe
 # no Spotify, mas recarregar a página não pode custar uma chamada nova.

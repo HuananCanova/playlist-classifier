@@ -1,18 +1,18 @@
 """Routes for listing the user's playlists and analyzing one in detail."""
+import asyncio
 import hashlib
-import json
 import logging
-import os
 import time
 from datetime import datetime, timedelta
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
 
+from . import analysis_store, profile_store
 from .auth import get_valid_access_token
 from .clustering import cluster_playlist
 from .cache import playlist_analysis_cache, user_playlists_cache
-from .genre_analysis import build_playlist_analysis
+from .genre_analysis import add_audio, build_playlist_analysis
 from .models import PlaylistAnalysis, PlaylistClusters, PlaylistSummary
 from . import spotify_client
 from .spotify_client import SpotifyClient
@@ -76,49 +76,28 @@ def _spotify_error(exc: httpx.HTTPStatusError) -> HTTPException:
 
 
 def _user_cache_key(request: Request) -> str:
-    """Chave estável por usuário, sem guardar o token em lugar nenhum.
+    """Chave estável por conta, sem guardar o token em lugar nenhum.
 
-    Usa o refresh token porque o access token muda a cada renovação e jogaria
-    o cache fora sem motivo.
+    O id do Spotify vem na sessão desde o login e não muda nunca. Sem ele (uma
+    sessão de antes dessa mudança), cai num hash do refresh token — o access
+    token muda a cada renovação e jogaria o cache fora sem motivo.
     """
+    user_id = (request.session.get("me") or {}).get("id")
+    if user_id:
+        return f"spotify:{user_id}"
     seed = request.session.get("refresh_token") or request.session.get("access_token") or ""
     return hashlib.sha256(seed.encode()).hexdigest()[:32]
 
 
-# ── última listagem em disco ────────────────────────────────────────────────
+# ── última listagem no banco ────────────────────────────────────────────────
 #
 # A listagem vive 5 minutos em memória, mas um reinício do backend a perdia e a
-# próxima visita pedia tudo de novo ao Spotify. Em disco ela serve a dois casos:
-# evita repaginar logo depois de um reinício e mantém as páginas funcionando
-# enquanto o Spotify está bloqueado — com a última lista conhecida.
+# próxima visita pedia tudo de novo ao Spotify. No banco ela serve a três casos:
+# evita repaginar logo depois de um reinício, mantém as páginas funcionando
+# enquanto o Spotify está bloqueado, e é a prova de que esta conta pode ver as
+# análises guardadas de cada playlist (`analysis_for_user`).
 
 LISTING_TTL = 60 * 5
-
-
-def _listing_file(cache_key: str):
-    return spotify_client.STATE_PATH / f"playlists-{cache_key}.json"
-
-
-def _read_listing(cache_key: str) -> tuple[list[PlaylistSummary], float] | None:
-    try:
-        data = json.loads(_listing_file(cache_key).read_text(encoding="utf-8"))
-        return [PlaylistSummary(**p) for p in data["playlists"]], float(data["saved_at"])
-    except (OSError, ValueError, KeyError, TypeError):
-        return None
-
-
-def _write_listing(cache_key: str, summaries: list[PlaylistSummary]) -> None:
-    path = _listing_file(cache_key)
-    try:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        tmp = path.with_suffix(f".{os.getpid()}.tmp")
-        tmp.write_text(
-            json.dumps({"saved_at": time.time(), "playlists": [p.model_dump() for p in summaries]}, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        os.replace(tmp, path)
-    except OSError:
-        logger.warning("Não consegui gravar a listagem em %s", path)
 
 
 @router.get("", response_model=list[PlaylistSummary])
@@ -141,7 +120,7 @@ async def get_playlist_summaries(request: Request, refresh: bool = False) -> lis
         cached = user_playlists_cache.get(cache_key)
         if cached is not None:
             return cached
-        on_disk = _read_listing(cache_key)
+        on_disk = await asyncio.to_thread(analysis_store.load_listing, cache_key)
         if on_disk and time.time() - on_disk[1] < LISTING_TTL:
             user_playlists_cache[cache_key] = on_disk[0]
             return on_disk[0]
@@ -154,7 +133,7 @@ async def get_playlist_summaries(request: Request, refresh: bool = False) -> lis
     except httpx.HTTPStatusError as exc:
         # Com o Spotify bloqueado, a última lista conhecida é melhor que um erro.
         if exc.response.status_code == 429:
-            on_disk = _read_listing(cache_key)
+            on_disk = await asyncio.to_thread(analysis_store.load_listing, cache_key)
             if on_disk:
                 logger.info("Spotify bloqueado; servindo a listagem de %s", datetime.fromtimestamp(on_disk[1]))
                 return on_disk[0]
@@ -174,8 +153,114 @@ async def get_playlist_summaries(request: Request, refresh: bool = False) -> lis
         if p is not None
     ]
     user_playlists_cache[cache_key] = summaries
-    _write_listing(cache_key, summaries)
+    await asyncio.to_thread(analysis_store.save_listing, cache_key, summaries)
     return summaries
+
+
+async def known_playlists(request: Request) -> list[PlaylistSummary]:
+    """A última listagem conhecida desta conta, de qualquer idade.
+
+    Diferente de `get_playlist_summaries`, não vai ao Spotify só porque a
+    listagem passou de 5 minutos: ela serve para saber quais playlists a conta
+    pode ver e em que versão estavam da última vez. O Spotify só é chamado se a
+    conta nunca listou nada.
+    """
+    cache_key = _user_cache_key(request)
+    cached = user_playlists_cache.get(cache_key)
+    if cached is not None:
+        return cached
+    stored = await asyncio.to_thread(analysis_store.load_listing, cache_key)
+    if stored:
+        return stored[0]
+    return await get_playlist_summaries(request)
+
+
+def account_key(request: Request) -> str:
+    """Chave da conta logada para o que é por pessoa (varredura, estatísticas)."""
+    return _user_cache_key(request)
+
+
+async def account_track_ids(request: Request) -> list[str]:
+    """Ids das faixas que esta conta já analisou, de todas as playlists dela.
+
+    O índice vetorial é um só para o app (uma faixa indexada serve a qualquer
+    conta que a tenha), então tudo que consulta o índice em nome de uma pessoa —
+    busca, faixas parecidas, painel do perfil — se limita a esta lista. Sem isso,
+    a busca de uma conta devolveria faixas das playlists privadas de outra.
+
+    Sai dos resumos do perfil no banco: nenhuma chamada externa.
+    """
+    listing = await known_playlists(request)
+
+    def collect() -> list[str]:
+        ids: set[str] = set()
+        for playlist in listing:
+            digest = profile_store.load(playlist.id)
+            if digest:
+                ids.update(t["id"] for t in digest.get("tracks", []) if t.get("id"))
+        return sorted(ids)
+
+    return await asyncio.to_thread(collect)
+
+
+async def _remember_snapshot(request: Request, analysis: PlaylistAnalysis) -> None:
+    """Leva para a listagem guardada a versão que acabou de ser lida.
+
+    Sem isso, abrir uma playlist logo depois de mexer nela no Spotify leria a
+    versão nova, mas a listagem (em cache) ainda apontaria a antiga — e cada
+    visita seguinte refaria a análise até a listagem expirar."""
+    cache_key = _user_cache_key(request)
+    snapshot = analysis.playlist.snapshot_id
+    listing = await known_playlists(request)
+    if not snapshot or not any(p.id == analysis.playlist.id and p.snapshot_id != snapshot for p in listing):
+        return
+    updated = [
+        p.model_copy(update={"snapshot_id": snapshot, "track_count": analysis.playlist.track_count})
+        if p.id == analysis.playlist.id
+        else p
+        for p in listing
+    ]
+    if cache_key in user_playlists_cache:
+        user_playlists_cache[cache_key] = updated
+    stored = await asyncio.to_thread(analysis_store.load_listing, cache_key)
+    await asyncio.to_thread(analysis_store.save_listing, cache_key, updated, stored[1] if stored else None)
+
+
+async def analysis_for_user(
+    request: Request, playlist_id: str, *, refresh: bool = False
+) -> tuple[PlaylistAnalysis, bool]:
+    """A análise da playlist para a conta logada, do jeito mais barato possível.
+
+    Devolve (análise, lida_agora_do_spotify). Em ordem:
+
+    1. **Guardada**, se a playlist está na listagem desta conta e a versão
+       (`snapshot_id`) bate — zero chamadas externas.
+    2. **Guardada sem áudio** (veio de uma varredura): completa só com o Deezer.
+    3. **Do Spotify**, quando não há nada guardado, a versão mudou, ou `refresh`.
+
+    A listagem da conta é a checagem de permissão: ela vem do Spotify e só tem
+    playlists que esta conta pode ler. Uma playlist fora dela nunca é servida
+    do banco nem do cache — vai ao Spotify, que responde 403 se não puder.
+    """
+    token = await get_valid_access_token(request)
+    summary = next((p for p in await known_playlists(request) if p.id == playlist_id), None)
+
+    if summary is None:
+        return await build_playlist_analysis(token, playlist_id, trust_cache=False), True
+
+    if not refresh:
+        stored = await asyncio.to_thread(analysis_store.load, playlist_id, summary.snapshot_id)
+        if stored is not None:
+            if not stored.has_audio:
+                return await add_audio(stored.analysis), False
+            # No cache em memória, as ferramentas do chat e os grupos de clima
+            # (que leem pelo id, depois desta checagem) também não vão ao Spotify.
+            playlist_analysis_cache[playlist_id] = stored.analysis
+            return stored.analysis, False
+
+    analysis = await build_playlist_analysis(token, playlist_id, trust_cache=not refresh)
+    await _remember_snapshot(request, analysis)
+    return analysis, True
 
 
 def _track_count(playlist: dict) -> int:
@@ -195,28 +280,15 @@ def _track_count(playlist: dict) -> int:
 async def analyze_playlist(
     playlist_id: str, request: Request, background: BackgroundTasks, refresh: bool = False
 ):
-    token = await get_valid_access_token(request)
-
-    # Abrir uma playlist custa 1 chamada de metadados + 1 por página de 100
-    # faixas, e o StrictMode do React dispara o efeito duas vezes em dev — ou
-    # seja, reabrir a mesma playlist saía caro no orçamento do Spotify.
-    # A chave inclui o usuário: sem isso, uma análise de playlist privada já
-    # em cache seria devolvida a outra conta sem passar pela permissão do
-    # Spotify. Este app é de um usuário só, mas o cache não deveria ser o
-    # lugar onde essa garantia se perde.
-    cache_key = f"{_user_cache_key(request)}:{playlist_id}"
-    if not refresh:
-        cached = playlist_analysis_cache.get(cache_key)
-        if cached is not None:
-            return cached
-
+    """`refresh=true` relê a playlist no Spotify mesmo com análise guardada."""
     try:
-        analysis = await build_playlist_analysis(token, playlist_id)
+        analysis, fetched = await analysis_for_user(request, playlist_id, refresh=refresh)
     except httpx.HTTPStatusError as exc:
         raise _spotify_error(exc) from exc
 
-    playlist_analysis_cache[cache_key] = analysis
-    background.add_task(_index_analysis, analysis)
+    # Análise guardada já foi indexada quando foi feita.
+    if fetched:
+        background.add_task(_index_analysis, analysis)
     return analysis
 
 
@@ -224,12 +296,11 @@ async def analyze_playlist(
 async def playlist_clusters(playlist_id: str, request: Request):
     """Agrupa as faixas da playlist por clima.
 
-    Roda sobre a análise já cacheada, então não custa nenhuma chamada externa
-    além da que a própria análise faria.
+    Roda sobre a mesma análise da página (guardada ou em voo), então não custa
+    nenhuma chamada externa além da que a própria análise faria.
     """
-    token = await get_valid_access_token(request)
     try:
-        analysis = await build_playlist_analysis(token, playlist_id)
+        analysis, _ = await analysis_for_user(request, playlist_id)
     except httpx.HTTPStatusError as exc:
         raise _spotify_error(exc) from exc
 

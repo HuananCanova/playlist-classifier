@@ -46,14 +46,15 @@ graph TB
         LF[lastfm_client.py]
         DZ[deezer_client.py]
         Cache[(cache.py<br/>TTLCaches)]
+        DB[db.py / analysis_store.py /<br/>enrichment_store.py]
     end
 
     MCP[mcp_server.py<br/>stdio process]
 
     subgraph Disk["backend/ local state (gitignored)"]
         Chroma[(.chroma/<br/>vectors + indexed_playlists.json)]
-        Prof[(.profile_cache/<br/>per-playlist digests)]
-        State[(.state/<br/>spotify_block.json + listings)]
+        SQLite[(.data/app.sqlite3<br/>analyses, digests, listings,<br/>Last.fm tags, Deezer matches)]
+        State[(.state/<br/>spotify_block.json)]
     end
 
     subgraph External
@@ -89,19 +90,22 @@ playlist-classifier/
 │   │   ├── main.py              # app assembly, middleware, /api/health
 │   │   ├── config.py            # pydantic-settings from backend/.env
 │   │   ├── models.py            # all Pydantic response models
-│   │   ├── cache.py             # process-wide TTLCaches
+│   │   ├── cache.py             # process-wide TTLCaches (first level, in front of the DB)
+│   │   ├── db.py                # SQLite connection + versioned migrations (DATA_DIR)
+│   │   ├── analysis_store.py    # full playlist analyses (by snapshot) + account listings
+│   │   ├── enrichment_store.py  # Last.fm tags, Deezer matches, Spotify track metadata (with TTLs)
 │   │   ├── auth.py              # OAuth PKCE routes + session token helpers
 │   │   ├── spotify_auth.py      # refresh-token → access-token (no session; MCP/scripts)
 │   │   ├── spotify_client.py    # ★ every Spotify call; throttle + persisted global block
 │   │   ├── deezer_client.py     # BPM + preview (two implementations in one file!)
 │   │   ├── lastfm_client.py     # genre tags (only genre source)
-│   │   ├── genre_analysis.py    # build_playlist_analysis (+ writes profile digest)
-│   │   ├── playlists.py         # /api/playlists routes, listing disk fallback
+│   │   ├── genre_analysis.py    # build_playlist_analysis, add_audio (+ persists everything)
+│   │   ├── playlists.py         # /api/playlists routes, analysis_for_user (permission + store)
 │   │   ├── tracks.py            # /api/tracks routes
 │   │   ├── search.py            # /api/search routes (semantic search + index control)
 │   │   ├── profile.py           # /api/profile routes (reads local state only)
 │   │   ├── profile_stats.py     # pure aggregation for the dashboard
-│   │   ├── profile_store.py     # per-playlist digest persistence
+│   │   ├── profile_store.py     # per-playlist digests in SQLite (imports old JSON)
 │   │   ├── indexer.py           # ★ the only bulk Spotify scanner
 │   │   ├── vector_store.py      # ChromaDB + MiniLM ONNX embeddings
 │   │   ├── clustering.py        # TF-IDF → SVD → k-means mood clusters
@@ -115,7 +119,7 @@ playlist-classifier/
 │   ├── scripts/                 # spotify_refresh_token.py (mint SPOTIFY_REFRESH_TOKEN)
 │   ├── tests/                   # pytest suite, no network
 │   ├── Dockerfile, pytest.ini, requirements.txt, .env.example
-│   ├── .chroma/ .profile_cache/ .state/   # runtime state (gitignored)
+│   ├── .data/ .chroma/ .state/   # runtime state (gitignored); .profile_cache/ is legacy, imported
 ├── frontend/
 │   ├── src/
 │   │   ├── main.jsx, App.jsx    # bootstrap, navbar, routes
@@ -194,8 +198,8 @@ returns the cached profile or `{}`. Previously a 429 here became a 401 and logge
 | File | Purpose | Tokens |
 |------|---------|--------|
 | `backend/app/spotify_client.py` | `SpotifyClient` (`get_me`, `get_current_user_id`, `get_track`, `get_all_playlists`, `get_playlist`, `get_all_playlist_tracks`), `is_accessible_playlist`, `gather_with_concurrency`, `throttle_state`, `global_block_remaining` | 2734 |
-| `backend/app/lastfm_client.py` | `get_track_tags` (subgenre, excludes artist's own name), `get_artist_tags` (broad genre); filters `NOISE_TAGS`; errors return `[]` | 807 |
-| `backend/app/deezer_client.py` | BPM + 30s preview, keyless. **Two implementations back to back:** old pt-BR `buscar_faixa` (used by `tracks.py`, `deezer_cache`, returns `confianca`) and new `get_track_info` / `get_many` (used by `genre_analysis`/`indexer`, `deezer_track_cache`, concurrency 6) | 3566 |
+| `backend/app/lastfm_client.py` | `get_track_tags` (subgenre, excludes artist's own name), `get_artist_tags` (broad genre); filters `NOISE_TAGS`; memory → DB → network. Errors return `[]` and are never stored; only Last.fm error 6 ("not found") is stored as `[]` | 807 |
+| `backend/app/deezer_client.py` | BPM + 30s preview, keyless. **Two implementations back to back:** old pt-BR `buscar_faixa` (used by `tracks.py`, `deezer_cache`, returns `confianca`) and new `get_track_info` / `get_many` (used by `genre_analysis`/`indexer`, `deezer_track_cache` + DB, returns `deezer_id`, concurrency 6), plus `get_preview_url(deezer_id)` | 3566 |
 
 Spotify API facts baked into the client (2024–2026 API changes):
 - `/playlists/{id}/tracks` was removed; the client uses `/playlists/{id}/items`. `added_at` comes from the entry, not the track.
@@ -211,14 +215,17 @@ Roughly 43% of tracks have a BPM and 93% have a preview.
 
 | File | Purpose | Tokens |
 |------|---------|--------|
-| `backend/app/genre_analysis.py` | `build_playlist_analysis(access_token, playlist_id, *, include_audio=True)` → `PlaylistAnalysis`; `_bpm_histogram`, `_release_year` | 2636 |
+| `backend/app/genre_analysis.py` | `build_playlist_analysis(access_token, playlist_id, *, include_audio=True, trust_cache=True)` → `PlaylistAnalysis`; `add_audio(analysis)`; `_bpm_histogram`, `_release_year` | 2636 |
 | `backend/app/clustering.py` | `cluster_playlist(analysis)` → `ClusterResult`; `MIN_FAIXAS=12`, `MAX_K=6` | 1887 |
 
 `build_playlist_analysis`:
 - Fetches Spotify metadata and tracks, then gathers Last.fm artist tags, Last.fm track tags and Deezer at the same time. `LASTFM_CONCURRENCY=24` came from benchmarks.
 - Concurrent requests for the same `(playlist_id, include_audio)` share one task (`_in_flight` + `asyncio.shield`).
 - `include_audio=False` (used by scans) skips Deezer. That result is **never** stored in `playlist_analysis_cache`, so the playlist page never shows empty BPM.
-- Side effect: always persists a digest via `profile_store.save` (best effort). An audio-less digest never overwrites an audio digest of the same snapshot.
+- `trust_cache=False` skips the memory cache and in-flight tasks and goes to Spotify. Use it whenever permission hasn't been checked yet: Spotify's 403 is the permission check.
+- It never reads the database. Serving stored analyses is `playlists.analysis_for_user`'s job.
+- Side effect (`_persist`, best effort): saves the full analysis (`analysis_store`), the profile digest (`profile_store`) and the Spotify track metadata (`enrichment_store`). An audio-less save never overwrites an audio save of the same snapshot.
+- `add_audio(analysis)` completes a stored audio-less analysis (from a scan) with Deezer only, with no Spotify calls.
 
 `cluster_playlist`:
 - Tags are split on `" | "` and fed through TF-IDF (`min_df=2`, sublinear), then `TruncatedSVD`.
@@ -232,7 +239,7 @@ Roughly 43% of tracks have a BPM and 93% have a preview.
 | File | Tokens | Routes |
 |------|--------|--------|
 | `backend/app/playlists.py` | 2604 | `GET /api/playlists[?refresh]` → `list[PlaylistSummary]` · `GET /{id}/analysis[?refresh]` → `PlaylistAnalysis` · `GET /{id}/clusters` → `PlaylistClusters` |
-| `backend/app/tracks.py` | 1013 | `GET /api/tracks/{id}` → `TrackDetail` · `GET /{id}/similar?limit=8` → `list[SearchHit]` |
+| `backend/app/tracks.py` | 1013 | `GET /api/tracks/{id}` → `TrackDetail` (Spotify metadata from the DB when known) · `GET /preview/{deezer_id}` → `{preview_url}` · `GET /{id}/similar?limit=8` → `list[SearchHit]` |
 | `backend/app/search.py` | 886 | `GET /api/search?q&limit=20` · `GET /status` → `SearchStatus` · `POST /index[?auto]` · `GET /index` · `DELETE /index` → `IndexStatus` |
 | `backend/app/profile.py` | 1416 | `GET /api/profile` → `{user, overview, coverage, stats, index, build, spotify_blocked_seconds}` · `GET/POST/DELETE /build` → `IndexStatus` |
 | `backend/app/chat.py` | 556 | `GET /api/chat/status` → `{available, provider}` (no auth) · `GET /metrics?limit=50` · `POST /api/chat` → SSE |
@@ -243,18 +250,20 @@ All routes except `/health`, `/auth/login`, `/auth/callback` and `/chat/status` 
 - `get_playlist_summaries(request, refresh)` is also used by profile and search.
 - `_spotify_error(exc)` turns Spotify errors into pt-BR `HTTPException`s. A 429 keeps its `Retry-After` header.
 - `wait_text(seconds)` formats waits like `"~18 h (até 10:57)"`.
-- `_user_cache_key(request)` is a SHA-256 of the token, cut to 32 hex characters. It's used in the analysis cache key so private analyses can't leak across accounts.
+- `_user_cache_key(request)` is `spotify:{user id}` from the session (falls back to a SHA-256 of the refresh token for old sessions).
+- `known_playlists(request)` is the last known listing of any age; it only calls Spotify if the account never listed anything.
+- `analysis_for_user(request, playlist_id, *, refresh)` → `(analysis, fetched_now)`. It is the **only** way routes read analyses: stored (listing snapshot matches) → stored without audio + `add_audio` → Spotify. A playlist that isn't in the account's listing is never served from the DB or memory cache (`trust_cache=False`). Used by `/analysis`, `/clusters` and `POST /api/chat`.
 
-The playlist listing is also written to `.state/playlists-{key}.json`. During a Spotify block,
-that file is served instead of failing. `analyze_playlist` schedules vector indexing as a
-`BackgroundTasks` job, so indexing adds no Spotify calls.
+The playlist listing is also stored in SQLite (`playlist_listings`). During a Spotify block it is
+served instead of failing. `analyze_playlist` schedules vector indexing as a `BackgroundTasks`
+job only when the analysis was fetched now, so indexing adds no Spotify calls.
 
 `search.py`: `POST /index?auto=true`, which the frontend sends on open, does nothing unless
 `AUTO_INDEX=true`. An explicit POST always starts a scan. Starting a scan needs a `refresh_token`
 in the session, because the scan outlives the 1h access token.
 
 `profile.py`:
-- `GET /api/profile` only reads local state: the cached listing, `.profile_cache` digests and Chroma metadata. It calls Spotify only if the 5-minute listing cache has expired.
+- `GET /api/profile` only reads local state: the cached listing, digests in SQLite and Chroma metadata. It calls Spotify only if the 5-minute listing cache has expired.
 - Stale digests still count toward the stats.
 - Index stats are recomputed only when the Chroma count changes.
 - On a 429 it falls back to an empty playlist list instead of failing.
@@ -267,6 +276,9 @@ in the session, because the scan outlives the 1h access token.
 | `backend/app/indexer.py` | `start(refresh_token, playlists)`, `cancel()`, `progress()`/`progress_dict()`, `coverage()`, `pendentes_da_conta()`, `estimar_chamadas()` | 2898 |
 | `backend/app/vector_store.py` | `index_tracks`, `search(consulta, limite, track_ids=None)`, `similar_to_track`, `stats`, `all_metadata` | 2094 |
 | `backend/app/profile_store.py` | `digest_from_analysis`, `load`, `save`, `is_fresh`, `clear_memo`; `VERSION=1` | 1178 |
+| `backend/app/db.py` | `query`, `query_one`, `execute`, `executemany`, `transaction`, `use_path` (tests), `close`; `MIGRATIONS` (append-only, `PRAGMA user_version`) | — |
+| `backend/app/analysis_store.py` | `load(playlist_id, snapshot_id)` → `StoredAnalysis`, `save(analysis, has_audio)`, `load_listing`, `save_listing`; `ANALYSIS_FORMAT=1` | — |
+| `backend/app/enrichment_store.py` | get/put for Last.fm artist and track tags, Deezer matches and Spotify tracks, each with a TTL | — |
 | `backend/app/profile_stats.py` | Pure, no I/O: `build_profile_stats(playlists, digests)`, `build_index_stats(metadatas)`, `effective_count` | 2517 |
 
 `indexer.py` merged two older per-feature scans after their combined volume caused the suspension. Its rules:
@@ -274,6 +286,7 @@ in the session, because the scan outlives the 1h access token.
 - A playlist is queued when its `snapshot_id` doesn't match the index, or when its profile digest is missing or stale. Smallest playlists go first.
 - Playlists are processed one at a time, with a 2s pause (`PAUSA_ENTRE_PLAYLISTS`) and at most 60 per hour (`MAX_PLAYLISTS_POR_HORA`). When the hourly limit is hit, it waits.
 - Scans run with `include_audio=False`, so Deezer is never called.
+- A queued playlist whose analysis for the same snapshot is already stored (e.g. only the index was wiped) is indexed from the DB, without Spotify, the pause or the hourly limit.
 - A short 429 is retried up to 3 times. A long 429 (over 60s) stops the whole scan, and the block is saved to disk.
 - The access token is refreshed after 50 minutes. An `asyncio.Lock` ensures only one scan runs.
 - State is kept in `backend/.chroma/indexed_playlists.json` (`{playlist_id: snapshot_id}`), next to Chroma on purpose: wiping `.chroma` also resets coverage.
@@ -288,7 +301,7 @@ in the session, because the scan outlives the 1h access token.
 - `similaridade = 1 - distance`, which can be slightly negative.
 
 `profile_store.py`:
-- Digests are saved to `backend/.profile_cache/{sanitized_id}.json` with atomic writes, behind an in-memory memo.
+- Digests are saved to the `playlist_digests` table, behind an in-memory memo. On the first read per process, old JSON digests in `backend/.profile_cache/` are imported (`INSERT OR IGNORE`).
 - Freshness depends only on `snapshot_id`. If either snapshot id is missing, the digest counts as fresh.
 - Digests are keyed by playlist, not by user. Access control comes from Spotify's own listing.
 
@@ -449,13 +462,13 @@ App
 
 | File | Purpose |
 |------|---------|
-| `docker-compose.yml` | `backend`: `127.0.0.1:8000`, `env_file backend/.env`, named volumes `chroma`, `profile_cache`, `state`. `frontend`: nginx, `127.0.0.1:5173→80`, build arg `VITE_API_URL`. Also the workaround for the OneDrive/uvicorn reload problem |
+| `docker-compose.yml` | `backend`: `127.0.0.1:8000`, `env_file backend/.env`, named volumes `data`, `chroma`, `profile_cache` (legacy import), `state`. `frontend`: nginx, `127.0.0.1:5173→80`, build arg `VITE_API_URL`. Also the workaround for the OneDrive/uvicorn reload problem |
 | `backend/Dockerfile` | python:3.12-slim, pre-downloads the ONNX embedding model at build time, copies `app`/`evals`/`tests` (not `scripts`), `VOLUME /srv/.chroma` |
 | `frontend/Dockerfile` | node:22 build → nginx:alpine; `VITE_API_URL` is **baked in at build time** (changing it requires a rebuild) |
 | `frontend/nginx.conf` | SPA fallback to `index.html`, 1-year immutable cache for `/assets/`, gzip |
 | `.github/workflows/ci.yml` | `backend` (pytest, dummy env vars, cached ONNX model), `frontend` (`npm ci && build`), `docker` (build only), `evals` (manual `workflow_dispatch`, Groq) |
 | `.claude/launch.json` | `backend`: `.venv` uvicorn `--reload` on 127.0.0.1:8000; `frontend`: `npm run dev` on 5173 |
-| `.gitignore` | ignores `backend/.chroma/`, `.profile_cache/`, `.state/`, `.env*` (except `.example`) and **`CLAUDE.md`** |
+| `.gitignore` | ignores `backend/.data/`, `.chroma/`, `.profile_cache/`, `.state/`, `.env*` (except `.example`) and **`CLAUDE.md`** |
 
 ## Data Flow
 
@@ -497,7 +510,8 @@ sequenceDiagram
     participant PS as profile_store
 
     FE->>P: GET /api/playlists/{id}/analysis
-    P->>P: playlist_analysis_cache[user:id]?
+    P->>P: playlist in account listing? stored analysis for its snapshot?
+    Note over P: stored with audio → return (no external calls)<br/>stored without audio → add_audio (Deezer only)
     P->>GA: build_playlist_analysis(include_audio=True)
     GA->>SC: get_playlist + get_all_playlist_tracks
     par
@@ -505,9 +519,9 @@ sequenceDiagram
     and
         GA->>DZ: get_many (6 concurrent)
     end
-    GA->>PS: save digest (to_thread, best-effort)
+    GA->>PS: save analysis + digest + track metadata (SQLite, best-effort)
     GA-->>P: PlaylistAnalysis
-    P-->>FE: JSON (cached 10 min)
+    P-->>FE: JSON (tracks carry deezer_id; preview resolved on play)
     P--)VS: BackgroundTask index_tracks (no new API calls)
     FE->>P: GET /{id}/clusters (reuses cached analysis → k-means in thread)
 ```
@@ -564,6 +578,26 @@ sequenceDiagram
     AI->>AI: metrics.TurnMetrics.finish()
 ```
 
+## Persistence
+
+State that must survive restarts lives in SQLite (`backend/.data/app.sqlite3`, or `DATA_DIR`):
+
+| Table | Written by | Valid while |
+|-------|------------|-------------|
+| `playlist_analyses` | `genre_analysis._persist` | `snapshot_id` unchanged (`ANALYSIS_FORMAT` bump invalidates) |
+| `playlist_digests` | `profile_store.save` | `snapshot_id` unchanged |
+| `playlist_listings` | `playlists.get_playlist_summaries` | refreshed after 5 min when listing; any age for permission |
+| `lastfm_artist_tags`, `lastfm_track_tags` | `lastfm_client` | 30 days |
+| `deezer_matches` | `deezer_client.get_track_info` | 30 days (7 days for "not found") |
+| `spotify_tracks` | analyses and `tracks.build_track_detail` | 30 days |
+
+Rules:
+- **Only real answers are stored.** Network errors, Last.fm error codes other than 6 and Deezer quota errors return empty data to the caller but are never written.
+- **Deezer preview URLs are never stored** (signed, expire in minutes). Tracks keep `deezer_id`; `PlayerContext` calls `GET /api/tracks/preview/{deezer_id}` when playing.
+- **Permission comes from the account's listing.** Analyses are keyed by playlist only; `analysis_for_user` is the gate.
+- **Migrations are append-only** (`db.MIGRATIONS`). They run at startup (`main.lifespan`).
+- One shared connection behind a lock, WAL mode. The app must run as a single instance anyway (the Spotify throttle lives in the process).
+
 ## Spotify Rate-Limit Protection
 
 The anti-ban design spans several layers:
@@ -572,7 +606,7 @@ The anti-ban design spans several layers:
 2. **Per-endpoint throttle.** Ids in the path are collapsed into `{id}` before checking the throttle, so opening a different playlist doesn't count as a fresh endpoint. A throttled endpoint fails immediately with a synthetic 429 and makes no network call.
 3. **Global block.** A `Retry-After` over 60s (`GLOBAL_BLOCK_SECONDS`) blocks *all* Spotify calls. The block is saved to `backend/.state/spotify_block.json`, so restarting the backend doesn't lift it. It is reported in `/api/health` and in the Profile page.
 4. **Bounded retries.** A 429 is retried at most 2 times, and only when the wait is 8s or less. Longer waits return an error to the caller.
-5. **Caching.** `user_playlists_cache` (5min) plus a copy of the listing on disk, the `/me` profile kept in the session for 12h, the analysis cache (10min), and GET deduplication in the frontend.
+5. **Caching and persistence.** `user_playlists_cache` (5min) plus the listing in SQLite, the `/me` profile kept in the session for 12h, stored analyses by snapshot, stored track metadata, and GET deduplication in the frontend.
 6. **One paced scanner.** `indexer.py` is user-triggered, diffs by snapshot, handles one playlist every 2s, stops at 60/hour, never calls Deezer, and stops entirely on a long block.
 7. **Profile reads local state.** The Profile page doesn't call Spotify on open.
 8. **Evals use fixtures.** The test suite and evals never call Spotify.
@@ -584,7 +618,7 @@ When changing anything that calls Spotify, keep all of these intact. `test_spoti
 
 - **Language:** pt-BR for UI copy, many identifiers (`buscar_faixa`, `pendentes`, `similaridade`, `MIN_FAIXAS`), tool names and system prompts. Newer modules use English names. Follow the style of the surrounding file.
 - **One router per resource**, each with its own `prefix=/api/<resource>`. Shared Pydantic models go in `models.py`.
-- **Atomic writes to disk:** write a `.tmp` file, then `os.replace`. Used by `spotify_client`, `playlists`, `profile_store` and `indexer`.
+- **Persistent state goes in SQLite** (`db.py` + a `*_store.py` module). Remaining file writes (`spotify_client` block, `indexer` state) use atomic `.tmp` + `os.replace`.
 - **CPU-bound or disk-reading code** (sklearn, Chroma reads, digest loads) runs in `asyncio.to_thread`.
 - **Degrade instead of failing:** Last.fm and Deezer errors return `[]`/`None`, AI tools return JSON error strings, background indexing only logs errors, and `get_me` never raises.
 - **Explaining instead of guessing:** clustering returns a `note`, similar-track lookups return `[]` when a track isn't indexed, and stale digests are shown and labeled.
@@ -597,7 +631,9 @@ When changing anything that calls Spotify, keep all of these intact. `test_spoti
 - **`127.0.0.1`, not `localhost`:** the OAuth redirect, CORS and the SameSite=Lax cookie all assume `127.0.0.1`.
 - **`deezer_client.py` has two duplicate implementations.** `tracks.py` uses `buscar_faixa`; `genre_analysis`/`indexer` use `get_many`. They use different caches and matching code. Change both, or consolidate them.
 - **Scans skip Deezer.** Those analyses are never cached for the page, but they do write digests. A digest without audio never replaces one with audio for the same snapshot.
-- **`profile_store` digests are keyed by playlist only**, not by user.
+- **Stored analyses and digests are keyed by playlist only**, not by user. Always read analyses through `playlists.analysis_for_user`, never `analysis_store.load` directly from a route.
+- **Tests use a temporary database** (`db_tmp` autouse fixture in `conftest.py`). Without it the suite would write fake analyses into the real app database.
+- **The indexer and its progress are still global** (one scan and one progress object for the whole process), and session cookies still carry the Spotify tokens. Both must change before a multi-user deployment.
 - **`AUTO_INDEX` must stay off** unless you accept the ban risk. The frontend sends `POST /index?auto=true` on open; the backend ignores it when the flag is off.
 - **Wiping `backend/.chroma`** also resets scan coverage (`indexed_playlists.json` lives there). Deleting `.state/spotify_block.json` removes the persisted block. Don't do that to get around a real ban.
 - **`https_only=False`** on the session cookie is only acceptable in dev.
@@ -605,7 +641,7 @@ When changing anything that calls Spotify, keep all of these intact. `test_spoti
 - **The README says "Recharts", but there is no chart library.** All charts are custom.
 - **`createMediaElementSource` can only be called once per `<audio>` element.** That's why `PlayerContext` owns the single audio element; never create another one for playback analysis.
 - **`ChatPanel`'s catch block** replaces the last message, discarding partially streamed text.
-- **Metrics live only in memory** and reset when the backend restarts.
+- **Metrics live only in memory** and reset when the backend restarts (not yet in SQLite).
 - **`CLAUDE.md` is gitignored**, so project instructions are local only.
 - **Evals on Windows:** Chroma keeps its sqlite file open, so temporary directories use `ignore_cleanup_errors=True`.
 
@@ -613,7 +649,8 @@ When changing anything that calls Spotify, keep all of these intact. `test_spoti
 
 - **Add a backend endpoint:** create or extend a router in `backend/app/<resource>.py`, add response models to `models.py`, register new routers in `main.py`, then add a function to `frontend/src/api.js` (use `get()` for idempotent GETs so they're deduped).
 - **Add a Spotify call:** add a method to `SpotifyClient` in `spotify_client.py` (never call `httpx` directly), add a cache in `cache.py`, and add a test in `test_spotify_client.py`. Think about the scan volume.
-- **Change genre/tag logic:** `lastfm_client.py` (`NOISE_TAGS`, limits) → `genre_analysis.py` → `profile_store.digest_from_analysis` (bump `VERSION` if the digest shape changes).
+- **Change genre/tag logic:** `lastfm_client.py` (`NOISE_TAGS`, limits) → `genre_analysis.py` → `profile_store.digest_from_analysis` (bump `VERSION` if the digest shape changes; bump `analysis_store.ANALYSIS_FORMAT` if `PlaylistAnalysis` changes). Stored Last.fm tags last 30 days: clear `lastfm_*` tables if the filtering changes.
+- **Persist something new:** append a migration to `db.MIGRATIONS`, add get/put functions in a `*_store.py`, keep network errors out of it, and cover it in `test_persistence.py`.
 - **Change BPM or previews:** `deezer_client.py` (both implementations) and `cache.py` TTLs.
 - **Add a chat tool:** add a `*_json` worker and a `Tool` in `build_tools` in `ai_tools.py` (no id parameters), a label in `TOOL_LABELS` in `ChatPanel.jsx`, a case in `evals/golden.yaml`, and check `test_scope.py`.
 - **Expose data over MCP:** `mcp_server.py`, reusing the `ai_tools` `*_json` workers.

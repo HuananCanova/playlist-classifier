@@ -257,6 +257,11 @@ function Cobertura({ cobertura, indexacao, rodando, onIndexar, onParar }) {
               Pausa de {formatWait(indexacao.waiting_seconds)} para respeitar o limite do Spotify —
               a varredura continua sozinha.
             </span>
+          ) : indexacao.waiting_turn ? (
+            // O limite do Spotify é do app inteiro: outra conta está lendo agora.
+            <span>
+              {indexacao.done}/{indexacao.total} — na fila, outra análise está usando o Spotify agora.
+            </span>
           ) : (
             <>
               <span>

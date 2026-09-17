@@ -147,8 +147,14 @@ def _formatar(resultado: dict, pular: str | None = None) -> list[dict]:
 
 
 async def search(consulta: str, limite: int = 20, track_ids: list[str] | None = None) -> list[dict]:
-    """Busca semântica. `track_ids` restringe a busca a um subconjunto (uma playlist)."""
-    if not consulta.strip():
+    """Busca semântica. `track_ids` restringe a busca a um subconjunto (uma
+    playlist, ou as faixas de uma conta).
+
+    `None` busca no índice inteiro (só o servidor MCP, local, faz isso). Uma
+    lista vazia não encontra nada — tratá-la como "sem filtro" devolveria as
+    faixas de todas as contas a quem ainda não analisou nenhuma.
+    """
+    if not consulta.strip() or track_ids == []:
         return []
 
     col = await _get_collection()
@@ -158,49 +164,65 @@ async def search(consulta: str, limite: int = 20, track_ids: list[str] | None = 
     # O recorte por playlist vai em `ids`, não em `where`: `where` filtra
     # metadados, e a playlist não é um deles — uma faixa pertence a várias.
     kwargs: dict = {"query_texts": [consulta], "n_results": limite}
-    if track_ids:
+    if track_ids is not None:
         kwargs["ids"] = track_ids
 
     resultado = await asyncio.to_thread(col.query, **kwargs)
     return _formatar(resultado)
 
 
-async def similar_to_track(track_id: str, limite: int = 10) -> list[dict]:
+async def similar_to_track(track_id: str, limite: int = 10, track_ids: list[str] | None = None) -> list[dict]:
     """Vizinhos mais próximos de uma faixa já indexada.
 
     Consulta pelo embedding que já está guardado, em vez de reembutir o texto:
-    é o mesmo vetor e evita rodar o modelo à toa.
+    é o mesmo vetor e evita rodar o modelo à toa. `track_ids` limita os
+    vizinhos às faixas de uma conta (`None` = índice inteiro).
     """
+    if track_ids == []:
+        return []
     col = await _get_collection()
     existente = await asyncio.to_thread(col.get, ids=[track_id], include=["embeddings"])
     embeddings = existente.get("embeddings")
     if embeddings is None or len(embeddings) == 0:
         return []
 
-    resultado = await asyncio.to_thread(
-        col.query,
-        query_embeddings=[embeddings[0]],
+    kwargs: dict = {
+        "query_embeddings": [embeddings[0]],
         # Um a mais: a própria faixa volta como o vizinho mais próximo dela mesma.
-        n_results=limite + 1,
-    )
+        "n_results": limite + 1,
+    }
+    if track_ids is not None:
+        kwargs["ids"] = track_ids
+    resultado = await asyncio.to_thread(col.query, **kwargs)
     return _formatar(resultado, pular=track_id)[:limite]
 
 
-async def stats() -> dict:
+async def stats(track_ids: list[str] | None = None) -> dict:
+    """Faixas no índice — de uma conta, com `track_ids`."""
     col = await _get_collection()
-    total = await asyncio.to_thread(col.count)
+    if track_ids is None:
+        total = await asyncio.to_thread(col.count)
+    elif not track_ids:
+        total = 0
+    else:
+        total = len((await asyncio.to_thread(col.get, ids=track_ids, include=[])).get("ids") or [])
     return {"faixas_indexadas": total, "caminho": str(CHROMA_PATH)}
 
 
-async def all_metadata() -> tuple[int, list[dict]]:
-    """Metadados de todas as faixas indexadas, sem embeddings.
+async def all_metadata(track_ids: list[str] | None = None) -> tuple[int, list[dict]]:
+    """Metadados das faixas indexadas (de uma conta, com `track_ids`), sem embeddings.
 
     Alimenta o perfil com o que já está no índice — artistas e tags de milhares
     de faixas sem nenhuma chamada ao Spotify.
     """
-    col = await _get_collection()
-    total = await asyncio.to_thread(col.count)
-    if not total:
+    if track_ids == []:
         return 0, []
-    resultado = await asyncio.to_thread(col.get, include=["metadatas"])
-    return total, [m or {} for m in resultado.get("metadatas") or []]
+    col = await _get_collection()
+    if track_ids is None:
+        if not await asyncio.to_thread(col.count):
+            return 0, []
+        resultado = await asyncio.to_thread(col.get, include=["metadatas"])
+    else:
+        resultado = await asyncio.to_thread(col.get, ids=track_ids, include=["metadatas"])
+    metadatas = [m or {} for m in resultado.get("metadatas") or []]
+    return len(metadatas), metadatas

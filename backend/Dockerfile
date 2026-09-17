@@ -22,8 +22,8 @@ COPY evals ./evals
 COPY tests ./tests
 COPY pytest.ini ./
 
-# O índice vetorial mora aqui; monte um volume para ele sobreviver ao container.
-VOLUME ["/srv/.chroma"]
+# Índice vetorial e banco SQLite; monte volumes para sobreviverem ao container.
+VOLUME ["/srv/.chroma", "/srv/.data"]
 
 EXPOSE 8000
 
