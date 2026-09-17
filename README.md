@@ -542,3 +542,8 @@ cd frontend && npm run build                   # garante que o build de produç�
 
 Para o mapa detalhado do código — módulos, rotas, fluxos e armadilhas — veja
 [docs/CODEBASE_MAP.md](docs/CODEBASE_MAP.md).
+
+## Contribuidores
+
+- [@HuananCanova](https://github.com/HuananCanova)
+- [@k9va90](https://github.com/k9va90)
