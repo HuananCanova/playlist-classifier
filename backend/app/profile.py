@@ -17,7 +17,7 @@ from fastapi import APIRouter, HTTPException, Request
 
 from . import indexer, profile_store
 from .auth import get_me, get_valid_access_token
-from .playlists import get_playlist_summaries
+from .playlists import account_key, account_track_ids, get_playlist_summaries
 from .profile_stats import build_index_stats, build_profile_stats
 from .spotify_client import global_block_remaining
 from .vector_store import all_metadata
@@ -26,21 +26,23 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
-# Estatísticas do índice por tamanho do índice: só recalcula quando entram faixas.
-_index_stats_cache: dict = {"count": None, "stats": None}
+# Estatísticas do índice por conta, refeitas só quando entram faixas dela.
+_index_stats_cache: dict[str, tuple[int, dict | None]] = {}
 
 
-async def _index_stats() -> dict | None:
+async def _index_stats(account: str, track_ids: list[str]) -> dict | None:
+    """Artistas e estilos das faixas desta conta que já estão no índice."""
     try:
-        count, metadatas = await all_metadata()
+        count, metadatas = await all_metadata(track_ids)
     except Exception:
         # O índice é complemento; se o Chroma falhar, o painel segue sem ele.
         logger.exception("Não consegui ler o índice para o perfil")
         return None
-    if count != _index_stats_cache["count"]:
-        _index_stats_cache["stats"] = await asyncio.to_thread(build_index_stats, metadatas)
-        _index_stats_cache["count"] = count
-    return _index_stats_cache["stats"]
+    cached = _index_stats_cache.get(account)
+    if cached is None or cached[0] != count:
+        cached = (count, await asyncio.to_thread(build_index_stats, metadatas))
+        _index_stats_cache[account] = cached
+    return cached[1]
 
 
 def _snapshot(playlists) -> dict:
@@ -98,12 +100,14 @@ async def get_profile(request: Request):
         if exc.status_code != 429:
             raise
         playlists = []
-    data, index = await asyncio.gather(asyncio.to_thread(_snapshot, playlists), _index_stats())
+    account = account_key(request)
+    track_ids = await account_track_ids(request)
+    data, index = await asyncio.gather(asyncio.to_thread(_snapshot, playlists), _index_stats(account, track_ids))
     return {
         "user": {k: v for k, v in user.items() if k != "fetched_at"},
         **data,
         "index": index,
-        "build": indexer.progress_dict(),
+        "build": indexer.progress_dict(account),
         "spotify_blocked_seconds": global_block_remaining(),
     }
 
@@ -112,7 +116,7 @@ async def get_profile(request: Request):
 async def build_status(request: Request):
     """Só o progresso — o que o painel consulta enquanto a varredura roda."""
     await get_valid_access_token(request)
-    return indexer.progress_dict()
+    return indexer.progress_dict(account_key(request))
 
 
 @router.post("/build")
@@ -130,13 +134,13 @@ async def start_build(request: Request, refresh: bool = False):
         raise HTTPException(status_code=401, detail="Sessão sem refresh token; entre de novo.")
 
     playlists = await get_playlist_summaries(request, refresh=refresh and not global_block_remaining())
-    await indexer.start(refresh_token, [p.model_dump() for p in playlists])
-    return indexer.progress_dict()
+    await indexer.start(account_key(request), refresh_token, [p.model_dump() for p in playlists])
+    return indexer.progress_dict(account_key(request))
 
 
 @router.delete("/build")
 async def stop_build(request: Request):
     """Para a varredura. O que já foi feito fica em disco."""
     await get_valid_access_token(request)
-    await indexer.cancel()
-    return indexer.progress_dict()
+    await indexer.cancel(account_key(request))
+    return indexer.progress_dict(account_key(request))

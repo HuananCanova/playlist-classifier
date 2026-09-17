@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import { api } from "./api.js";
 
 const PlayerContext = createContext(null);
 
@@ -15,6 +16,9 @@ export function PlayerProvider({ children }) {
   const ctxRef = useRef(null);
   const analyserRef = useRef(null);
   const sourceRef = useRef(null);
+  // Qual pedido de play é o mais recente: resolver a prévia leva uma ida ao
+  // backend, e um clique em outra faixa nesse meio-tempo tem que vencer.
+  const pedidoRef = useRef(0);
 
   const [track, setTrack] = useState(null); // {track_id, name, artists, image, preview_url}
   const [playing, setPlaying] = useState(false);
@@ -46,19 +50,37 @@ export function PlayerProvider({ children }) {
   }
 
   async function playTrack(novo) {
-    if (!novo?.preview_url) {
+    if (!novo?.preview_url && !novo?.deezer_id) {
       setErro("Esta faixa não tem prévia de áudio.");
       return;
     }
     setErro(null);
 
+    // O grafo nasce antes de qualquer espera: ele precisa do gesto do usuário.
+    if (!ensureGraph()) return;
+    const pedido = ++pedidoRef.current;
+
     const mesmaFaixa = track?.track_id === novo.track_id;
     if (!mesmaFaixa) {
-      setTrack(novo);
+      // A prévia do Deezer é uma URL assinada que expira, e análises guardadas
+      // vêm sem ela: com o id do Deezer, a URL atual é pedida na hora.
+      let src = novo.preview_url;
+      if (novo.deezer_id) {
+        try {
+          src = (await api.getPreview(novo.deezer_id)).preview_url;
+        } catch {
+          src = null;
+        }
+      }
+      if (pedido !== pedidoRef.current) return;
+      if (!src) {
+        setErro("Esta faixa não tem prévia de áudio.");
+        return;
+      }
+      setTrack({ ...novo, preview_url: src });
       setTime(0);
-      audioRef.current.src = novo.preview_url;
+      audioRef.current.src = src;
     }
-    if (!ensureGraph()) return;
     if (ctxRef.current.state === "suspended") await ctxRef.current.resume();
 
     try {

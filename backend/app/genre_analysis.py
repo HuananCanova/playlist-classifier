@@ -11,7 +11,7 @@ from collections import Counter
 
 import httpx
 
-from . import profile_store
+from . import analysis_store, enrichment_store, profile_store
 from .cache import playlist_analysis_cache
 from .deezer_client import get_many as get_deezer_many
 from .lastfm_client import get_artist_tags, get_track_tags
@@ -38,26 +38,37 @@ _in_flight: dict[tuple[str, bool], asyncio.Task] = {}
 
 
 async def build_playlist_analysis(
-    access_token: str, playlist_id: str, *, include_audio: bool = True
+    access_token: str, playlist_id: str, *, include_audio: bool = True, trust_cache: bool = True
 ) -> PlaylistAnalysis:
-    """Análise completa da playlist.
+    """Análise completa da playlist, lida do Spotify.
 
     `include_audio=False` pula o Deezer (BPM e prévia). É o modo da varredura do
     perfil: o Deezer aceita ~10 requisições por segundo e custa até duas por
     faixa, então numa conta inteira ele sozinho levaria minutos, enquanto o
     resto termina em segundos. Uma análise sem áudio nunca entra no
     `playlist_analysis_cache`, para a página da playlist não receber BPM vazio.
-    """
-    cached = playlist_analysis_cache.get(playlist_id)
-    if cached is not None:
-        return cached
 
-    # Uma análise completa já em voo serve também a quem não precisa de áudio.
-    keys = [(playlist_id, True)] if include_audio else [(playlist_id, False), (playlist_id, True)]
-    for key in keys:
-        task = _in_flight.get(key)
-        if task is not None:
-            return await asyncio.shield(task)
+    `trust_cache=False` ignora o cache em memória e as análises em voo, e vai
+    ao Spotify. É o que se usa quando ainda não se sabe se quem pede pode ver
+    esta playlist: o 403 do Spotify é a checagem de permissão, e um resultado
+    guardado para outra conta passaria por cima dela. Esta função não lê o
+    banco — quem serve análise guardada é `playlists.analysis_for_user`, que
+    confere a listagem da conta antes.
+    """
+    if trust_cache:
+        cached = playlist_analysis_cache.get(playlist_id)
+        if cached is not None:
+            return cached
+
+        # Uma análise completa já em voo serve também a quem não precisa de áudio.
+        keys = [(playlist_id, True)] if include_audio else [(playlist_id, False), (playlist_id, True)]
+        for key in keys:
+            task = _in_flight.get(key)
+            if task is not None:
+                return await asyncio.shield(task)
+
+    if not trust_cache:
+        return await _build(access_token, playlist_id, include_audio)
 
     key = (playlist_id, include_audio)
     task = asyncio.create_task(_build(access_token, playlist_id, include_audio))
@@ -66,7 +77,7 @@ async def build_playlist_analysis(
     return await asyncio.shield(task)
 
 
-def _forget(key: tuple[str, bool], task: asyncio.Task) -> None:
+def _forget(key, task: asyncio.Task) -> None:
     _in_flight.pop(key, None)
     # Se quem pediu desistiu (página fechada), ninguém lê o erro; lê-lo aqui
     # evita o aviso de "exception was never retrieved".
@@ -105,7 +116,7 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         ]
 
         async def no_audio() -> list[dict]:
-            return [{"bpm": None, "preview_url": None, "deezer_url": None} for _ in tracks]
+            return [{"deezer_id": None, "bpm": None, "preview_url": None, "deezer_url": None} for _ in tracks]
 
         lastfm_started = time.perf_counter()
         artist_genre_pairs, all_tags, all_deezer = await asyncio.gather(
@@ -126,7 +137,6 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
     subgenre_counter: Counter = Counter()
     artist_counter: Counter = Counter()
     missing_genre = 0
-    bpm_values: list[float] = []
 
     for track, lastfm_tags, deezer in zip(tracks, all_tags, all_deezer):
         track_artist_names = [
@@ -149,9 +159,6 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         for name in track_artist_names:
             artist_counter[name] += 1
 
-        if deezer["bpm"] is not None:
-            bpm_values.append(deezer["bpm"])
-
         album = track.get("album") or {}
         images = album.get("images") or []
         urls = track.get("external_urls") or {}
@@ -170,6 +177,7 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
                 bpm=deezer["bpm"],
                 preview_url=deezer["preview_url"],
                 deezer_url=deezer["deezer_url"],
+                deezer_id=deezer.get("deezer_id"),
                 spotify_url=urls.get("spotify"),
                 added_at=track.get("added_at"),
                 release_year=_release_year(album.get("release_date")),
@@ -204,21 +212,92 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         genre_distribution=top_counts(genre_counter),
         subgenre_distribution=top_counts(subgenre_counter),
         top_artists=top_counts(artist_counter, limit=15),
-        bpm_histogram=_bpm_histogram(bpm_values),
-        average_bpm=round(sum(bpm_values) / len(bpm_values), 1) if bpm_values else None,
         tracks_missing_genre=missing_genre,
-        tracks_missing_bpm=len(track_infos) - len(bpm_values),
+        **_bpm_fields(track_infos),
     )
     if include_audio:
         playlist_analysis_cache[playlist_id] = analysis
 
-    # Toda análise vira resumo em disco para o perfil — inclusive as da página e
-    # da varredura da busca, que assim adiantam o trabalho do perfil de graça.
-    try:
-        await asyncio.to_thread(profile_store.save, analysis, has_audio=include_audio)
-    except Exception:
-        logger.exception("Não consegui guardar o resumo de %s", playlist_id)
+    await _persist(analysis, has_audio=include_audio, spotify_tracks=tracks)
     return analysis
+
+
+async def _persist(analysis: PlaylistAnalysis, *, has_audio: bool, spotify_tracks: list[dict] | None = None) -> None:
+    """Toda análise fica guardada: a completa (página da playlist), o resumo
+    (perfil) e os metadados das faixas (página da faixa). Inclusive as da
+    varredura da busca, que assim adiantam o trabalho do resto de graça.
+
+    Falhar aqui não derruba a análise que já foi feita para quem pediu."""
+
+    def save() -> None:
+        analysis_store.save(analysis, has_audio=has_audio)
+        profile_store.save(analysis, has_audio=has_audio)
+        if spotify_tracks:
+            # `added_at` é da entrada na playlist, não da faixa.
+            enrichment_store.put_spotify_tracks(
+                [{k: v for k, v in t.items() if k != "added_at"} for t in spotify_tracks]
+            )
+
+    try:
+        await asyncio.to_thread(save)
+    except Exception:
+        logger.exception("Não consegui guardar a análise de %s", analysis.playlist.id)
+
+
+def _bpm_fields(track_infos: list[TrackGenreInfo]) -> dict:
+    bpm_values = [t.bpm for t in track_infos if t.bpm is not None]
+    return {
+        "bpm_histogram": _bpm_histogram(bpm_values),
+        "average_bpm": round(sum(bpm_values) / len(bpm_values), 1) if bpm_values else None,
+        "tracks_missing_bpm": len(track_infos) - len(bpm_values),
+    }
+
+
+# Análises guardadas sem áudio sendo completadas agora, por playlist.
+_audio_in_flight: dict[str, asyncio.Task] = {}
+
+
+async def add_audio(analysis: PlaylistAnalysis) -> PlaylistAnalysis:
+    """Completa com BPM e prévia uma análise que foi feita sem áudio.
+
+    A varredura do perfil e da busca analisa sem Deezer. Quando uma dessas
+    playlists é aberta, não há por que reler tudo no Spotify: as faixas e as
+    tags já estão na análise guardada, e só falta o Deezer."""
+    playlist_id = analysis.playlist.id
+    task = _audio_in_flight.get(playlist_id)
+    if task is None:
+        task = asyncio.create_task(_add_audio(analysis))
+        _audio_in_flight[playlist_id] = task
+        task.add_done_callback(lambda t: _forget_audio(playlist_id, t))
+    return await asyncio.shield(task)
+
+
+def _forget_audio(playlist_id: str, task: asyncio.Task) -> None:
+    _audio_in_flight.pop(playlist_id, None)
+    if not task.cancelled():
+        task.exception()
+
+
+async def _add_audio(analysis: PlaylistAnalysis) -> PlaylistAnalysis:
+    pairs = [((t.artists or [""])[0], t.name) for t in analysis.tracks]
+    async with httpx.AsyncClient(timeout=20.0, limits=HTTP_LIMITS) as client:
+        audio = await get_deezer_many(client, pairs)
+
+    tracks = [
+        t.model_copy(
+            update={
+                "bpm": a["bpm"],
+                "preview_url": a["preview_url"],
+                "deezer_url": a["deezer_url"],
+                "deezer_id": a.get("deezer_id"),
+            }
+        )
+        for t, a in zip(analysis.tracks, audio)
+    ]
+    completed = analysis.model_copy(update={"tracks": tracks, **_bpm_fields(tracks)})
+    playlist_analysis_cache[analysis.playlist.id] = completed
+    await _persist(completed, has_audio=True)
+    return completed
 
 
 def _release_year(release_date: str | None) -> int | None:

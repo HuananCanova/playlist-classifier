@@ -217,9 +217,12 @@ async def grupos_da_playlist_json(access_token: str, playlist_id: str) -> str:
     )
 
 
-async def faixas_parecidas_json(track_id: str) -> str:
-    """Vizinhos semânticos de uma faixa, dentro do acervo já indexado."""
-    hits = await similar_to_track(track_id, limite=8)
+async def faixas_parecidas_json(track_id: str, track_ids: list[str] | None = None) -> str:
+    """Vizinhos semânticos de uma faixa, dentro do acervo já indexado.
+
+    `track_ids` limita os vizinhos ao acervo de uma conta (o chat sempre passa;
+    o servidor MCP, local e de uma pessoa só, usa o índice inteiro)."""
+    hits = await similar_to_track(track_id, limite=8, track_ids=track_ids)
 
     if not hits:
         return json.dumps(
@@ -252,8 +255,12 @@ def build_tools(
     *,
     playlist_id: str | None = None,
     track_id: str | None = None,
+    account_track_ids: list[str] | None = None,
 ) -> list[Tool]:
-    """Cria as ferramentas ligadas à sessão do usuário, restritas ao escopo da tela."""
+    """Cria as ferramentas ligadas à sessão do usuário, restritas ao escopo da tela.
+
+    `account_track_ids` são as faixas da conta: o limite de `faixas_parecidas`
+    dentro do índice, que é compartilhado entre contas."""
     if (playlist_id is None) == (track_id is None):
         raise ValueError("Informe exatamente um escopo: playlist_id ou track_id.")
 
@@ -319,7 +326,7 @@ def build_tools(
         return await analisar_faixa_json(access_token, track_id)  # type: ignore[arg-type]
 
     async def faixas_parecidas() -> str:
-        return await faixas_parecidas_json(track_id)  # type: ignore[arg-type]
+        return await faixas_parecidas_json(track_id, account_track_ids)  # type: ignore[arg-type]
 
     return [
         Tool(

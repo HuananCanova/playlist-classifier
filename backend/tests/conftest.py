@@ -10,6 +10,28 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def db_tmp(tmp_path, monkeypatch):
+    """Cada teste com um banco novo e os caches em memória vazios.
+
+    Sem isso a suíte gravaria no banco de verdade do app (análises e listagens
+    falsas apareceriam na tela) e um teste herdaria o que o anterior guardou.
+    """
+    from app import cache, db, profile_store
+
+    db.use_path(tmp_path / "app.sqlite3")
+    monkeypatch.setattr(profile_store, "STORE_PATH", tmp_path / "profile_legacy")
+    profile_store.clear_memo()
+    caches = [v for v in vars(cache).values() if isinstance(v, cache.TTLCache)]
+    for c in caches:
+        c.clear()
+    yield db
+    for c in caches:
+        c.clear()
+    profile_store.clear_memo()
+    db.use_path(None)
+
+
+@pytest.fixture(autouse=True)
 def spotify_state_tmp(tmp_path, monkeypatch):
     """Bloqueio do Spotify e listagem guardada vão para um diretório descartável.
 

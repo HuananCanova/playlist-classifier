@@ -65,6 +65,8 @@ export const api = {
     get(`/api/playlists${refresh ? "?refresh=true" : ""}`),
   getPlaylistAnalysis: (id) => get(`/api/playlists/${id}/analysis`),
   getTrack: (id) => request(`/api/tracks/${id}`),
+  // A prévia expira em minutos, então não vem guardada com a análise.
+  getPreview: (deezerId) => get(`/api/tracks/preview/${deezerId}`),
   getSimilarTracks: (id, limit = 8) =>
     request(`/api/tracks/${id}/similar?limit=${limit}`),
   search: (q, limit = 20) =>

@@ -1,9 +1,8 @@
 """Spotify OAuth (Authorization Code + PKCE) and session handling.
 
-Tokens are kept server-side in a signed, httpOnly session cookie (via Starlette's
-SessionMiddleware) — never exposed to the frontend JS. This is fine for a
-single-user, local-dev app; for a multi-user deployment you'd swap this for a
-real session store (Redis, DB) keyed by an opaque session id.
+Os tokens ficam numa sessão guardada no servidor, criptografada no banco
+(sessions.py). O navegador só recebe um cookie httpOnly com um id opaco: nem o
+JavaScript da página nem quem copiar o cookie vê os tokens do Spotify.
 """
 import base64
 import hashlib
@@ -15,6 +14,7 @@ import httpx
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import RedirectResponse
 
+from . import sessions
 from .config import get_settings
 from .spotify_auth import SPOTIFY_AUTHORIZE_URL, SPOTIFY_TOKEN_URL
 from .spotify_client import SpotifyClient, global_block_remaining
@@ -81,9 +81,12 @@ async def callback(request: Request, code: str | None = None, state: str | None 
         return RedirectResponse(f"{settings.frontend_url}/login?error=token_exchange_failed")
 
     token_data = resp.json()
+    # Login novo, sessão nova: nada da sessão anônima (nem de outra conta que
+    # usava este navegador) sobrevive, e o id do cookie é trocado.
+    request.session.clear()
+    sessions.rotate(request)
     _store_tokens(request, token_data)
     # Um /me por login: daqui em diante o perfil sai da sessão.
-    request.session.pop("me", None)
     await get_me(request, token_data["access_token"])
 
     return RedirectResponse(f"{settings.frontend_url}/playlists")

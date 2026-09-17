@@ -19,6 +19,13 @@ Por isso as regras aqui são de ritmo, não de velocidade:
   `spotify_client` — nenhuma parte do app volta a chamar o Spotify até lá.
 
 O progresso é observável e a varredura pode ser parada; o que já foi feito fica.
+
+**Por conta, com uma fila só para o Spotify.** Cada conta tem a própria
+varredura e o próprio progresso — uma pessoa não vê o nome das playlists da
+outra, nem para a varredura dela. Mas o limite do Spotify é do app inteiro, não
+de cada conta, então a leitura no Spotify passa por uma vez só (`_vez`) e o teto
+por hora é contado para todas as contas juntas. Duas contas varrendo ao mesmo
+tempo andam alternadas, no mesmo ritmo de uma.
 """
 import asyncio
 import contextlib
@@ -26,12 +33,13 @@ import json
 import logging
 import math
 import time
+import threading
 from collections import deque
 from dataclasses import asdict, dataclass, field
 
 import httpx
 
-from . import profile_store
+from . import analysis_store, profile_store
 from .genre_analysis import build_playlist_analysis
 from .spotify_auth import SpotifyAuthError, access_token_from_refresh_token
 from .spotify_client import GLOBAL_BLOCK_SECONDS, global_block_remaining
@@ -73,11 +81,26 @@ class IndexProgress:
     waiting_seconds: float | None = None
     # Quanto falta do bloqueio geral do Spotify, quando ele parou a varredura.
     blocked_seconds: float | None = None
+    # Esperando a vez de ler o Spotify enquanto a varredura de outra conta lê.
+    waiting_turn: bool = False
 
 
-_progress = IndexProgress()
-_task: asyncio.Task | None = None
+@dataclass
+class _Varredura:
+    progress: IndexProgress = field(default_factory=IndexProgress)
+    task: asyncio.Task | None = None
+
+
+# Uma varredura por conta (chave de playlists._user_cache_key).
+_varreduras: dict[str, _Varredura] = {}
 _lock = asyncio.Lock()
+
+# Uma leitura no Spotify por vez no app inteiro, e o teto por hora somado.
+_vez = asyncio.Lock()
+_feitas_na_hora: deque[float] = deque()
+
+# O arquivo de estado é compartilhado por todas as varreduras.
+_estado_lock = threading.Lock()
 
 
 # ── estado persistido ────────────────────────────────────────────────────────
@@ -88,6 +111,17 @@ def _carregar_estado() -> dict[str, str]:
         return json.loads(ESTADO.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return {}
+
+
+def _marcar_indexada(playlist: dict) -> None:
+    """Grava uma playlist como indexada, relendo o arquivo antes.
+
+    Com duas varreduras (de contas diferentes) rodando, cada uma gravar o mapa
+    que leu no início apagaria o que a outra acabou de marcar."""
+    with _estado_lock:
+        estado = _carregar_estado()
+        estado[playlist["id"]] = _snapshot(playlist)
+        _salvar_estado(estado)
 
 
 def _salvar_estado(estado: dict[str, str]) -> None:
@@ -140,8 +174,22 @@ def estimar_chamadas(playlists: list[dict]) -> int:
 
 # ── varredura ────────────────────────────────────────────────────────────────
 
-async def _indexar_uma(token: str, playlist: dict) -> int:
-    analysis = await build_playlist_analysis(token, playlist["id"], include_audio=False)
+async def _analise_guardada(playlist: dict):
+    """A análise já guardada desta versão da playlist, se houver.
+
+    A fila também recebe playlists que só perderam o índice (ex.: `.chroma`
+    apagado) ou o resumo do perfil. Para essas, reler o Spotify é desperdício:
+    a análise da mesma versão está no banco."""
+    stored = await asyncio.to_thread(analysis_store.load, playlist["id"], playlist.get("snapshot_id"))
+    if stored is None or not playlist.get("snapshot_id"):
+        return None
+    await asyncio.to_thread(profile_store.save, stored.analysis, has_audio=stored.has_audio)
+    return stored.analysis
+
+
+async def _indexar_uma(token: str | None, playlist: dict, analysis=None) -> int:
+    if analysis is None:
+        analysis = await build_playlist_analysis(token, playlist["id"], include_audio=False)
     return await index_tracks(
         [
             {
@@ -163,132 +211,168 @@ def _retry_after(exc: httpx.HTTPStatusError) -> float:
         return 5.0
 
 
-async def _esperar(segundos: float) -> None:
-    _progress.waiting_seconds = segundos
+async def _esperar(progress: IndexProgress, segundos: float) -> None:
+    progress.waiting_seconds = segundos
     try:
         await asyncio.sleep(segundos)
     finally:
-        _progress.waiting_seconds = None
+        progress.waiting_seconds = None
 
 
-async def _rodar(refresh_token: str, fila: list[dict]) -> None:
-    estado = _carregar_estado()
+async def _respeitar_teto(progress: IndexProgress) -> None:
+    """Teto por hora, somado entre as contas: espera a janela abrir."""
+    agora = time.time()
+    while _feitas_na_hora and agora - _feitas_na_hora[0] > 3600:
+        _feitas_na_hora.popleft()
+    if len(_feitas_na_hora) >= MAX_PLAYLISTS_POR_HORA:
+        await _esperar(progress, 3600 - (agora - _feitas_na_hora[0]) + 1)
+
+
+async def _rodar(progress: IndexProgress, refresh_token: str, fila: list[dict]) -> None:
     token: str | None = None
     token_em = 0.0
-    feitas_na_hora: deque[float] = deque()
 
     for playlist in fila:
         bloqueio = global_block_remaining()
         if bloqueio:
-            _progress.blocked_seconds = bloqueio
+            progress.blocked_seconds = bloqueio
             break
 
-        # Teto por hora: espera a janela abrir em vez de seguir no mesmo ritmo.
-        agora = time.time()
-        while feitas_na_hora and agora - feitas_na_hora[0] > 3600:
-            feitas_na_hora.popleft()
-        if len(feitas_na_hora) >= MAX_PLAYLISTS_POR_HORA:
-            await _esperar(3600 - (agora - feitas_na_hora[0]) + 1)
+        progress.current = playlist.get("name") or playlist["id"]
 
-        _progress.current = playlist.get("name") or playlist["id"]
-
-        for tentativa in range(MAX_TENTATIVAS):
+        guardada = await _analise_guardada(playlist)
+        if guardada is not None:
+            # Sem Spotify: não espera a vez, não conta no teto nem pede pausa.
             try:
-                if token is None or time.time() - token_em > TOKEN_TTL:
-                    token = await access_token_from_refresh_token(refresh_token)
-                    token_em = time.time()
-
-                n = await _indexar_uma(token, playlist)
-                _progress.indexed_tracks += n
-                estado[playlist["id"]] = _snapshot(playlist)
-                _salvar_estado(estado)
-                break
-
-            except httpx.HTTPStatusError as exc:
-                if exc.response.status_code != 429:
-                    _progress.errors.append(f"{_progress.current}: HTTP {exc.response.status_code}")
-                    break
-                espera = _retry_after(exc)
-                if espera > GLOBAL_BLOCK_SECONDS or tentativa == MAX_TENTATIVAS - 1:
-                    # O spotify_client já gravou o bloqueio; aqui só se para.
-                    _progress.blocked_seconds = global_block_remaining() or espera
-                    logger.warning("Varredura parada: Spotify pediu %.0fs de espera", espera)
-                    break
-                logger.info("Spotify pediu %.0fs; repetindo %s", espera, _progress.current)
-                await _esperar(espera)
-
-            except SpotifyAuthError as exc:
-                _progress.errors.append(str(exc))
-                _progress.blocked_seconds = None
-                return
-
-            except asyncio.CancelledError:
-                raise
-
+                progress.indexed_tracks += await _indexar_uma(None, playlist, guardada)
+                await asyncio.to_thread(_marcar_indexada, playlist)
             except Exception as exc:
                 logger.exception("Falha ao indexar %s", playlist["id"])
-                _progress.errors.append(f"{_progress.current}: {type(exc).__name__}")
+                progress.errors.append(f"{progress.current}: {type(exc).__name__}")
+            progress.done += 1
+            continue
+
+        progress.waiting_turn = _vez.locked()
+        async with _vez:
+            progress.waiting_turn = False
+            await _respeitar_teto(progress)
+
+            for tentativa in range(MAX_TENTATIVAS):
+                # Outra conta pode ter levado um bloqueio enquanto esta esperava a vez.
+                bloqueio = global_block_remaining()
+                if bloqueio:
+                    progress.blocked_seconds = bloqueio
+                    break
+                try:
+                    if token is None or time.time() - token_em > TOKEN_TTL:
+                        token = await access_token_from_refresh_token(refresh_token)
+                        token_em = time.time()
+
+                    progress.indexed_tracks += await _indexar_uma(token, playlist)
+                    await asyncio.to_thread(_marcar_indexada, playlist)
+                    break
+
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code != 429:
+                        progress.errors.append(f"{progress.current}: HTTP {exc.response.status_code}")
+                        break
+                    espera = _retry_after(exc)
+                    if espera > GLOBAL_BLOCK_SECONDS or tentativa == MAX_TENTATIVAS - 1:
+                        # O spotify_client já gravou o bloqueio; aqui só se para.
+                        progress.blocked_seconds = global_block_remaining() or espera
+                        logger.warning("Varredura parada: Spotify pediu %.0fs de espera", espera)
+                        break
+                    logger.info("Spotify pediu %.0fs; repetindo %s", espera, progress.current)
+                    await _esperar(progress, espera)
+
+                except SpotifyAuthError as exc:
+                    progress.errors.append(str(exc))
+                    progress.blocked_seconds = None
+                    return
+
+                except asyncio.CancelledError:
+                    raise
+
+                except Exception as exc:
+                    logger.exception("Falha ao indexar %s", playlist["id"])
+                    progress.errors.append(f"{progress.current}: {type(exc).__name__}")
+                    break
+
+            if progress.blocked_seconds:
                 break
 
-        if _progress.blocked_seconds:
-            break
-
-        _progress.done += 1
-        feitas_na_hora.append(time.time())
-        await asyncio.sleep(PAUSA_ENTRE_PLAYLISTS)
+            progress.done += 1
+            _feitas_na_hora.append(time.time())
+            # A pausa fica dentro da vez: é ela que espaça as leituras do app todo.
+            await asyncio.sleep(PAUSA_ENTRE_PLAYLISTS)
 
     logger.info(
         "Varredura concluída: %d/%d playlists, %d faixas, %d erros",
-        _progress.done, _progress.total, _progress.indexed_tracks, len(_progress.errors),
+        progress.done, progress.total, progress.indexed_tracks, len(progress.errors),
     )
 
 
-def _finalizar(task: asyncio.Task) -> None:
-    _progress.current = None
-    _progress.waiting_seconds = None
-    _progress.running = False
-    _progress.finished_at = time.time()
+def _finalizar(progress: IndexProgress, task: asyncio.Task) -> None:
+    progress.current = None
+    progress.waiting_seconds = None
+    progress.waiting_turn = False
+    progress.running = False
+    progress.finished_at = time.time()
     with contextlib.suppress(asyncio.CancelledError, Exception):
         task.result()
 
 
-async def start(refresh_token: str, playlists: list[dict]) -> IndexProgress:
-    """Dispara a varredura do que falta, se já não houver uma rodando.
+async def start(account: str, refresh_token: str, playlists: list[dict]) -> IndexProgress:
+    """Dispara a varredura do que falta nesta conta, se já não houver uma rodando.
 
     `playlists` vem da listagem em cache de quem chama: a varredura não lista a
     conta por conta própria, então pedir para começar não custa chamada nenhuma.
     """
-    global _task, _progress
-
     async with _lock:
-        if _progress.running:
-            return _progress
+        atual = _varreduras.get(account)
+        if atual is not None and atual.progress.running:
+            return atual.progress
 
+        anterior = atual.progress.finished_at if atual else None
         bloqueio = global_block_remaining()
         if bloqueio:
-            _progress = IndexProgress(blocked_seconds=bloqueio, finished_at=_progress.finished_at)
-            return _progress
+            progress = IndexProgress(blocked_seconds=bloqueio, finished_at=anterior)
+            _varreduras[account] = _Varredura(progress)
+            return progress
 
         fila = await asyncio.to_thread(pendentes_da_conta, playlists)
         if not fila:
-            _progress = IndexProgress(finished_at=time.time())
-            return _progress
+            progress = IndexProgress(finished_at=time.time())
+            _varreduras[account] = _Varredura(progress)
+            return progress
 
-        _progress = IndexProgress(running=True, total=len(fila), started_at=time.time())
-        _task = asyncio.create_task(_rodar(refresh_token, fila))
-        _task.add_done_callback(_finalizar)
-        return _progress
+        progress = IndexProgress(running=True, total=len(fila), started_at=time.time())
+        task = asyncio.create_task(_rodar(progress, refresh_token, fila))
+        task.add_done_callback(lambda t: _finalizar(progress, t))
+        _varreduras[account] = _Varredura(progress, task)
+        return progress
 
 
-async def cancel() -> None:
-    if _task is not None and not _task.done():
-        _task.cancel()
+async def cancel(account: str) -> None:
+    varredura = _varreduras.get(account)
+    if varredura is None or varredura.task is None or varredura.task.done():
+        return
+    varredura.task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await varredura.task
+
+
+async def wait(account: str) -> None:
+    """Espera a varredura desta conta terminar (testes)."""
+    varredura = _varreduras.get(account)
+    if varredura is not None and varredura.task is not None:
         with contextlib.suppress(asyncio.CancelledError):
-            await _task
+            await varredura.task
 
 
-def progress() -> IndexProgress:
-    return _progress
+def progress(account: str) -> IndexProgress:
+    varredura = _varreduras.get(account)
+    return varredura.progress if varredura else IndexProgress()
 
 
 def coverage(playlists: list[dict]) -> dict:
@@ -307,9 +391,10 @@ def coverage(playlists: list[dict]) -> dict:
     }
 
 
-def progress_dict() -> dict:
-    data = asdict(_progress)
-    if not _progress.running:
+def progress_dict(account: str) -> dict:
+    atual = progress(account)
+    data = asdict(atual)
+    if not atual.running:
         # Tempo restante de verdade, inclusive depois de um reinício.
         data["blocked_seconds"] = global_block_remaining()
     return data

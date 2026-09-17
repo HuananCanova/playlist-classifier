@@ -9,7 +9,7 @@ from . import indexer
 from .auth import get_valid_access_token
 from .config import get_settings
 from .models import IndexStatus, SearchHit, SearchStatus
-from .playlists import get_playlist_summaries
+from .playlists import account_key, account_track_ids, get_playlist_summaries
 from .spotify_client import global_block_remaining
 from .vector_store import search as vector_search
 from .vector_store import stats as vector_stats
@@ -25,13 +25,13 @@ async def search(
     q: str = Query(min_length=1, max_length=200, description="A pergunta em linguagem natural."),
     limit: int = Query(default=20, ge=1, le=50),
 ):
-    """Busca semântica em tudo que já foi analisado.
+    """Busca semântica em tudo que esta conta já analisou.
 
-    Exige sessão porque o índice é do acervo do usuário — mesmo que a consulta
-    em si não toque no Spotify.
+    O índice é compartilhado entre as contas, então a busca se limita às faixas
+    das playlists desta conta — nunca devolve faixas de outra pessoa.
     """
     await get_valid_access_token(request)
-    return await vector_search(q, limite=limit)
+    return await vector_search(q, limite=limit, track_ids=await account_track_ids(request))
 
 
 @router.get("/status", response_model=SearchStatus)
@@ -43,7 +43,7 @@ async def status(request: Request):
     tela não tem como distinguir as duas.
     """
     await get_valid_access_token(request)
-    dados = await vector_stats()
+    dados = await vector_stats(await account_track_ids(request))
     try:
         # Listagem em cache (memória, depois disco): consultar a cobertura não
         # custa chamada ao Spotify, por mais que a tela seja recarregada.
@@ -68,7 +68,7 @@ async def start_index(request: Request, auto: bool = False):
     await get_valid_access_token(request)
 
     if auto and not get_settings().auto_index:
-        return IndexStatus(**indexer.progress_dict())
+        return IndexStatus(**indexer.progress_dict(account_key(request)))
 
     # A varredura sobrevive à requisição, e um access token expira em uma hora.
     # O refresh token é o que permite renovar durante o trabalho.
@@ -77,14 +77,14 @@ async def start_index(request: Request, auto: bool = False):
         raise HTTPException(status_code=401, detail="Sessão sem refresh token; entre de novo.")
 
     playlists = [p.model_dump() for p in await get_playlist_summaries(request)]
-    await indexer.start(refresh_token, playlists)
-    return IndexStatus(**indexer.progress_dict())
+    await indexer.start(account_key(request), refresh_token, playlists)
+    return IndexStatus(**indexer.progress_dict(account_key(request)))
 
 
 @router.get("/index", response_model=IndexStatus)
 async def index_status(request: Request):
     await get_valid_access_token(request)
-    return IndexStatus(**indexer.progress_dict())
+    return IndexStatus(**indexer.progress_dict(account_key(request)))
 
 
 @router.delete("/index", response_model=IndexStatus)
@@ -95,5 +95,5 @@ async def stop_index(request: Request):
     a próxima varredura recomeça de onde esta parou.
     """
     await get_valid_access_token(request)
-    await indexer.cancel()
-    return IndexStatus(**indexer.progress_dict())
+    await indexer.cancel(account_key(request))
+    return IndexStatus(**indexer.progress_dict(account_key(request)))

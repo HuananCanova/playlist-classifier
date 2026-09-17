@@ -27,9 +27,9 @@ O que dá para fazer no app:
 | Camada | Tecnologia | Uso neste projeto |
 | --- | --- | --- |
 | Backend | Python 3.10+ (CI e Docker usam 3.12), FastAPI, httpx | API assíncrona, chamadas concorrentes ao Spotify/Last.fm/Deezer |
-| Sessão | Starlette `SessionMiddleware` | Cookie assinado; tokens do Spotify nunca chegam ao navegador |
+| Sessão | Starlette `SessionMiddleware` | Cookie assinado e `httpOnly`; o JavaScript da página não lê os tokens do Spotify |
 | Validação | Pydantic v2 + pydantic-settings | Schemas de request/response e variáveis de ambiente tipadas |
-| Cache | `cachetools` (TTLCache) + JSON em disco | Memória para respostas externas; disco para resumos do perfil, listagem de playlists e bloqueio do Spotify |
+| Persistência | SQLite (biblioteca padrão, migrações versionadas) + `cachetools` (TTLCache) | Análises por versão da playlist, tags do Last.fm, BPM do Deezer e listagens sobrevivem a reinícios; memória na frente para a mesma requisição |
 | Agente de IA | Anthropic Claude (`claude-opus-5`, tool use, streaming SSE) | Chat com escopo de playlist/faixa, sem dados soltos no prompt |
 | Agente de IA (alternativo) | Groq (`openai/gpt-oss-120b`, API compatível com OpenAI) | Testar o agente sem custo, mesmo contrato de ferramentas |
 | Protocolo de agente | [MCP](https://modelcontextprotocol.io) | As mesmas ferramentas do chat, expostas a Claude Desktop/Code |
@@ -310,10 +310,11 @@ ouve?" ou não entra.
 
 Abrir o perfil não chama o Spotify. O painel sai do que já existe:
 
-1. **Resumos em disco** (`backend/.profile_cache/`): toda análise feita no app —
+1. **Resumos no banco** (SQLite em `backend/.data/`): toda análise feita no app —
    abrir uma playlist ou a varredura da conta — grava um resumo compacto da
    playlist. Ele vale enquanto o `snapshot_id` do Spotify não muda e sobrevive a
-   reinícios.
+   reinícios. Os resumos da versão anterior, em `backend/.profile_cache/`, são
+   importados sozinhos.
 2. **O índice da busca**: enquanto faltam resumos, artistas e estilos de todas
    as faixas já indexadas aparecem num painel à parte, sem chamada nenhuma.
 3. **O botão "Analisar as que faltam"** dispara a varredura da conta, com a
@@ -479,11 +480,21 @@ Abra **`http://127.0.0.1:5173`** e clique em **Entrar com Spotify**.
   concorrência define o tempo total. Medido contra a API real com 60 buscas:
   8 → 1,69s · 16 → 1,22s · 24 → 1,08s · 32 → 0,74s, sem nenhum 429. O projeto usa
   24, e uma busca que falhe degrada para "sem tags" em vez de derrubar a análise.
-- **Cache**: em memória, por processo — reiniciar o backend zera. Tags do Last.fm
-  valem um dia; a análise de uma playlist, 10 minutos; a listagem de playlists, 5
-  minutos. O detalhe de faixa fica 25 minutos, porque carrega a URL assinada da
-  prévia do Deezer, que expira. As exceções ficam em disco: os resumos do perfil (veja
-  [Perfil](#perfil)), o bloqueio do Spotify e a última listagem de playlists (veja
+- **Persistência**: o trabalho caro fica num SQLite (`backend/.data/`, ou
+  `DATA_DIR`). A análise completa de uma playlist vale enquanto o `snapshot_id`
+  não muda, então reabrir uma playlist não chama ninguém (medido: ~6,6s na
+  primeira vez, ~15ms depois, inclusive após reiniciar o backend). Tags do
+  Last.fm, correspondências do Deezer e metadados de faixa valem 30 dias, por
+  faixa, então playlists que dividem artistas pagam uma vez só. Uma playlist
+  varrida sem áudio é completada só com o Deezer ao ser aberta. Falhas de rede
+  nunca ficam guardadas como resposta. A prévia do Deezer é uma URL assinada que
+  expira, então não é guardada: a faixa guarda o id, e o player pede a URL atual
+  na hora do play.
+- **Permissão**: a análise guardada é por playlist, não por pessoa. Ela só é
+  servida a uma conta cuja listagem (vinda do Spotify) contém a playlist; fora
+  disso a análise é relida no Spotify, que responde 403 se a conta não puder ver.
+- **Cache em memória**: fica na frente do banco, por processo. A listagem de
+  playlists vale 5 minutos; o bloqueio do Spotify fica em `backend/.state/` (veja
   [Limites do Spotify](#limites-do-spotify)).
 - **Dados faltando**: faixas locais e indisponíveis vêm com campos `null` (não
   ausentes), então o código usa `.get(x) or default` em vez de `.get(x, default)`.

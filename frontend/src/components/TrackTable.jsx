@@ -94,7 +94,7 @@ export default function TrackTable({ tracks }) {
               return (
                 <tr key={t.track_id} className={isCurrent ? "row-active" : ""}>
                   <td className="col-play">
-                    {t.preview_url ? (
+                    {t.preview_url || t.deezer_id ? (
                       <button
                         className="play-btn"
                         onClick={() => play(t)}

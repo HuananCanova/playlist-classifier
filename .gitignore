@@ -41,7 +41,10 @@ CLAUDE.md
 # Índice vetorial (Chroma). Reconstruído ao analisar as playlists.
 backend/.chroma/
 
-# Resumos de playlist do perfil. Refeitos sozinhos quando faltam.
+# Banco SQLite (análises, tags, listagens). Refeito sozinho quando falta.
+backend/.data/
+
+# Resumos de playlist do perfil (formato antigo, importado para o banco).
 backend/.profile_cache/
 
 # Bloqueio do Spotify e última listagem de playlists, guardados entre reinícios.

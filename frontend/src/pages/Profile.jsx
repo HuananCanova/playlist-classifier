@@ -379,6 +379,11 @@ function Coverage({ coverage, progress, blocked, starting, onBuild }) {
               Pausa de {progress.waiting_seconds > 90 ? `${Math.round(progress.waiting_seconds / 60)} min` : `${Math.round(progress.waiting_seconds)} s`}{" "}
               para respeitar o limite…
             </span>
+          ) : progress.waiting_turn ? (
+            // O limite do Spotify é do app inteiro: outra conta está lendo agora.
+            <span>
+              {progress.done} de {progress.total} — na fila, outra análise está usando o Spotify agora…
+            </span>
           ) : (
             <>
               <span>
