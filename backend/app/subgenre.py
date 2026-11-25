@@ -24,10 +24,14 @@ DEFAULT_SOURCE_WEIGHT = 0.6  # fonte extra sem peso próprio
 # a esta distância dela.
 TEMPO_FALLOFF_BPM = 6.0
 
-# Abaixo desta fatia o vencedor não basta para virar subgênero. Medido no
-# conjunto dourado externo (evals/subgenre_golden.yaml): 0,3 a 0,4 dão o mesmo
-# resultado; 0,5 (o valor anterior) não deixava nenhum caso virar subgênero e
-# 0,45 já perde quase todos. Fica 0,4, o meio do patamar.
+# Abaixo desta fatia o vencedor não basta para virar subgênero.
+# PROVISÓRIO: 0,4 veio de 7 casos confiantes, todos guiados por BPM, de 35 do
+# conjunto dourado externo (evals/subgenre_golden.yaml), e NÃO é calibração.
+# Nenhum desses casos tem tag de faixa (o Last.fm não devolveu nenhuma), então
+# a fonte mais pesada não foi testada. Com 0,5 (valor anterior) nenhum caso
+# virava subgênero; 0,3 a 0,4 dão o mesmo resultado e 0,45 perde quase todos.
+# Refazer a medição quando houver tags de faixa reais ou andamento medido no
+# áudio (Estágio B).
 UNSURE_MIN_SHARE = 0.4
 
 
