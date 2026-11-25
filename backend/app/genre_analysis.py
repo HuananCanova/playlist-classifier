@@ -11,11 +11,11 @@ from collections import Counter
 
 import httpx
 
-from . import analysis_store, enrichment_store, profile_store, taxonomy
+from . import analysis_store, enrichment_store, evidence_store, profile_store, subgenre, taxonomy
 from .cache import playlist_analysis_cache
 from .deezer_client import get_many as get_deezer_many
-from .lastfm_client import get_artist_tags, get_track_tags
-from .models import GenreCount, PlaylistAnalysis, PlaylistSummary, TrackGenreInfo
+from .lastfm_client import NoAnswer, get_artist_tags, get_track_tags
+from .models import GenreCount, PlaylistAnalysis, PlaylistSummary, SubgenreBar, TrackGenreInfo
 from .spotify_client import SpotifyClient, gather_with_concurrency
 
 logger = logging.getLogger(__name__)
@@ -132,7 +132,13 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         playlist_id, len(tracks), len(artist_names), spotify_seconds, lastfm_seconds,
     )
 
+    # BPM de uma enriquecida anterior serve quando o Deezer não deu o seu agora.
+    stored_evidence = await _stored_evidence([t["id"] for t in tracks])
+    artists_without_answer = {n for n, tags in artist_genres.items() if isinstance(tags, NoAnswer)}
+    evidence_to_store: list[evidence_store.TrackEvidence] = []
+
     track_infos: list[TrackGenreInfo] = []
+    bars: dict[str, list[float]] = {}  # rótulo -> [confiante, incerta]
     genre_counter: Counter = Counter()
     subgenre_counter: Counter = Counter()
     artist_counter: Counter = Counter()
@@ -146,7 +152,7 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         # dois artistas soma — numa colaboração, isso é o que se quer.
         artist_tags: list[taxonomy.Tag] = []
         for name in track_artist_names:
-            artist_tags.extend(artist_genres.get(name, []))
+            artist_tags.extend(taxonomy.as_tags(artist_genres.get(name, [])))
 
         classification = taxonomy.classify(artist_tags=artist_tags, track_tags=lastfm_tags)
         subgenre_tags = _display_tags(lastfm_tags, artist_tags)
@@ -158,11 +164,23 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
             # um voto: uma faixa com três artistas deixava até nove, e "rock"
             # liderava por ser contado junto com "classic rock" e "hard rock".
             genre_counter[classification.genre] += 1
-            if classification.subgenre:
-                subgenre_counter[classification.subgenre] += 1
 
         for name in track_artist_names:
             artist_counter[name] += 1
+
+        bpm = deezer["bpm"]
+        if bpm is None and track["id"] in stored_evidence:
+            bpm = stored_evidence[track["id"]].bpm
+        result = subgenre.blend(
+            classification.genre, artist_tags=artist_tags, track_tags=taxonomy.as_tags(lastfm_tags), bpm=bpm
+        )
+        if result.lean:
+            subgenre_counter[result.lean] += 1
+        for label, share in result.blend:
+            bars.setdefault(label, [0.0, 0.0])[1 if result.unsure else 0] += share
+        evidence_to_store.append(
+            _evidence_of(track, track_artist_names, artists_without_answer, artist_tags, lastfm_tags, deezer, include_audio)
+        )
 
         album = track.get("album") or {}
         images = album.get("images") or []
@@ -180,9 +198,10 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
                 genres=classification.genres,
                 subgenre_tags=subgenre_tags,
                 genre=classification.genre,
-                subgenre=classification.subgenre,
+                subgenre=result.subgenre,
                 genre_confidence=classification.confidence or None,
                 genre_evidence=classification.evidence,
+                **subgenre.subgenre_fields(result),
                 bpm=deezer["bpm"],
                 preview_url=deezer["preview_url"],
                 deezer_url=deezer["deezer_url"],
@@ -219,6 +238,7 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         tracks=track_infos,
         genre_distribution=top_counts(genre_counter),
         subgenre_distribution=top_counts(subgenre_counter),
+        subgenre_bars=_subgenre_bars(bars),
         top_artists=top_counts(artist_counter, limit=15),
         tracks_missing_genre=missing_genre,
         genre_taxonomy=taxonomy.load().version,
@@ -228,7 +248,59 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         playlist_analysis_cache[playlist_id] = analysis
 
     await _persist(analysis, has_audio=include_audio, spotify_tracks=tracks)
+    await _persist_evidence(evidence_to_store)
     return analysis
+
+
+async def _stored_evidence(track_ids: list[str]) -> dict[str, evidence_store.TrackEvidence]:
+    try:
+        return await asyncio.to_thread(evidence_store.get_many, track_ids)
+    except Exception:
+        logger.exception("Não consegui ler a evidência guardada")
+        return {}
+
+
+def _evidence_of(
+    track: dict,
+    artist_names: list[str],
+    artists_without_answer: set[str],
+    artist_tags: list[taxonomy.Tag],
+    lastfm_tags: list,
+    deezer: dict,
+    include_audio: bool,
+) -> evidence_store.TrackEvidence:
+    """O que desta faixa foi de fato respondido agora; o resto fica None.
+
+    Falha do Last.fm chega como `NoAnswer` e não vira "sem tags". O Deezer não
+    distingue "não achou" de "não respondeu" (ambos voltam vazios), então só um
+    match marca a faixa como consultada."""
+    artists_ok = bool(artist_names) and not any(n in artists_without_answer for n in artist_names)
+    found = include_audio and deezer.get("deezer_id") is not None
+    return evidence_store.TrackEvidence(
+        track_id=track["id"],
+        artist_tags=artist_tags if artists_ok else None,
+        track_tags=None if isinstance(lastfm_tags, NoAnswer) else taxonomy.as_tags(lastfm_tags),
+        bpm=deezer["bpm"] if found else None,
+        deezer_id=deezer["deezer_id"] if found else None,
+        deezer_checked_at=time.time() if found else None,
+    )
+
+
+async def _persist_evidence(items: list[evidence_store.TrackEvidence]) -> None:
+    def save() -> None:
+        for ev in items:
+            evidence_store.put(ev)
+
+    try:
+        await asyncio.to_thread(save)
+    except Exception:
+        logger.exception("Não consegui guardar a evidência das faixas")
+
+
+def _subgenre_bars(bars: dict[str, list[float]]) -> list[SubgenreBar]:
+    """Soma das fatias por subgênero, a parte das faixas seguras e a das incertas."""
+    out = [SubgenreBar(label=label, confident=round(c, 3), unsure=round(u, 3)) for label, (c, u) in bars.items()]
+    return sorted(out, key=lambda b: (-(b.confident + b.unsure), b.label))
 
 
 async def _persist(analysis: PlaylistAnalysis, *, has_audio: bool, spotify_tracks: list[dict] | None = None) -> None:

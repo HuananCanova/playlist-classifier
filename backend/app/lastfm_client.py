@@ -31,6 +31,14 @@ BASE_URL = "https://ws.audioscrobbler.com/2.0/"
 LASTFM_NOT_FOUND = 6
 
 
+class NoAnswer(list):
+    """Lista vazia que quer dizer "o Last.fm não respondeu".
+
+    Para quem só lê tags é uma lista vazia comum; quem guarda evidência
+    (`genre_analysis`) a distingue de "respondeu e não há tags" e não grava nada.
+    """
+
+
 async def _get_top_tags(
     client: httpx.AsyncClient, params: dict, limit: int, exclude: str = ""
 ) -> list[Tag] | None:
@@ -104,7 +112,7 @@ async def get_track_tags(client: httpx.AsyncClient, artist: str, track: str, lim
         client, {"method": "track.getTopTags", "artist": artist, "track": track}, limit, exclude=artist
     )
     if tags is None:
-        return []
+        return NoAnswer()
     track_tags_cache[cache_key] = tags
     await asyncio.to_thread(enrichment_store.put_track_tags, cache_key, tags)
     return tags
@@ -126,7 +134,7 @@ async def get_artist_tags(client: httpx.AsyncClient, artist: str, limit: int = 8
 
     tags = await _get_top_tags(client, {"method": "artist.getTopTags", "artist": artist}, limit)
     if tags is None:
-        return []
+        return NoAnswer()
     artist_tags_cache[cache_key] = tags
     await asyncio.to_thread(enrichment_store.put_artist_tags, cache_key, tags)
     return tags

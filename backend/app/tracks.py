@@ -1,18 +1,22 @@
 """Rota da faixa individual: dados do Spotify + BPM e áudio do Deezer."""
 import asyncio
+import logging
+import time
 
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
-from . import enrichment_store, taxonomy
+from . import enrichment_store, evidence_store, subgenre, taxonomy
 from .auth import get_valid_access_token
 from .cache import track_detail_cache
 from .deezer_client import buscar_faixa, get_preview_url
-from .lastfm_client import get_artist_tags, get_track_tags
+from .lastfm_client import NoAnswer, get_artist_tags, get_track_tags
 from .models import SearchHit, TrackDetail
 from .playlists import _spotify_error, account_track_ids
 from .spotify_client import SpotifyClient
 from .vector_store import similar_to_track
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/tracks", tags=["tracks"])
 
@@ -54,6 +58,13 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
     # mostrar o gênero com confiança e não só uma nuvem de tags.
     classificacao = taxonomy.classify(artist_tags=artist_tags, track_tags=tags)
 
+    # O BPM guardado por uma análise anterior vale quando o Deezer não deu o seu.
+    guardada = await _evidencia_guardada(track_id)
+    bpm = (deezer or {}).get("bpm")
+    if bpm is None and guardada is not None:
+        bpm = guardada.bpm
+    mistura = subgenre.blend(classificacao.genre, artist_tags=artist_tags, track_tags=tags, bpm=bpm)
+
     detail = TrackDetail(
         track_id=faixa.get("id", track_id),
         name=nome,
@@ -67,17 +78,45 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
         tags=[t.name for t in tags if not taxonomy.load().discarded(t.name)],
         artist_tags=[t.name for t in artist_tags if not taxonomy.load().discarded(t.name)],
         genre=classificacao.genre,
-        subgenre=classificacao.subgenre,
+        subgenre=mistura.subgenre,
         genre_confidence=classificacao.confidence or None,
         genre_evidence=classificacao.evidence,
-        bpm=(deezer or {}).get("bpm"),
+        **subgenre.subgenre_fields(mistura),
+        bpm=bpm,
         preview_url=(deezer or {}).get("preview_url"),
         deezer_url=(deezer or {}).get("deezer_url"),
         match_confidence=(deezer or {}).get("confianca"),
         matched_title=(deezer or {}).get("titulo_encontrado"),
     )
     track_detail_cache[track_id] = detail
+    await _guardar_evidencia(faixa.get("id", track_id), len(artistas), artist_tags, tags, deezer)
     return detail
+
+
+async def _evidencia_guardada(track_id: str):
+    try:
+        return (await asyncio.to_thread(evidence_store.get_many, [track_id])).get(track_id)
+    except Exception:
+        logger.exception("Não consegui ler a evidência de %s", track_id)
+        return None
+
+
+async def _guardar_evidencia(track_id: str, n_artistas: int, artist_tags, tags, deezer) -> None:
+    """Só o que respondeu. Daqui só se conhecem as tags do artista principal, então
+    numa faixa com mais artistas elas não substituem a lista combinada que a análise
+    da playlist guarda. O Deezer devolve None tanto para "não achou" quanto para
+    falha, então só um match conta como consultado (e sem o id, que esta rota não lê)."""
+    ev = evidence_store.TrackEvidence(
+        track_id=track_id,
+        artist_tags=None if isinstance(artist_tags, NoAnswer) or n_artistas != 1 else artist_tags,
+        track_tags=None if isinstance(tags, NoAnswer) else tags,
+        bpm=(deezer or {}).get("bpm"),
+        deezer_checked_at=time.time() if deezer else None,
+    )
+    try:
+        await asyncio.to_thread(evidence_store.put, ev)
+    except Exception:
+        logger.exception("Não consegui guardar a evidência de %s", track_id)
 
 
 def _campos_usados(faixa: dict) -> dict:
@@ -144,6 +183,6 @@ async def _buscar_em_paralelo(client, artista: str, titulo: str, duracao_ms):
     )
     return (
         deezer if isinstance(deezer, dict) else None,
-        tags if isinstance(tags, list) else [],
-        artist_tags if isinstance(artist_tags, list) else [],
+        tags if isinstance(tags, list) else NoAnswer(),
+        artist_tags if isinstance(artist_tags, list) else NoAnswer(),
     )
