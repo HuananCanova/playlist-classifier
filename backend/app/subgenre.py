@@ -13,6 +13,7 @@ parâmetro `extra` de `blend`, sem mexer no resto.
 from typing import Iterable, NamedTuple
 
 from . import taxonomy
+from .models import EvidenceLine, SubgenreShare
 from .taxonomy import Tag
 
 # Quanto cada fonte pesa no blend (calibrados na Task 9).
@@ -187,3 +188,19 @@ def blend(
         unsure=unsure,
         evidence=[e for s in sources for e in s.evidence],
     )
+
+
+def subgenre_fields(result: SubgenreResult) -> dict:
+    """Os campos de subgênero de uma faixa (`TrackGenreInfo`/`TrackDetail`).
+
+    Devolve modelos (não dicts) para servir tanto de kwargs quanto de
+    `model_copy(update=...)`, que não valida. Não inclui `subgenre`, que quem
+    classifica define à parte.
+    """
+    return {
+        "subgenre_blend": [SubgenreShare(label=label, share=round(share, 3)) for label, share in result.blend],
+        "subgenre_lean": result.lean,
+        "subgenre_confidence": result.confidence or None,
+        "subgenre_unsure": result.unsure,
+        "subgenre_evidence": [EvidenceLine(source=e.source, says=e.says, detail=e.detail) for e in result.evidence],
+    }
