@@ -16,9 +16,21 @@ def test_tempo_inside_range_votes_that_subgenre():
     assert source.distribution.get("progressive psytrance", 0) == 0
     assert source.distribution.get("psy-techno", 0) == 0
     assert abs(sum(source.distribution.values()) - 1) < 1e-9
-    # Com o empate, a evidência cita o primeiro por nome (darkpsy), não full-on.
+    # Com o empate, a evidência lista todos os empatados; `says` é o primeiro.
     assert source.evidence[0].says == "darkpsy"
-    assert source.evidence[0].detail == "146 BPM; darkpsy vai de 140 a 155"
+    assert source.evidence[0].detail == (
+        "146 BPM; cabe em darkpsy, full-on, goa trance, hypnotic psy, night full-on, nitzhonot"
+    )
+
+
+def test_tempo_single_range_detail():
+    assert tempo_source("psytrance", 100).evidence[0].detail == "100 BPM; psychill vai de 90 a 120"
+
+
+def test_tied_tempo_counts_as_agreement():
+    result = blend("psytrance", artist_tags=[], track_tags=[Tag("full-on")], bpm=146)
+    assert not result.unsure
+    assert result.subgenre == "full-on"
 
 
 def test_tempo_overlap_shares():

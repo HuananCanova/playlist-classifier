@@ -61,6 +61,13 @@ def _ranked(distribution: dict[str, float]) -> list[tuple[str, float]]:
     return sorted(distribution.items(), key=lambda item: (-item[1], item[0]))
 
 
+def _tied_top(distribution: dict[str, float]) -> list[str]:
+    """Rótulos empatados no topo (≥ 0.999 da maior fatia), em ordem de nome."""
+    ranked = _ranked(distribution)
+    floor = ranked[0][1] * 0.999
+    return [label for label, share in ranked if share >= floor]
+
+
 def tags_source(name: str, genre: str, tags: list[Tag]) -> SourceResult | None:
     """Voto das tags que resolvem para um subgênero de `genre`.
 
@@ -119,10 +126,13 @@ def tempo_source(genre: str, bpm: float | None) -> SourceResult | None:
         prefix = f"{bpm:g} BPM lido como dobro ({bpm * 2:g})"
 
     distribution = _normalized(likelihood)
-    top = _ranked(distribution)[0][0]
-    low, high = taxonomy.subgenre_info(top).bpm
-    detail = f"{prefix}; {top} vai de {low:g} a {high:g}"
-    return SourceResult("tempo", distribution, [Evidence("tempo", top, detail)])
+    tied = _tied_top(distribution)
+    if len(tied) == 1:
+        low, high = taxonomy.subgenre_info(tied[0]).bpm
+        detail = f"{prefix}; {tied[0]} vai de {low:g} a {high:g}"
+    else:
+        detail = f"{prefix}; cabe em {', '.join(tied)}"
+    return SourceResult("tempo", distribution, [Evidence("tempo", tied[0], detail)])
 
 
 def blend(
@@ -158,8 +168,10 @@ def blend(
     lean, confidence = ranked[0]
 
     heaviest = sorted(sources, key=weight, reverse=True)[:2]
-    disagree = len(heaviest) == 2 and (
-        _ranked(heaviest[0].distribution)[0][0] != _ranked(heaviest[1].distribution)[0][0]
+    # Empate no topo conta como concordância: o andamento costuma caber em
+    # vários subgêneros ao mesmo tempo.
+    disagree = len(heaviest) == 2 and not (
+        set(_tied_top(heaviest[0].distribution)) & set(_tied_top(heaviest[1].distribution))
     )
     unsure = (
         all(s.name == "artist_tags" for s in sources)
