@@ -250,7 +250,11 @@ def test_reclassifica_faixa_guardada_sem_tocar_em_rede():
     nova = reclassify.track(_faixa_antiga())
 
     assert nova.genre == "rock"
-    assert nova.subgenre == "classic rock"
+    # Só há tags de artista guardadas: o blend pende para "classic rock" mas
+    # fica incerto, e subgênero incerto não vira `subgenre`.
+    assert nova.subgenre is None
+    assert nova.subgenre_lean == "classic rock"
+    assert nova.subgenre_unsure is True
     assert nova.genres == ["rock"]
     # País e instrumento saem; o resto das tags fica.
     assert "brazil" not in nova.subgenre_tags

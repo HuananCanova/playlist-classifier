@@ -13,7 +13,7 @@ parâmetro `extra` de `blend`, sem mexer no resto.
 from typing import Iterable, NamedTuple
 
 from . import taxonomy
-from .models import EvidenceLine, SubgenreShare
+from .models import EvidenceLine, SubgenreBar, SubgenreShare
 from .taxonomy import Tag
 
 # Quanto cada fonte pesa no blend (calibrados na Task 9).
@@ -204,3 +204,15 @@ def subgenre_fields(result: SubgenreResult) -> dict:
         "subgenre_unsure": result.unsure,
         "subgenre_evidence": [EvidenceLine(source=e.source, says=e.says, detail=e.detail) for e in result.evidence],
     }
+
+
+def add_to_bars(bars: dict[str, list[float]], blend: Iterable[tuple[str, float]], unsure: bool) -> None:
+    """Soma as fatias do blend da faixa: na parte incerta se ela é `unsure`, na segura se não."""
+    for label, share in blend:
+        bars.setdefault(label, [0.0, 0.0])[1 if unsure else 0] += share
+
+
+def bars_from(bars: dict[str, list[float]]) -> list[SubgenreBar]:
+    """As barras de subgênero da playlist: segura + incerta, da maior para a menor."""
+    out = [SubgenreBar(label=label, confident=round(c, 3), unsure=round(u, 3)) for label, (c, u) in bars.items()]
+    return sorted(out, key=lambda b: (-(b.confident + b.unsure), b.label))

@@ -15,7 +15,7 @@ from . import analysis_store, enrichment_store, evidence_store, profile_store, s
 from .cache import playlist_analysis_cache
 from .deezer_client import get_many as get_deezer_many
 from .lastfm_client import NoAnswer, get_artist_tags, get_track_tags
-from .models import GenreCount, PlaylistAnalysis, PlaylistSummary, SubgenreBar, TrackGenreInfo
+from .models import GenreCount, PlaylistAnalysis, PlaylistSummary, TrackGenreInfo
 from .spotify_client import SpotifyClient, gather_with_concurrency
 
 logger = logging.getLogger(__name__)
@@ -176,8 +176,7 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         )
         if result.lean:
             subgenre_counter[result.lean] += 1
-        for label, share in result.blend:
-            bars.setdefault(label, [0.0, 0.0])[1 if result.unsure else 0] += share
+        subgenre.add_to_bars(bars, result.blend, result.unsure)
         evidence_to_store.append(
             _evidence_of(track, track_artist_names, artists_without_answer, artist_tags, lastfm_tags, deezer, include_audio)
         )
@@ -238,7 +237,7 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         tracks=track_infos,
         genre_distribution=top_counts(genre_counter),
         subgenre_distribution=top_counts(subgenre_counter),
-        subgenre_bars=_subgenre_bars(bars),
+        subgenre_bars=subgenre.bars_from(bars),
         top_artists=top_counts(artist_counter, limit=15),
         tracks_missing_genre=missing_genre,
         genre_taxonomy=taxonomy.load().version,
@@ -295,12 +294,6 @@ async def _persist_evidence(items: list[evidence_store.TrackEvidence]) -> None:
         await asyncio.to_thread(save)
     except Exception:
         logger.exception("Não consegui guardar a evidência das faixas")
-
-
-def _subgenre_bars(bars: dict[str, list[float]]) -> list[SubgenreBar]:
-    """Soma das fatias por subgênero, a parte das faixas seguras e a das incertas."""
-    out = [SubgenreBar(label=label, confident=round(c, 3), unsure=round(u, 3)) for label, (c, u) in bars.items()]
-    return sorted(out, key=lambda b: (-(b.confident + b.unsure), b.label))
 
 
 async def _persist(analysis: PlaylistAnalysis, *, has_audio: bool, spotify_tracks: list[dict] | None = None) -> None:
