@@ -75,10 +75,22 @@ def _classify(
     balaio: list[str], evidencia: TrackEvidence | None
 ) -> tuple[taxonomy.Classification, list[Tag], list[Tag]]:
     """Gênero e as tags que alimentam o blend: da evidência quando ela tem tags, senão do balaio."""
-    if evidencia is not None and (evidencia.artist_tags is not None or evidencia.track_tags is not None):
+    if _tem_tags(evidencia):
         artista, faixa = evidencia.artist_tags or [], evidencia.track_tags or []
         return taxonomy.classify(artist_tags=artista, track_tags=faixa), artista, faixa
     return taxonomy.classify(artist_tags=balaio), taxonomy.as_tags(balaio), []
+
+
+def _tem_tags(evidencia: TrackEvidence | None) -> bool:
+    return evidencia is not None and (evidencia.artist_tags is not None or evidencia.track_tags is not None)
+
+
+def _tags_da_faixa(guardadas: list[str], evidencia: TrackEvidence | None) -> list[str]:
+    """As tags de exibição: as da evidência quando existe (não dependem do que uma
+    passada anterior escreveu), senão o balaio do guardado."""
+    if _tem_tags(evidencia):
+        return _balaio([t.name for t in (evidencia.artist_tags or []) + (evidencia.track_tags or [])])
+    return guardadas
 
 
 def _blend(genero, artista, faixa, evidencia, bpm_guardado):
@@ -88,7 +100,7 @@ def _blend(genero, artista, faixa, evidencia, bpm_guardado):
 
 def track(faixa: TrackGenreInfo, evidence: TrackEvidence | None = None) -> TrackGenreInfo:
     """A faixa com gênero, subgênero, confiança e evidência da taxonomia."""
-    tags = _balaio(faixa.genres, faixa.subgenre_tags)
+    tags = _tags_da_faixa(_balaio(faixa.genres, faixa.subgenre_tags), evidence)
     resultado, artista, da_faixa = _classify(tags, evidence)
     mistura = _blend(resultado.genre, artista, da_faixa, evidence, faixa.bpm)
     tabela = taxonomy.load()
@@ -134,15 +146,22 @@ def is_current(guardado: PlaylistAnalysis | dict) -> bool:
     return versao is not None and versao == current_version() and tem_subgenero
 
 
-def analysis(analise: PlaylistAnalysis) -> PlaylistAnalysis:
+def analysis(analise: PlaylistAnalysis, only_evidence: bool = False) -> PlaylistAnalysis:
     """A análise com as faixas reclassificadas e as distribuições refeitas.
 
     As distribuições são recontadas do zero, com a mesma regra do caminho novo:
     um voto por faixa no gênero classificado, um no subgênero para onde ela
     pende, e as fatias do blend somadas nas barras (seguras ou incertas).
+
+    Com `only_evidence`, só as faixas com evidência guardada são refeitas; as
+    outras ficam exatamente como estão (reclassificar o que já foi reclassificado
+    reembaralha as faixas sem evidência), e só as distribuições são recontadas.
     """
     evidencias = evidence_store.get_many([f.track_id for f in analise.tracks])
-    faixas = [track(f, evidencias.get(f.track_id)) for f in analise.tracks]
+    faixas = [
+        f if only_evidence and f.track_id not in evidencias else track(f, evidencias.get(f.track_id))
+        for f in analise.tracks
+    ]
 
     generos: Counter = Counter()
     subgeneros: Counter = Counter()
@@ -172,7 +191,7 @@ def analysis(analise: PlaylistAnalysis) -> PlaylistAnalysis:
     )
 
 
-def digest(resumo: dict) -> tuple[dict, int]:
+def digest(resumo: dict, only_evidence: bool = False) -> tuple[dict, int]:
     """O resumo de perfil reclassificado, e quantas faixas mudaram de rótulo.
 
     O resumo guarda por faixa `genres` (os gêneros) e `tags` (as tags), que é o
@@ -187,7 +206,10 @@ def digest(resumo: dict) -> tuple[dict, int]:
     faixas = []
 
     for f in resumo.get("tracks") or []:
-        tags = _balaio(f.get("genres"), f.get("tags"))
+        if only_evidence and f.get("id") not in evidencias:
+            faixas.append(f)
+            continue
+        tags = _tags_da_faixa(_balaio(f.get("genres"), f.get("tags")), evidencias.get(f.get("id")))
         resultado, artista, da_faixa = _classify(tags, evidencias.get(f.get("id")))
         mistura = _blend(resultado.genre, artista, da_faixa, evidencias.get(f.get("id")), f.get("bpm"))
         campos = subgenre.subgenre_fields(mistura)
@@ -214,7 +236,10 @@ def account(playlist_ids: list[str]) -> dict:
 
     Chamada depois de buscar evidência nova: reescreve sempre (não pula o que já
     está na versão atual), porque o que mudou foi a evidência, não a taxonomia.
-    Só toca em gênero e subgênero; devolve quantas linhas reescreveu.
+    Linha que já está atual só tem refeitas as faixas com evidência guardada; as
+    demais não são tocadas (o que está guardado nelas foi derivado do próprio
+    balaio, e reclassificar de novo o mudaria). Linha antiga leva a passada
+    completa. Devolve quantas linhas reescreveu.
     """
     agora = time.time()
     contagem = {"analyses": 0, "digests": 0}
@@ -225,7 +250,8 @@ def account(playlist_ids: list[str]) -> dict:
         )
         if linha is not None:
             try:
-                nova = analysis(PlaylistAnalysis.model_validate_json(linha["analysis"]))
+                guardada = PlaylistAnalysis.model_validate_json(linha["analysis"])
+                nova = analysis(guardada, only_evidence=is_current(guardada))
             except ValueError:
                 logger.warning("Análise ilegível em %s, pulando", playlist_id)
             else:
@@ -241,7 +267,8 @@ def account(playlist_ids: list[str]) -> dict:
         )
         if linha is not None:
             try:
-                resumo, _ = digest(json.loads(linha["digest"]))
+                guardado = json.loads(linha["digest"])
+                resumo, _ = digest(guardado, only_evidence=is_current(guardado))
             except (ValueError, TypeError):
                 logger.warning("Resumo ilegível em %s, pulando", playlist_id)
             else:
