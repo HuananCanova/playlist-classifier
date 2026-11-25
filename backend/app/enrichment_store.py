@@ -16,6 +16,7 @@ import json
 import time
 
 from . import db
+from .taxonomy import Tag
 
 DAY = 24 * 60 * 60
 
@@ -36,31 +37,57 @@ def _fresh(fetched_at: float, ttl: float) -> bool:
 # ── Last.fm ─────────────────────────────────────────────────────────────────
 
 
-def get_artist_tags(artist_key: str) -> list[str] | None:
+def _decode_tags(raw: str) -> list[Tag]:
+    """Lê as duas formas já gravadas nesta tabela.
+
+    Antes da taxonomia, a tag era só o nome: `["shoegaze"]`. Agora leva o peso
+    do Last.fm: `[{"name": "shoegaze", "weight": 100}]`. Ler as duas evita uma
+    migração e, mais importante, evita jogar fora o que já está em cache — tag
+    guardada é requisição ao Last.fm que não precisa acontecer de novo. A forma
+    antiga entra com o peso padrão, que é o que ela sempre valeu na prática.
+    """
+    out: list[Tag] = []
+    for item in json.loads(raw) or []:
+        if isinstance(item, str):
+            out.append(Tag(item))
+        elif isinstance(item, dict) and item.get("name"):
+            try:
+                weight = float(item.get("weight"))
+            except (TypeError, ValueError):
+                weight = 100.0
+            out.append(Tag(item["name"], weight))
+    return out
+
+
+def _encode_tags(tags: list[Tag]) -> str:
+    return db.dumps([{"name": t.name, "weight": t.weight} for t in tags])
+
+
+def get_artist_tags(artist_key: str) -> list[Tag] | None:
     row = db.query_one("SELECT tags, fetched_at FROM lastfm_artist_tags WHERE artist_key = ?", (artist_key,))
     if row is None or not _fresh(row["fetched_at"], TAGS_TTL):
         return None
-    return json.loads(row["tags"])
+    return _decode_tags(row["tags"])
 
 
-def put_artist_tags(artist_key: str, tags: list[str]) -> None:
+def put_artist_tags(artist_key: str, tags: list[Tag]) -> None:
     db.execute(
         "INSERT OR REPLACE INTO lastfm_artist_tags (artist_key, tags, fetched_at) VALUES (?, ?, ?)",
-        (artist_key, db.dumps(tags), time.time()),
+        (artist_key, _encode_tags(tags), time.time()),
     )
 
 
-def get_track_tags(track_key: str) -> list[str] | None:
+def get_track_tags(track_key: str) -> list[Tag] | None:
     row = db.query_one("SELECT tags, fetched_at FROM lastfm_track_tags WHERE track_key = ?", (track_key,))
     if row is None or not _fresh(row["fetched_at"], TAGS_TTL):
         return None
-    return json.loads(row["tags"])
+    return _decode_tags(row["tags"])
 
 
-def put_track_tags(track_key: str, tags: list[str]) -> None:
+def put_track_tags(track_key: str, tags: list[Tag]) -> None:
     db.execute(
         "INSERT OR REPLACE INTO lastfm_track_tags (track_key, tags, fetched_at) VALUES (?, ?, ?)",
-        (track_key, db.dumps(tags), time.time()),
+        (track_key, _encode_tags(tags), time.time()),
     )
 
 

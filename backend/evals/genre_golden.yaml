@@ -1,0 +1,344 @@
+# Conjunto dourado da classificação de gênero.
+#
+# O que está sob teste: dado o que o Last.fm devolve para uma faixa, o app acerta
+# o gênero? Não há modelo, rede nem banco aqui — `taxonomy.classify` é função
+# pura, então este conjunto roda em CI em menos de um segundo e o resultado é
+# sempre o mesmo. É a diferença entre "melhorei a classificação" e "a precisão
+# de gênero subiu de X para Y em N faixas rotuladas à mão".
+#
+# As faixas são reais, do acervo desta conta, e as tags são as que o Last.fm
+# devolveu de verdade. Os PESOS imitam a distribuição da API (a primeira tag
+# perto de 100, caindo depois), porque é com peso que a classificação roda em
+# produção — medir sem peso mediria outro programa.
+#
+# O rótulo esperado é julgamento humano sobre a faixa, não a saída do
+# classificador: é isso que torna o número honesto. Casos em que duas respostas
+# se defendem igualmente (Manu Chao entre latin e reggae, Anitta entre pop e
+# funk carioca) ficaram FORA de propósito — um conjunto dourado com cara ou
+# coroa dentro mede sorte.
+#
+# Formato de cada caso:
+#   id          identificador curto
+#   faixa       artista — título, só para a saída ficar legível
+#   artista     tags de artist.getTopTags, como [nome, peso] ou só nome
+#   faixa_tags  tags de track.getTopTags (opcional)
+#   genero      o gênero esperado, ou null quando nada deve ser classificado
+#   subgenero   opcional; quando presente, também é cobrado
+#   nota        por que este caso existe, quando não é óbvio
+#   unresolved  tags que devem aparecer como "sem casa no YAML" (opcional)
+
+limiares:
+  # Abaixo disto, `run_genre_evals.py` sai com erro — o CI reprova a mudança.
+  genero: 0.90
+  subgenero: 0.75
+
+casos:
+
+  # ── psytrance: o centro do acervo, e onde "genérico" doía mais ─────────────
+  - id: ace-ventura-pranava
+    faixa: Ace Ventura, Astrix — Pranava
+    artista: [[psytrance, 100], [trance, 70], [psychedelic, 60], [progressive trance, 50]]
+    faixa_tags: [[progressive psytrance, 100]]
+    genero: psytrance
+    subgenero: progressive psytrance
+
+  - id: porat-ac21
+    faixa: Porat — Ac21
+    artista: [[psytrance, 100], [psychedelic, 80], [progressive psytrance, 70]]
+    genero: psytrance
+    subgenero: progressive psytrance
+
+  - id: neelix-all-around-us
+    faixa: Neelix, Durs — All Around Us
+    artista: [[psytrance, 100], [progressive psytrance, 90], [progressive trance, 60], [trance, 50]]
+    genero: psytrance
+    subgenero: progressive psytrance
+
+  - id: groundbass-we-are-thoughts
+    faixa: Groundbass, Tijah, Perception — We Are Thoughts
+    nota: >
+      Três artistas, e as tags de um deles trazem "metalcore" e "detroit techno"
+      para uma faixa de psytrance. Contando tag por tag, metal e techno entravam
+      na distribuição da playlist; com um voto por faixa, não entram.
+    artista: [[psytrance, 100], [goa, 70], [trance, 60], [dark progressive, 50], [techno, 30], [detroit techno, 20], [metalcore, 10]]
+    genero: psytrance
+
+  - id: vegas-brazil-answer-from-the-stars
+    faixa: Vegas (Brazil), Vagus — Answer From The Stars
+    nota: '"Technical Brutal Death Metal" vem do outro artista creditado; o peso resolve.'
+    artista: [[psytrance, 100], [trance, 80], [progressive, 60], [technical brutal death metal, 15]]
+    genero: psytrance
+
+  - id: blazy-interlude
+    faixa: Blazy, Aura Vortex, Sighter — Interlude (Sighter Remix)
+    artista: [[psytrance, 100], [goa, 80], [progressive trance, 60], [electronic, 40], [classic, 20]]
+    genero: psytrance
+    subgenero: goa trance
+
+  # ── techno e house ────────────────────────────────────────────────────────
+  - id: stephan-bodzin-singularity
+    faixa: Stephan Bodzin — Singularity
+    artista: [[techno, 100], [minimal techno, 90], [minimal, 70]]
+    genero: techno
+    subgenero: minimal techno
+
+  - id: niereich-shaman-spirit
+    faixa: Niereich, Shadym, Sven Wittekind — Shaman Spirit
+    artista: [[techno, 100], [hard techno, 80], [schranz, 60], [dark techno, 50], [electronic, 40], [german, 30]]
+    genero: techno
+    subgenero: hard techno
+
+  - id: rocksted-want-you
+    faixa: Rocksted, Gabe — Want You (Rework)
+    nota: >
+      Dois pontos. "brasil" e "brazil" são nacionalidade e não pesam nada. E o
+      gênero esperado aqui foi revisto: "house" tem a tag mais forte (100), mas
+      "techno" + "minimal" somam 130, e família com duas tags ganha de uma tag
+      só um pouco mais pesada. Essa é a regra, não um acidente — é a mesma que
+      faz "classic rock" + "hard rock" eleger rock.
+    artista: [[house, 100], [techno, 70], [minimal, 60], [electronic, 50], [brasil, 40], [brazil, 30]]
+    genero: techno
+    subgenero: minimal techno
+
+  # ── metal ─────────────────────────────────────────────────────────────────
+  - id: pantera-mouth-for-war
+    faixa: Pantera — Mouth for War
+    artista: [[thrash metal, 100], [heavy metal, 90], [groove metal, 80]]
+    genero: metal
+    subgenero: thrash metal
+
+  # ── rock e seus filhos ────────────────────────────────────────────────────
+  - id: lynyrd-skynyrd-free-bird
+    faixa: Lynyrd Skynyrd — Free Bird
+    nota: '"guitar" e "epic" descrevem o arranjo e a impressão, não o estilo.'
+    artista: [[classic rock, 100], [southern rock, 90], [rock, 80]]
+    faixa_tags: [[classic rock, 100], [southern rock, 80], [guitar, 40], [epic, 30]]
+    genero: rock
+    subgenero: classic rock
+
+  - id: black-keys-fever
+    faixa: The Black Keys — Fever
+    artista: [[blues rock, 100], [rock, 85], [blues, 70]]
+    genero: rock
+    subgenero: blues rock
+
+  - id: wolfmother-woman
+    faixa: Wolfmother — Woman
+    artista: [[hard rock, 100], [stoner rock, 85], [rock, 70]]
+    genero: rock
+    subgenero: hard rock
+
+  - id: royal-blood-little-monster
+    faixa: Royal Blood — Little Monster
+    artista: [[alternative rock, 100], [garage rock, 85], [rock, 70]]
+    genero: rock
+    subgenero: alternative rock
+
+  - id: truckfighters-calm-before-the-storm
+    faixa: Truckfighters — Calm Before the Storm
+    artista: [[stoner rock, 100], [desert rock, 80], [stoner, 60]]
+    genero: rock
+    subgenero: stoner rock
+
+  - id: nothing-but-thieves-overcome
+    faixa: Nothing But Thieves — Overcome
+    artista: [[alternative rock, 100], [indie rock, 85], [rock, 70]]
+    genero: rock
+    subgenero: alternative rock
+
+  - id: portugal-the-man-tidal-wave
+    faixa: Portugal. The Man — Tidal Wave
+    artista: [[indie rock, 100], [indie, 80], [experimental, 50]]
+    genero: rock
+    subgenero: indie rock
+
+  - id: great-gable-taste
+    faixa: Great Gable — Taste
+    artista: [[indie rock, 100], [garage rock, 70], [surf rock, 60]]
+    genero: rock
+    subgenero: indie rock
+
+  - id: charlie-brown-jr-como-tudo-deve-ser
+    faixa: Charlie Brown Jr. — Como Tudo Deve Ser
+    nota: >
+      Rock brasileiro é rock; "brazilian" e "brasil" são país. A distinção entre
+      nacionalidade e gênero é o caso de teste.
+    artista: [[brazilian rock, 100], [rock, 85], [brazilian, 70]]
+    faixa_tags: [[rock brasileiro, 100], [alternative rock, 80], [brasil, 60], [rock, 50]]
+    genero: rock
+    subgenero: brazilian rock
+
+  - id: gerry-rafferty-baker-street
+    faixa: Gerry Rafferty — Baker Street
+    artista: [[classic rock, 100], [soft rock, 80], [singer-songwriter, 60]]
+    genero: rock
+    subgenero: classic rock
+
+  - id: puscifer-green-valley
+    faixa: Puscifer — Green Valley
+    nota: >
+      Caso de desempate: "industrial" (electronic) contra "progressive rock".
+      Sem peso, os dois valem um voto e o resultado sai alfabético — errado. O
+      peso do Last.fm é o que decide, e é por isso que ele deixou de ser jogado
+      fora.
+    artista: [[progressive rock, 100], [alternative, 70], [industrial, 50]]
+    genero: rock
+    subgenero: progressive rock
+
+  - id: red-hot-chili-peppers-around-the-world
+    faixa: Red Hot Chili Peppers — Around the World
+    artista: [[alternative rock, 100], [rock, 85], [funk rock, 70]]
+    faixa_tags: [[alternative rock, 100], [rock, 80], [funk, 50], [alternative, 40]]
+    genero: rock
+    subgenero: alternative rock
+
+  - id: a-thousand-horses-smoke
+    faixa: A Thousand Horses — Smoke
+    artista: [[southern rock, 100], [country, 80], [rock, 70]]
+    genero: rock
+    subgenero: southern rock
+
+  # ── hip-hop: onde duas grafias eram dois gêneros ──────────────────────────
+  - id: souls-of-mischief-93-til-infinity
+    faixa: Souls Of Mischief — 93 'Til Infinity
+    nota: '"Hip-Hop", "hip hop" e "rap" são o mesmo gênero — eram três rótulos.'
+    artista: [[Hip-Hop, 100], [rap, 90], [underground hip-hop, 80]]
+    faixa_tags: [[hip hop, 100], [underground hip-hop, 85], [classic, 50]]
+    genero: hip-hop
+    subgenero: underground hip-hop
+
+  - id: mike-will-made-it-runnin
+    faixa: Mike WiLL Made-It, A$AP Rocky — Runnin
+    artista: [[Hip-Hop, 100], [rap, 90], [trap, 70], [rnb, 50], [underground hip-hop, 40]]
+    genero: hip-hop
+    subgenero: trap
+
+  - id: snoop-dogg-guetta-sweat
+    faixa: Snoop Dogg, David Guetta — Sweat
+    artista: [[Gangsta Rap, 100], [Hip-Hop, 95], [rap, 90], [House, 50], [dance, 40], [electronic, 30]]
+    genero: hip-hop
+    subgenero: gangsta rap
+
+  - id: bob-airplanes
+    faixa: B.o.B, Hayley Williams — Airplanes
+    artista: [[Hip-Hop, 100], [rap, 90], [hip hop, 85], [alternative rock, 60], [rock, 50], [female vocalists, 40]]
+    genero: hip-hop
+
+  - id: body-head-bangerz-cant-be-touched
+    faixa: Body Head Bangerz, Roy Jones Jr. — Can't Be Touched
+    nota: '"Roy Jones Jr" é nome de artista e "doom metal" é tag de outro: ruído.'
+    artista: [[Hip-Hop, 100], [rap, 90], [Crunk, 80], [doom metal, 20], [United States, 15]]
+    genero: hip-hop
+    subgenero: crunk
+
+  # ── pop, r&b, reggae, folk, trilha ────────────────────────────────────────
+  - id: soft-cell-tainted-love
+    faixa: Soft Cell — Tainted Love
+    artista: [[synthpop, 100], [new wave, 85], [electronic, 70]]
+    faixa_tags: [[synth pop, 100], [synthpop, 90], [pop, 60]]
+    genero: pop
+    subgenero: synthpop
+
+  - id: lana-del-rey-paris-texas
+    faixa: Lana Del Rey, SYML — Paris, Texas
+    artista: [[dream pop, 100], [indie pop, 85], [indie, 70], [female vocalists, 60]]
+    faixa_tags: [[art pop, 100], [baroque pop, 80], [chamber pop, 70], [dream pop, 60], [piano, 30]]
+    genero: pop
+
+  - id: weeknd-cant-feel-my-face
+    faixa: The Weeknd — Can't Feel My Face
+    artista: [[rnb, 100], [electronic, 70], [dubstep, 50]]
+    faixa_tags: [['r&b', 100], [rnb, 90], [pop, 70], [disco, 40], [dubstep, 30]]
+    genero: r&b
+
+  - id: alex-clare-too-close
+    faixa: Alex Clare — Too Close
+    artista: [[dubstep, 100], [electronic, 85], [soul, 50]]
+    genero: electronic
+    subgenero: dubstep
+
+  - id: tove-lo-stay-high
+    faixa: Tove Lo, Hippie Sabotage — Stay High (Habits Remix)
+    nota: >
+      Rótulo revisto: a artista é pop, mas a faixa é o remix do Hippie Sabotage,
+      e "electronic" + "trip-hop" (140) descrevem o que toca melhor que "pop"
+      (100). Caso útil justamente por isso: o gênero é da FAIXA, não da carreira
+      de quem canta.
+    artista: [[pop, 100], [electronic, 80], [trip-hop, 60], [Hip-Hop, 40], [swedish, 30]]
+    genero: electronic
+    subgenero: trip-hop
+
+  - id: alborosie-no-cocaine
+    faixa: Alborosie — No Cocaine
+    artista: [[reggae, 100], [dancehall, 80], [new roots, 60]]
+    genero: reggae
+    subgenero: dancehall
+
+  - id: luiza-maurilio-nao-quero
+    faixa: Luíza & Maurílio — Não Quero Sua Mãe de Sogra
+    nota: 'Sertanejo é gênero; "brazil"/"brazilian", que vinham com ele, não são.'
+    artista: [[sertanejo, 100], [brazil, 80], [brazilian, 70]]
+    genero: brasileiro
+    subgenero: sertanejo
+
+  - id: azzura-tzigane-outside-of-the-universe
+    faixa: Azzura, Tzigane — Outside of the Universe
+    artista: [[folk, 100], [acoustic, 80], [songwriter, 60]]
+    genero: folk
+
+  - id: bergersen-heart-of-courage
+    faixa: Thomas Bergersen, Two Steps From Hell — Heart of Courage
+    artista: [[Soundtrack, 100], [Trailer Music, 90], [epic, 70], [instrumental, 60]]
+    genero: soundtrack
+    subgenero: trailer music
+
+  # ── comportamento do classificador ────────────────────────────────────────
+  - id: so-ruido-nao-classifica
+    faixa: (caso sintético) faixa só com tags que não são gênero
+    nota: >
+      Antes, "brasil" e "female vocalists" eram gênero e entravam no gráfico.
+      Agora a faixa sai sem classificação — e a interface diz isso, em vez de
+      mentir um rótulo.
+    artista: [[brasil, 100], [female vocalists, 90], [seen live, 80], [90s, 70], [my top songs, 60]]
+    genero: null
+
+  - id: tag-desconhecida-vira-fila-de-trabalho
+    faixa: (caso sintético) gênero que a taxonomia ainda não conhece
+    nota: >
+      Vaporwave é gênero de verdade e não está no YAML. O certo é não classificar
+      E apontar a tag como pendência — é assim que a taxonomia cresce por dado,
+      não por chute.
+    artista: [[vaporwave, 100], [seen live, 50]]
+    genero: null
+    unresolved: [vaporwave]
+
+  - id: grafia-nao-muda-o-genero
+    faixa: (caso sintético) variações de grafia
+    nota: Hífen, caixa e sublinhado são a mesma tag depois da normalização.
+    artista: [[Hip-Hop, 100], [hip hop, 90], [HIP_HOP, 80]]
+    genero: hip-hop
+
+  - id: acento-nao-muda-o-genero
+    faixa: (caso sintético) tag com acento
+    artista: [[forró, 100], [sertanejo, 30]]
+    genero: brasileiro
+    subgenero: forro
+
+  - id: filho-pontua-o-pai
+    faixa: (caso sintético) pai e filhos juntos
+    nota: >
+      "rock" + "classic rock" + "hard rock" era o motivo de rock liderar tudo:
+      três votos para três rótulos diferentes. Agora é um voto em rock, e o
+      subgênero mais forte nomeia a faixa.
+    artista: [[rock, 100], [classic rock, 95], [hard rock, 90]]
+    genero: rock
+    subgenero: classic rock
+
+  - id: empate-e-deterministico
+    faixa: (caso sintético) dois gêneros com peso idêntico
+    nota: >
+      Empate perfeito resolve por ordem alfabética, não por ordem de chegada.
+      O caso existe para travar isso: sem regra fixa, a mesma faixa mudaria de
+      gênero entre duas execuções.
+    artista: [[techno, 100], [house, 100]]
+    genero: house

@@ -33,6 +33,7 @@ O que dá para fazer no app:
 | Agente de IA | Anthropic Claude (`claude-opus-5`, tool use, streaming SSE) | Chat com escopo de playlist/faixa, sem dados soltos no prompt |
 | Agente de IA (alternativo) | Groq (`openai/gpt-oss-120b`, API compatível com OpenAI) | Testar o agente sem custo, mesmo contrato de ferramentas |
 | Protocolo de agente | [MCP](https://modelcontextprotocol.io) | As mesmas ferramentas do chat, expostas a Claude Desktop/Code |
+| Classificação | Taxonomia própria em YAML + voto ponderado (`app/taxonomy.py`) | Transforma tag livre de ouvinte em gênero canônico, com subgênero, confiança e evidência — sem rede e sem modelo |
 | Busca semântica | ChromaDB (embarcado) + `all-MiniLM-L6-v2` via ONNX | Índice vetorial local, sem chave de API nem rate limit |
 | Agrupamento | scikit-learn (TF-IDF + k-means) | Separa faixas de uma playlist em "climas", `k` pela silhueta |
 | APIs externas | Spotify Web API (OAuth 2.0 + PKCE), Last.fm API, Deezer API | Playlists/faixas, tags de gênero, BPM e prévia de áudio |
@@ -66,6 +67,8 @@ playlist-classifier/
 │   │   ├── lastfm_client.py   # tags de artista e de faixa (a fonte de gênero)
 │   │   ├── deezer_client.py   # BPM e prévia de 30s
 │   │   │
+│   │   ├── taxonomy.py       # tag do Last.fm -> gênero canônico (+ confiança)
+│   │   ├── taxonomy.yaml     # o vocabulário: gêneros, subgêneros e descartes
 │   │   ├── genre_analysis.py  # combina as fontes e agrega distribuições
 │   │   ├── clustering.py      # grupos de clima (TF-IDF + k-means)
 │   │   ├── vector_store.py    # índice vetorial (ChromaDB)
@@ -113,6 +116,76 @@ React porque os gráficos são interativos e há navegação entre telas
 **Segurança:** os tokens do Spotify nunca chegam ao navegador — ficam num cookie
 de sessão assinado (`SessionMiddleware`); só o backend fala com a API do Spotify.
 O login usa PKCE.
+
+## Classificação de gênero
+
+As tags do Last.fm são texto livre de ouvinte, e contá-las produz um gráfico de
+strings, não uma classificação. No acervo de teste (2.228 faixas, 734 tags
+distintas) o sintoma era claro: `hip-hop` com 183 faixas e `hip hop` com 59 eram
+dois gêneros; `psy trance`, `psychedelic trance` e `psytrance` eram três; `rock`
+liderava por ser contado junto com `classic rock` e `hard rock`; e `brasil`,
+`german`, `female vocalists` e até `jay-z` chegavam ao gráfico como se fossem
+gênero.
+
+O classificador (`app/taxonomy.py` + `app/taxonomy.yaml`) resolve em três etapas:
+
+1. **Normalizar** — acento, caixa e pontuação saem antes de comparar, então
+   "Hip-Hop", "hip hop" e "hip_hop" são a mesma tag sem precisar listar as três.
+2. **Resolver** — cada tag vira um nó de dois níveis (gênero → subgênero) ou
+   nada. `minimal techno` resolve para (techno, minimal techno); `brasil` não
+   resolve, porque está na lista de descarte, agrupada por motivo (geografia,
+   comportamento de quem escuta, instrumentação, juízo de valor, ambíguo demais).
+3. **Pontuar** — cada faixa distribui **um** voto entre os gêneros que as suas
+   tags resolveram, proporcional ao `count` que o Last.fm dá a cada tag — um peso
+   de 0 a 100 que o app antes descartava, fazendo `rock` com 100 e `chillwave`
+   com 2 valerem igual. O subgênero pontua o gênero pai, a tag da faixa pesa mais
+   que a do artista, e o empate resolve por regra fixa para o resultado não
+   mudar entre execuções.
+
+Cada faixa sai com `genre`, `subgenre`, `genre_confidence` e `genre_evidence` —
+as tags que elegeram o gênero, para a interface poder explicar a decisão em vez
+de só afirmá-la.
+
+O efeito nas mesmas 2.228 faixas:
+
+| | Antes (contando tags) | Depois (classificando) |
+| --- | --- | --- |
+| Rótulos no gráfico de gêneros | 547 | 21 |
+| Votos de gênero lançados | 7.817 | 2.153 (um por faixa) |
+| Topo da lista | rock 422, psytrance 352, electronic 338, progressive trance 208 | rock 567, psytrance 307, electronic 267, hip-hop 192 |
+
+Faixas sem gênero subiram de 60 para 75: as que só tinham tag de país ou de
+comportamento deixaram de receber um rótulo inventado, e a interface diz isso.
+
+**Como isso é medido.** `evals/genre_golden.yaml` tem 43 faixas reais do acervo
+com o gênero rotulado à mão, e as tags com peso imitando a distribuição da API —
+medir sem peso mediria outro programa. Dois casos tiveram o rótulo revisto depois
+da primeira execução, com o motivo registrado no próprio arquivo: o gênero é da
+faixa, não da carreira de quem canta, e uma família com duas tags ganha de uma
+tag só um pouco mais pesada.
+
+```bash
+cd backend
+python -m evals.run_genre_evals              # precisão; falha abaixo do limiar
+python -m evals.run_genre_evals --cobertura   # o que falta na taxonomia
+```
+
+```
+gênero    : 43/43 = 1.000   (limiar 0.90)
+subgênero : 33/33 = 1.000   (limiar 0.75)
+confiança : média 0.85, mínima 0.46, máxima 1.00
+```
+
+O conjunto é pequeno e o limiar (0,90) existe para o CI reprovar regressão, não
+para comemorar o 1,0 — com 43 casos, um acerto a mais ou a menos move 2 pontos.
+O relatório de cobertura é o número mais honesto sobre o que falta: dos 16.610
+usos de tag do acervo, **80,6%** são classificados, **15,7%** descartados de
+propósito e **3,7%** ainda não têm casa no YAML — e a tag pendente mais frequente
+aparece em 4 faixas. Ele sai ordenado por impacto justamente para dizer onde
+vale gastar os próximos cinco minutos.
+
+Nada disso chama rede: é função pura sobre tags, roda em CI em menos de um
+segundo e não gasta uma requisição do Spotify.
 
 ## O chat com IA
 
@@ -535,6 +608,7 @@ Abra **`http://127.0.0.1:5173`** e clique em **Entrar com Spotify**.
 ```bash
 # backend
 cd backend && python -m pytest                 # suíte sem rede
+cd backend && python -m evals.run_genre_evals  # precisão da classificação de gênero
 
 # frontend
 cd frontend && npm run build                   # garante que o build de produção funciona

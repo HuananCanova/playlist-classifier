@@ -14,6 +14,7 @@ import pytest
 from app import analysis_store, db, deezer_client, enrichment_store, genre_analysis, lastfm_client, playlists, profile_store
 from app.cache import artist_tags_cache, deezer_track_cache, playlist_analysis_cache, user_playlists_cache
 from app.models import PlaylistAnalysis, PlaylistSummary, TrackGenreInfo
+from app.taxonomy import Tag
 
 
 class FakeRequest:
@@ -74,12 +75,35 @@ def test_migracoes_aplicadas_e_idempotentes(db_tmp, tmp_path):
 
 
 def test_dado_externo_expira(monkeypatch):
-    enrichment_store.put_artist_tags("slowdive", ["shoegaze"])
-    assert enrichment_store.get_artist_tags("slowdive") == ["shoegaze"]
+    enrichment_store.put_artist_tags("slowdive", [Tag("shoegaze", 100.0)])
+    assert enrichment_store.get_artist_tags("slowdive") == [Tag("shoegaze", 100.0)]
 
     agora = time.time()
     monkeypatch.setattr(enrichment_store.time, "time", lambda: agora + enrichment_store.TAGS_TTL + 1)
     assert enrichment_store.get_artist_tags("slowdive") is None
+
+
+def test_peso_da_tag_sobrevive_ao_banco():
+    """O peso é o que separa "rock" de "chillwave" na classificação; se ele não
+    sobrevivesse ao banco, toda tag relida voltaria valendo o mesmo."""
+    enrichment_store.put_artist_tags("boards of canada", [Tag("idm", 100.0), Tag("ambient", 23.0)])
+    assert enrichment_store.get_artist_tags("boards of canada") == [
+        Tag("idm", 100.0),
+        Tag("ambient", 23.0),
+    ]
+
+
+def test_tag_gravada_antes_da_taxonomia_continua_legivel():
+    """Formato antigo: só o nome, sem peso. Ler as duas formas evita jogar fora
+    o cache de tags já pago em requisições ao Last.fm."""
+    db.execute(
+        "INSERT OR REPLACE INTO lastfm_artist_tags (artist_key, tags, fetched_at) VALUES (?, ?, ?)",
+        ("slowdive", db.dumps(["shoegaze", "dream pop"]), time.time()),
+    )
+    assert enrichment_store.get_artist_tags("slowdive") == [
+        Tag("shoegaze", 100.0),
+        Tag("dream pop", 100.0),
+    ]
 
 
 def test_faixa_nao_encontrada_no_deezer_expira_antes(monkeypatch):
@@ -96,11 +120,13 @@ def test_faixa_nao_encontrada_no_deezer_expira_antes(monkeypatch):
 
 
 async def test_tags_do_lastfm_vem_do_banco_depois_de_um_reinicio():
-    client = FakeClient(lambda url, p: Resp({"toptags": {"tag": [{"name": "shoegaze"}]}}))
+    client = FakeClient(
+        lambda url, p: Resp({"toptags": {"tag": [{"name": "shoegaze", "count": 100}]}})
+    )
 
-    assert await lastfm_client.get_artist_tags(client, "Slowdive") == ["shoegaze"]
+    assert await lastfm_client.get_artist_tags(client, "Slowdive") == [Tag("shoegaze", 100.0)]
     artist_tags_cache.clear()  # outro processo
-    assert await lastfm_client.get_artist_tags(client, "Slowdive") == ["shoegaze"]
+    assert await lastfm_client.get_artist_tags(client, "Slowdive") == [Tag("shoegaze", 100.0)]
     assert client.calls == 1
 
 
@@ -119,8 +145,8 @@ async def test_falha_de_rede_do_lastfm_nao_fica_nem_em_memoria():
     client = FakeClient(falha)
     assert await lastfm_client.get_track_tags(client, "A", "Um") == []
 
-    client.responder = lambda url, p: Resp({"toptags": {"tag": [{"name": "dream pop"}]}})
-    assert await lastfm_client.get_track_tags(client, "A", "Um") == ["dream pop"]
+    client.responder = lambda url, p: Resp({"toptags": {"tag": [{"name": "dream pop", "count": 42}]}})
+    assert await lastfm_client.get_track_tags(client, "A", "Um") == [Tag("dream pop", 42.0)]
 
 
 # ── Deezer ───────────────────────────────────────────────────────────────────
