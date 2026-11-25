@@ -3,6 +3,8 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../api.js";
 import BackLink from "../components/BackLink.jsx";
 import EnrichPanel from "../components/EnrichPanel.jsx";
+import { PauseIcon, PlayIcon } from "../components/TrackTable.jsx";
+import { usePlayer } from "../PlayerContext.jsx";
 
 function hostOf(url) {
   try {
@@ -158,8 +160,20 @@ function TrackSection({ title, tracks, name, empty }) {
 function TrackRow({ track: t, name }) {
   const share = typeof t.share === "number" ? Math.round(t.share * 100) : null;
   const playlists = t.playlists ?? [];
+  const { track: current, playing, playTrack } = usePlayer();
+  const isCurrent = current?.track_id === t.id;
   return (
     <div className="cut-row">
+      {t.deezer_id ? (
+        <button
+          type="button"
+          className="play-btn"
+          onClick={() => playTrack({ track_id: t.id, name: t.name, artists: t.artists, image: t.image, deezer_id: t.deezer_id })}
+          aria-label={isCurrent && playing ? `Pausar ${t.name}` : `Tocar prévia de ${t.name}`}
+        >
+          {isCurrent && playing ? <PauseIcon size={12} /> : <PlayIcon size={12} />}
+        </button>
+      ) : null}
       {t.image ? <img src={t.image} alt="" loading="lazy" /> : <span className="cut-art-empty" aria-hidden="true" />}
       <span className="cut-text">
         <Link to={`/faixa/${t.id}`} className="cut-name">

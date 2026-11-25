@@ -3,6 +3,7 @@ import { api } from "../api.js";
 
 // Mesmo ritmo do painel de cobertura do perfil.
 const POLL_MS = 2500;
+const POLL_MAX_MS = 10000;
 
 const nf = new Intl.NumberFormat("pt-BR");
 
@@ -18,6 +19,8 @@ export default function EnrichPanel({ onDone }) {
   const timer = useRef(null);
   const alive = useRef(true);
   const sawRunning = useRef(false);
+  const failures = useRef(0);
+  const [lost, setLost] = useState(false);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
 
@@ -28,10 +31,21 @@ export default function EnrichPanel({ onDone }) {
     try {
       next = await api.getEnrich();
     } catch {
-      return; // o painel segue com o último estado; nada para insistir
+      if (!alive.current) return;
+      // Falha passageira não pode congelar o painel: se havia um job rodando,
+      // tenta de novo com espera crescente (2,5 s, 5 s, 10 s, teto de 10 s).
+      if (sawRunning.current) {
+        failures.current += 1;
+        if (failures.current >= 3) setLost(true);
+        const wait = Math.min(POLL_MS * 2 ** (failures.current - 1), POLL_MAX_MS);
+        timer.current = setTimeout(poll, wait);
+      }
+      return;
     }
     if (!alive.current) return;
     clearTimeout(timer.current);
+    failures.current = 0;
+    setLost(false);
     setProgress(next);
     if (next.running) {
       sawRunning.current = true;
@@ -131,6 +145,11 @@ export default function EnrichPanel({ onDone }) {
             </p>
           )}
         </>
+      )}
+      {lost && running && (
+        <p className="coverage-errors" role="status">
+          Perdemos o contato com o servidor; tentando de novo…
+        </p>
       )}
       {error && (
         <p className="coverage-errors" role="alert">

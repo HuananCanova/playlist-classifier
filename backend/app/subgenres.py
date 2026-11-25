@@ -7,7 +7,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException, Request
 
-from . import enrichment_job, profile_store, subgenre_library
+from . import enrichment_job, evidence_store, profile_store, subgenre_library
 from .auth import get_valid_access_token
 from .playlists import account_key, get_playlist_summaries
 
@@ -77,4 +77,11 @@ async def subgenre_page(name: str, request: Request):
     page = subgenre_library.subgenre_tracks(digests, playlists, name)
     if page is None:
         raise HTTPException(status_code=404, detail="Subgênero desconhecido.")
+
+    # O id do Deezer vem da evidência guardada: é ele que resolve a prévia.
+    tracks = page["confident"] + page["leaning"]
+    found = await asyncio.to_thread(evidence_store.get_many, [t["id"] for t in tracks])
+    for t in tracks:
+        ev = found.get(t["id"])
+        t["deezer_id"] = ev.deezer_id if ev else None
     return page

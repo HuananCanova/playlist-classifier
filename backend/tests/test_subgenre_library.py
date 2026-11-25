@@ -108,6 +108,18 @@ def test_routes_list_and_detail_and_enrich_not_swallowed(rotas, monkeypatch):
     assert rotas.get("/api/subgenres/enrich").json()["running"] is False
 
 
+def test_detail_adds_deezer_id_from_evidence_or_null(rotas, monkeypatch):
+    from app.evidence_store import TrackEvidence
+
+    monkeypatch.setattr(
+        subgenres.evidence_store, "get_many", lambda ids: {"a": TrackEvidence("a", deezer_id=77)}
+    )
+    assert rotas.get("/api/subgenres/forest%20psy").json()["confident"][0]["deezer_id"] == 77
+
+    monkeypatch.setattr(subgenres.evidence_store, "get_many", lambda ids: {})
+    assert rotas.get("/api/subgenres/forest%20psy").json()["confident"][0]["deezer_id"] is None
+
+
 def test_divergent_copies_collapse_to_one_record_consistently():
     # p1: puxa para darkpsy (0.4, em dúvida); p2: full-on confiante com 0.8 -> vence p2.
     # Ordem do dict invertida de propósito: o resultado não pode depender dela.
