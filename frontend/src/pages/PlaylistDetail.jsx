@@ -66,6 +66,20 @@ export default function PlaylistDetail() {
     return (label) => inFlow.get(label) ?? NEUTRAL;
   }, [analysis]);
 
+  // O caminho dos subgêneros usa as mesmas faixas-por-rótulo que o blend: conta
+  // direto o subgenre_lean, para as cinco séries e o "outros" baterem com ele.
+  const subFlowDistribution = useMemo(() => {
+    if (!analysis) return [];
+    const counts = new Map();
+    analysis.tracks.forEach((t) => {
+      if (t.subgenre_lean) counts.set(t.subgenre_lean, (counts.get(t.subgenre_lean) ?? 0) + 1);
+    });
+    return (analysis.subgenre_bars ?? [])
+      .map((b) => ({ label: b.label, count: counts.get(b.label) ?? 0 }))
+      .filter((g) => g.count > 0)
+      .sort((a, b) => b.count - a.count);
+  }, [analysis]);
+
   if (error) {
     return (
       <div className="container">
@@ -114,13 +128,6 @@ export default function PlaylistDetail() {
   const distinctLeans = new Set(tracks.map((t) => t.subgenre_lean).filter(Boolean)).size;
   // Sem variedade de gênero, o caminho dos subgêneros é o que ainda tem história.
   const showSubFlow = singleGenre && distinctLeans >= 2;
-  const subFlowDistribution = (
-    subgenre_distribution.length > 0
-      ? subgenre_distribution
-      : subgenreBars.map((b) => ({ label: b.label, count: Math.round(b.confident + b.unsure) }))
-  )
-    .filter((g) => g.count > 0)
-    .sort((a, b) => b.count - a.count);
 
   return (
     <>
