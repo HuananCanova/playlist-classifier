@@ -195,6 +195,19 @@ _NOISE_PATTERNS = [
 ]
 
 
+class NotFound(dict):
+    """O dict vazio de "o Deezer respondeu e não tem esta faixa".
+
+    É igual ao dict vazio comum (quem só lê os campos não percebe), mas quem
+    guarda evidência a distingue de uma falha: "não achei" vale registrar,
+    "não consegui perguntar" não."""
+
+
+class Incomplete(dict):
+    """Achou a faixa, mas o detalhe (de onde vem o BPM) falhou: BPM desconhecido
+    por falha, não por ausência. Quem guarda evidência não deve gravar isto."""
+
+
 def _strip_edition(text: str) -> str:
     """Tira os sufixos de edição mantendo acentos e maiúsculas — o que vai na
     query. (`_normalize` é mais agressivo e serve só para comparar.)"""
@@ -279,6 +292,8 @@ async def get_track_info(client: httpx.AsyncClient, artist: str, track: str) -> 
     stored = await asyncio.to_thread(enrichment_store.get_deezer_match, cache_key)
     if stored is not None:
         info = {**stored, "preview_url": None}
+        if stored["deezer_id"] is None:
+            info = NotFound(info)
         deezer_track_cache[cache_key] = info
         return info
 
@@ -295,9 +310,10 @@ async def get_track_info(client: httpx.AsyncClient, artist: str, track: str) -> 
 
     match = _pick_best(candidates or [], artist, track)
     if not match:
-        deezer_track_cache[cache_key] = empty
+        achou_nada = NotFound(empty)
+        deezer_track_cache[cache_key] = achou_nada
         await asyncio.to_thread(enrichment_store.put_deezer_match, cache_key, None, None, None)
-        return empty
+        return achou_nada
 
     info = {
         "deezer_id": match.get("id"),
@@ -323,6 +339,8 @@ async def get_track_info(client: httpx.AsyncClient, artist: str, track: str) -> 
     except (httpx.HTTPError, ValueError, KeyError):
         pass  # fica só com o que a busca já deu (prévia e link)
 
+    if not detail_ok:
+        info = Incomplete(info)
     deezer_track_cache[cache_key] = info
     # Sem o detalhe, o BPM ficou desconhecido por falha, não por ausência:
     # guardar isso esconderia o BPM por semanas. A próxima análise tenta de novo.
