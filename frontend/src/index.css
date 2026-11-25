@@ -1398,6 +1398,95 @@ svg:focus-visible {
   color: var(--muted);
 }
 
+/* Barras de subgênero: a parte incerta é o mesmo tom, mais claro. */
+.subbar-hit {
+  grid-column: 2 / 4;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: 14px;
+  margin: -6px 0;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+button.subbar-hit {
+  cursor: pointer;
+}
+
+.subbar-link:hover {
+  color: var(--ink);
+  text-decoration: underline;
+}
+
+.subbar-fill {
+  display: flex;
+  overflow: hidden;
+}
+
+.subbar-part {
+  display: block;
+  height: 100%;
+}
+
+.subbar-unsure {
+  opacity: 0.35;
+}
+
+.subbar-row.is-selected {
+  background: rgba(255, 255, 255, 0.07);
+  box-shadow: inset 3px 0 0 #199e70;
+}
+
+.subbar-row.is-selected .bar-label {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.subbar-hit:focus-visible {
+  outline: 2px solid var(--ink-2);
+  outline-offset: 2px;
+  border-radius: var(--r-small);
+}
+
+.filter-line {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.filter-line strong {
+  color: var(--ink);
+}
+
+.link-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-btn:hover {
+  color: var(--ink);
+}
+
+.unsure-badge {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.25);
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 /* ── Andamento ──────────────────────────────────────────────────────── */
 
 .bpm-zone {

@@ -20,6 +20,8 @@ const AXIS_H = 40;
 const MIN_TRACKS = 6;
 const HOVER_RADIUS = 26; // distância, em px, até onde o cursor "pega" uma linha
 
+const defaultLabelsOf = (t) => t.genres;
+
 /**
  * Parcela de cada gênero em cada posição da playlist.
  *
@@ -30,7 +32,7 @@ const HOVER_RADIUS = 26; // distância, em px, até onde o cursor "pega" uma lin
  * uma fatia a "outros" por isso inflava o cinza até dominar o desenho.
  * Faixas sem gênero valem zero para todas as linhas.
  */
-export function buildFlow(tracks, genreDistribution) {
+export function buildFlow(tracks, genreDistribution, labelsOf = defaultLabelsOf) {
   const top = genreDistribution.slice(0, MAX_SERIES).map((g) => g.label);
   const topSet = new Set(top);
 
@@ -39,12 +41,13 @@ export function buildFlow(tracks, genreDistribution) {
   let hasOther = false;
 
   tracks.forEach((t, i) => {
-    const matched = t.genres.filter((g) => topSet.has(g));
+    const labels = labelsOf(t);
+    const matched = labels.filter((g) => topSet.has(g));
     if (matched.length) {
       matched.forEach((g) => {
         raw[top.indexOf(g)][i] = 1 / matched.length;
       });
-    } else if (t.genres.length) {
+    } else if (labels.length) {
       other[i] = 1;
       hasOther = true;
     }
@@ -69,7 +72,14 @@ function yCeiling(peak) {
   return Math.min(1, Math.max(0.25, Math.ceil(peak * 1.12 * 4) / 4));
 }
 
-export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
+export default function GenreFlow({
+  tracks,
+  genreDistribution,
+  trackCount,
+  labelsOf = defaultLabelsOf,
+  title = "O caminho dos gêneros",
+  subtitle = "Da primeira à última faixa, na ordem da playlist. A altura de cada linha é a parcela daquele gênero naquele trecho. Passe o mouse para ver faixa a faixa; clique na legenda para isolar um gênero.",
+}) {
   const [wrapRef, width] = useWidth();
   const mounted = useMounted();
   const uid = useId().replace(/:/g, "");
@@ -81,7 +91,7 @@ export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
   const [pinned, setPinned] = useState(null);
   const focus = pinned ?? hoveredSeries;
 
-  const series = useMemo(() => buildFlow(tracks, genreDistribution), [tracks, genreDistribution]);
+  const series = useMemo(() => buildFlow(tracks, genreDistribution, labelsOf), [tracks, genreDistribution, labelsOf]);
   const n = tracks.length;
   const compact = width < 560;
   const plotH = compact ? 190 : 260;
@@ -187,11 +197,8 @@ export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
   return (
     <section className="panel panel-flow">
       <header className="panel-head">
-        <h3>O caminho dos gêneros</h3>
-        <p className="panel-sub">
-          Da primeira à última faixa, na ordem da playlist. A altura de cada linha é a parcela daquele gênero naquele
-          trecho. Passe o mouse para ver faixa a faixa; clique na legenda para isolar um gênero.
-        </p>
+        <h3>{title}</h3>
+        <p className="panel-sub">{subtitle}</p>
       </header>
 
       <ul className="viz-legend" aria-label="Gêneros no gráfico" onMouseLeave={() => setHoveredSeries(null)}>
@@ -340,9 +347,9 @@ export default function GenreFlow({ tracks, genreDistribution, trackCount }) {
                     x={xAt(i) - 0.75}
                     y={0}
                     width={1.5}
-                    height={t.genres.length ? 8 : 4}
+                    height={labelsOf(t).length ? 8 : 4}
                     rx={0.75}
-                    fill={t.genres.length ? INK_MUTED : "rgba(167,167,167,0.35)"}
+                    fill={labelsOf(t).length ? INK_MUTED : "rgba(167,167,167,0.35)"}
                     opacity={hoverIndex === i ? 1 : 0.45}
                   />
                 ))}
