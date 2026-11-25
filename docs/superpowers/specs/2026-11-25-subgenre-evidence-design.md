@@ -293,6 +293,16 @@ threshold. Under the new rules many of those cases should rightly become
   ceiling, both set from the first honest run (not picked in advance).
 - Expect modest numbers; the goal is honest labels, not 90%.
 
+## Gate results (2026-11-25)
+
+- **BPM gate:** `scripts/medir_fontes_psy` on the local library copy (354 distinct
+  psy tracks), first 150 tracks: Deezer found 80 of 150, and only **12 of 150
+  (8%) have a BPM**. A first run on 50 gave 8/50 (16%). Values seen: 97.5–152.
+  Per the rule in section 3: the tempo source stays (it's cheap), but most psy
+  tracks will be "unsure" from tempo's point of view until Stage B's audio
+  tempo model; Stage B moves up in priority.
+- **Discogs gate:** not run yet — needs the owner's `DISCOGS_TOKEN`.
+
 ## Stage B (later, its own spec)
 
 - Fetch 30s Deezer previews server-side, compute an audio embedding
