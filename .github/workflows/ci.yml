@@ -46,6 +46,19 @@ jobs:
           SESSION_SECRET: ci-nao-usar-em-producao
         run: python -m pytest
 
+      # Diferente do conjunto dourado do agente (job `evals`, manual), este não
+      # chama modelo nenhum: é função pura sobre tags, roda em menos de um
+      # segundo e não custa token. Então roda a cada push, e reprova a mudança
+      # que derruba a precisão abaixo do limiar declarado no YAML.
+      - name: Conjunto dourado de gênero
+        working-directory: backend
+        env:
+          SPOTIFY_CLIENT_ID: ci
+          SPOTIFY_CLIENT_SECRET: ci
+          LASTFM_API_KEY: ci
+          SESSION_SECRET: ci-nao-usar-em-producao
+        run: python -m evals.run_genre_evals
+
   frontend:
     name: Frontend — build
     runs-on: ubuntu-latest

@@ -4,7 +4,7 @@ import asyncio
 import httpx
 from fastapi import APIRouter, HTTPException, Request
 
-from . import enrichment_store
+from . import enrichment_store, taxonomy
 from .auth import get_valid_access_token
 from .cache import track_detail_cache
 from .deezer_client import buscar_faixa, get_preview_url
@@ -50,6 +50,10 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
     album = faixa.get("album") or {}
     imagens = album.get("images") or []
 
+    # A mesma classificação da análise de playlist, para a página da faixa
+    # mostrar o gênero com confiança e não só uma nuvem de tags.
+    classificacao = taxonomy.classify(artist_tags=artist_tags, track_tags=tags)
+
     detail = TrackDetail(
         track_id=faixa.get("id", track_id),
         name=nome,
@@ -58,8 +62,14 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
         image=imagens[0]["url"] if imagens else None,
         duration_ms=faixa.get("duration_ms") or 0,
         spotify_url=(faixa.get("external_urls") or {}).get("spotify"),
-        tags=tags,
-        artist_tags=artist_tags,
+        # A interface mostra texto; o peso serviu para classificar e fica aqui.
+        # As tags descartadas de propósito (país, "seen live") não chegam à tela.
+        tags=[t.name for t in tags if not taxonomy.load().discarded(t.name)],
+        artist_tags=[t.name for t in artist_tags if not taxonomy.load().discarded(t.name)],
+        genre=classificacao.genre,
+        subgenre=classificacao.subgenre,
+        genre_confidence=classificacao.confidence or None,
+        genre_evidence=classificacao.evidence,
         bpm=(deezer or {}).get("bpm"),
         preview_url=(deezer or {}).get("preview_url"),
         deezer_url=(deezer or {}).get("deezer_url"),

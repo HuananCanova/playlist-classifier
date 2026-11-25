@@ -1,0 +1,526 @@
+# Taxonomia de gêneros — o vocabulário canônico do app.
+#
+# Por que existe: as tags do Last.fm são texto livre de ouvinte. No acervo desta
+# conta, "hip-hop" (183 faixas) e "hip hop" (59) são rótulos diferentes, "psy
+# trance", "psychedelic trance" e "psytrance" são três, e "brasil", "german",
+# "my top songs" e "jay-z" chegavam aos gráficos como se fossem gênero. Contar
+# strings produz um gráfico de strings; classificar exige um vocabulário.
+#
+# Estrutura: dois níveis. Cada gênero (o rótulo amplo, o que vai ao gráfico de
+# gêneros) tem subgêneros (o rótulo granular). Uma tag que casa com um subgênero
+# também pontua para o gênero pai — é isso que faz "minimal techno" virar
+# "techno" sem perder "minimal techno".
+#
+# `aliases` são grafias da MESMA coisa, não parentesco: resolvem variação de
+# hífen, abreviação e erro de digitação. A comparação é feita sobre o texto
+# normalizado (minúsculas, sem acento, pontuação virando espaço), então
+# "hip-hop", "Hip Hop" e "hip_hop" caem no mesmo alias sem precisar listar as
+# três formas.
+#
+# Como estender: rode `python -m evals.run_genre_evals --cobertura` para ver
+# quais tags do acervo ainda não têm casa, em ordem de frequência. A lista sai
+# ordenada por impacto, então as primeiras linhas são sempre o melhor lugar
+# para gastar os próximos cinco minutos.
+
+version: 1
+
+# ── O que NUNCA é gênero ─────────────────────────────────────────────────────
+#
+# Descartar isto é metade do ganho de precisão. São tags legítimas e muito
+# usadas no Last.fm — só não descrevem estilo musical. Ficam agrupadas por
+# categoria porque a razão do descarte importa para quem lê depois.
+ignore:
+  # Nacionalidade, idioma e cidade. "brasil" não é um gênero; "mpb" é.
+  geografia:
+    - brazilian
+    - brazil
+    - brasil
+    - german
+    - germany
+    - swedish
+    - sweden
+    - british
+    - uk
+    - england
+    - usa
+    - united states
+    - american
+    - israeli
+    - israel
+    - canadian
+    - canada
+    - french
+    - france
+    - australian
+    - australia
+    - lithuanian
+    - russian
+    - norwegian
+    - norway
+    - danish
+    - denmark
+    - dutch
+    - netherlands
+    - belgian
+    - belgium
+    - italian
+    - italy
+    - spanish
+    - spain
+    - portuguese
+    - polish
+    - poland
+    - scottish
+    - irish
+    - ukrainian
+    - japanese
+    - japan
+    - jamaican
+    - jamaica
+    - luxembourg
+    - switzerland
+    - swiss
+    - austrian
+    - finnish
+    - new zealand
+    - mexican
+    - texas
+    - new york
+    - nyc
+    - california
+    - london
+    - hamburg
+    - berlin
+    - biala podlaska
+    - st vincent and the grenadines
+    - atlanta
+    - british uk
+  # Comportamento de quem escuta e metadado de biblioteca.
+  comportamento:
+    - all
+    - my top songs
+    - love at first listen
+    - one good track
+    - seen live
+    - seen ive
+    - favorite
+    - favorites
+    - favourite
+    - favourites
+    - albums i own
+    - under 2000 listeners
+    - spotify
+    - cover
+    - covers
+    - mashup
+    - comedy
+    - wrestling
+    - compra mi disco
+    - heard from a spaceship
+    - whalecore
+    - check out
+    - to listen
+    - playlist
+    - radio
+    - producer
+    - cult
+  # Juízo de valor e clima solto. "melancólico" é busca semântica, não gênero:
+  # o app já responde isso pelo índice vetorial.
+  juizo:
+    - awesome
+    - love
+    - loved
+    - beautiful
+    - amazing
+    - good
+    - great
+    - cool
+    - best
+    - sexy
+    - party
+    - summer
+    - catchy
+    - romantic
+    - ballad
+    - chill
+    - deep
+    - dark
+    - happy
+    - sad
+    - relax
+    - relaxing
+    - energetic
+    - melancholic
+    - melancholy
+    - feel good
+    - fun
+    - masterpiece
+    - perfect
+    - banger
+    - soulful
+  # Formação, instrumento e voz: descrevem o arranjo, não o estilo.
+  instrumentacao:
+    - guitar
+    - guitars
+    - piano
+    - cello
+    - violin
+    - drums
+    - saxophone
+    - instrumental
+    - acoustic
+    - live
+    - unplugged
+    - remix
+    - edit
+    - extended mix
+    - male vocalists
+    - male vocalist
+    - male vocals
+    - female vocalists
+    - female vocalist
+    - female vocals
+    - female fronted metal
+    - vocal
+    - vocalist
+    - singer-songwriter
+    - songwriter
+    - duet
+    - choir
+  # Vago demais para classificar sozinho. Cada um destes aparece no acervo
+  # SEMPRE acompanhado da forma específica ("progressive psytrance",
+  # "alternative rock", "hardcore punk"), e é a forma específica que classifica.
+  # Mantê-los resolveria para o gênero errado metade das vezes.
+  ambiguos:
+    - alternative
+    - progressive
+    - prog
+    - hardcore
+    - underground
+    - classic
+    - roots
+    - experimental
+    - avantgarde
+    - avant-garde
+    - epic
+    - kick
+    - beats
+    - bass
+    - tribal
+    - meditation music
+    - world
+    - world music
+    - oldies
+    - modern
+    - retro
+    # "gothic" sozinho vale para rock, metal e darkwave; as três formas
+    # explícitas estão na taxonomia.
+    - gothic
+    # Rastafári é religião e cultura, não estilo: as faixas que a usam já têm
+    # "reggae" ou "roots reggae".
+    - rasta
+    # "moda" (de viola) é forma de canção sertaneja, mas a tag aparece solta em
+    # faixas de qualquer gênero.
+    - moda
+  # Nome de artista, gravadora e cena fora de catálogo.
+  entidades:
+    - jay-z
+    - wu-tang
+    - wu-tang clan
+    - raster-noton
+    - iboga records
+    - yayoi
+    - angura kei
+  # Década e ano: o perfil já tem um eixo de tempo próprio, vindo da data de
+  # lançamento do Spotify, que é um dado e não uma tag.
+  patterns:
+    # 80s, 90s, 2010s — e "70's", que normaliza para "70 s".
+    - "^\\d+ ?s$"
+    - "^\\d{4}$"
+    - "^seen\\b"
+    - "^my\\b"
+    - "^top\\s"
+    - "records$"
+    - "^under \\d"
+
+# ── Os gêneros ───────────────────────────────────────────────────────────────
+genres:
+
+  rock:
+    aliases: [rock and roll, rock n roll, rock music, rocknroll]
+    subgenres:
+      alternative rock: [alt rock]
+      classic rock: []
+      hard rock: []
+      indie rock: [indie]
+      psychedelic rock: [psych rock, acid rock]
+      progressive rock: [prog rock]
+      blues rock: []
+      garage rock: [garage]
+      stoner rock: [desert rock, stoner, stoner metal]
+      southern rock: []
+      soft rock: []
+      pop rock: []
+      funk rock: []
+      folk rock: []
+      brazilian rock: [rock brasileiro, rock nacional]
+      reggae rock: []
+      grunge: [post-grunge]
+      britpop: []
+      new wave: []
+      math rock: []
+      art rock: []
+      space rock: []
+      surf rock: []
+      glam rock: []
+      noise rock: []
+      shoegaze: []
+      gothic rock: []
+      country rock: []
+      post-rock: []
+      visual kei: []
+
+  metal:
+    aliases: [metal music]
+    subgenres:
+      heavy metal: [nwobhm]
+      thrash metal: [thrash]
+      death metal: [brutal death metal, technical death metal, technical brutal death metal]
+      djent: []
+      drone metal: [drone]
+      melodic death metal: [melodeath]
+      progressive death metal: []
+      black metal: []
+      atmospheric black metal: []
+      doom metal: [epic doom metal, doom, stoner doom]
+      nu metal: [nu-metal]
+      alternative metal: [alt metal]
+      groove metal: []
+      industrial metal: []
+      metalcore: []
+      progressive metal: [prog metal]
+      power metal: []
+      speed metal: []
+      gothic metal: [synth gothic]
+      southern metal: []
+      rap metal: [rapcore, rap rock]
+
+  punk:
+    aliases: [punk music]
+    subgenres:
+      punk rock: []
+      hardcore punk: []
+      pop punk: []
+      post-punk: []
+      post-hardcore: []
+      screamo: []
+      emo: []
+      ska punk: []
+      horror punk: []
+
+  psytrance:
+    # Parente do trance, mas no acervo desta conta é a identidade principal
+    # (352 faixas) e tem subcultura própria — por isso é gênero, não subgênero.
+    aliases: [psy trance, psychedelic trance, psy-trance, psychedelic]
+    subgenres:
+      progressive psytrance: [progressive psy, prog psy, progrisse psytrance, future progressive psytrance]
+      goa trance: [goa]
+      darkpsy: [dark psy, forest psy]
+      full-on: [fullon]
+      psychill: [psybient]
+      hitech: [hi-tech, hitech psy]
+      dark progressive: [dark prog]
+
+  trance:
+    aliases: [trance music]
+    subgenres:
+      progressive trance: []
+      uplifting trance: []
+      hard trance: []
+      natural trance: []
+      acid trance: []
+      tech trance: []
+
+  techno:
+    aliases: [tekno]
+    subgenres:
+      minimal techno: [minimal, melodic tekno]
+      hard techno: []
+      acid techno: []
+      detroit techno: []
+      industrial techno: []
+      dark techno: []
+      melodic techno: []
+      schranz: []
+      electro techno: []
+
+  house:
+    aliases: [house music]
+    subgenres:
+      deep house: []
+      tech house: []
+      progressive house: []
+      electro house: []
+      acid house: []
+      bass house: []
+      big room house: [commercial house]
+      tropical house: []
+      future house: []
+      g-house: []
+      hard house: []
+      witch house: []
+      uk garage: [2-step]
+
+  electronic:
+    aliases: [electronica, electro, edm, dance, electronic music, idm]
+    subgenres:
+      ambient: [dark ambient]
+      downtempo: [chillout, chill out, lounge]
+      trip-hop: []
+      glitch: []
+      dubstep: []
+      drum and bass: [drum n bass, dnb, jungle]
+      breakbeat: [breaks]
+      eurodance: []
+      rave: [hard dance]
+      synthwave: [retrowave, outrun]
+      ebm: [electronic body music]
+      industrial: []
+      darkwave: [coldwave]
+      lo-fi: [lofi, lo fi]
+      acid: []
+      breakcore: []
+      noise: []
+
+  hip-hop:
+    aliases: [hip hop, rap, hiphop, rap music]
+    subgenres:
+      trap: []
+      gangsta rap: [gangster rap]
+      boom bap: []
+      underground hip-hop: [underground rap]
+      east coast rap: [east coast hip hop]
+      west coast rap: [west coast, west coast hip hop]
+      dirty south: [southern hip hop, southern rap]
+      crunk: []
+      g-funk: []
+      cloud rap: []
+      drill: [drill br, brazilian drill]
+      phonk: []
+      jazz rap: []
+      pop rap: []
+      grime: []
+      conscious hip hop: [conscious rap]
+      alternative rap: [alternative hip hop]
+      rap nacional: [rap brasileiro]
+
+  pop:
+    aliases: [pop music]
+    subgenres:
+      synthpop: [synth pop]
+      electropop: [electro pop]
+      dream pop: []
+      psychedelic pop: []
+      indie pop: []
+      dance pop: []
+      power pop: []
+      k-pop: [kpop]
+      art pop: []
+      baroque pop: [chamber pop]
+
+  r&b:
+    aliases: [rnb, rhythm and blues]
+    subgenres:
+      soul: [deep soul, northern soul]
+      psychedelic soul: []
+      neo soul: []
+      motown: []
+      contemporary r&b: []
+
+  funk:
+    aliases: [funk music]
+    subgenres:
+      disco: []
+      boogie: []
+      afrobeat: [afro funk]
+
+  reggae:
+    aliases: [reggae music]
+    subgenres:
+      roots reggae: [new roots]
+      dancehall: []
+      dub: []
+      rocksteady: []
+      ska: []
+
+  blues:
+    aliases: [blues music]
+    subgenres:
+      delta blues: []
+      electric blues: []
+      chicago blues: []
+
+  jazz:
+    aliases: [jazz music]
+    subgenres:
+      jazz fusion: [fusion]
+      bebop: []
+      smooth jazz: []
+      free jazz: []
+
+  folk:
+    aliases: [folk music]
+    subgenres:
+      indie folk: []
+      psychedelic folk: [psych folk, freak folk]
+      americana: []
+      celtic: []
+
+  country:
+    aliases: [country music]
+    subgenres:
+      outlaw country: []
+      bluegrass: []
+
+  brasileiro:
+    # MPB, sertanejo e funk carioca são gêneros; "brasil" e "brazilian" são
+    # nacionalidade e estão no ignore. A distinção é exatamente o ponto.
+    aliases: [musica brasileira, mpb]
+    subgenres:
+      sertanejo: [sertaneja, sertanejo universitario, sertanejo underground, brazilian country]
+      funk carioca: [baile funk, funk paulista, funk mandelao, funk brasileiro]
+      samba: [pagode]
+      bossa nova: []
+      forro: []
+      axe: []
+      tropicalia: []
+
+  latin:
+    aliases: [latino, latin music]
+    subgenres:
+      reggaeton: [reaggeton]
+      bachata: []
+      salsa: []
+      cumbia: []
+      soca: []
+
+  christian:
+    aliases: [christian music, gospel]
+    subgenres:
+      contemporary christian: [ccm]
+      jesus movement: []
+      worship: [praise and worship]
+      christian rock: []
+
+  classical:
+    aliases: [classical music, orchestral]
+    subgenres:
+      baroque: []
+      opera: []
+      contemporary classical: []
+
+  soundtrack:
+    aliases: [score, ost, original soundtrack]
+    subgenres:
+      trailer music: []
+      video game music: [game music, vgm]

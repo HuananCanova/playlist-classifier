@@ -24,6 +24,16 @@ class TrackGenreInfo(BaseModel):
     popularity: int | None = None
     genres: list[str]
     subgenre_tags: list[str]
+    # A classificação da faixa (app/taxonomy.py). `genre` é o rótulo amplo e
+    # `subgenre` o granular, os dois do vocabulário canônico — diferente de
+    # `genres`/`subgenre_tags`, que são as tags que sobreviveram ao filtro.
+    # `confidence` é a fração do voto da faixa que foi para o gênero vencedor,
+    # e `evidence` as tags que o elegeram, para a interface poder explicar.
+    # Todos opcionais: análises guardadas antes da taxonomia não os têm.
+    genre: str | None = None
+    subgenre: str | None = None
+    genre_confidence: float | None = None
+    genre_evidence: list[str] = []
     # BPM e prévia vêm do Deezer: o Spotify cortou audio-features e preview_url
     # para apps criados depois de 27/11/2024. None = o Deezer não sabe.
     bpm: float | None = None
@@ -50,6 +60,11 @@ class TrackDetail(BaseModel):
     spotify_url: str | None = None
     tags: list[str] = []
     artist_tags: list[str] = []
+    # Mesma classificação da análise de playlist, para a página da faixa.
+    genre: str | None = None
+    subgenre: str | None = None
+    genre_confidence: float | None = None
+    genre_evidence: list[str] = []
     # Vêm do Deezer e podem faltar: BPM só existe em ~43% das faixas, e o
     # preview em ~93%.
     bpm: float | None = None

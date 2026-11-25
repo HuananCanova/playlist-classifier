@@ -11,7 +11,7 @@ from collections import Counter
 
 import httpx
 
-from . import analysis_store, enrichment_store, profile_store
+from . import analysis_store, enrichment_store, profile_store, taxonomy
 from .cache import playlist_analysis_cache
 from .deezer_client import get_many as get_deezer_many
 from .lastfm_client import get_artist_tags, get_track_tags
@@ -142,20 +142,25 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         track_artist_names = [
             a["name"] for a in (track.get("artists") or []) if a and a.get("name")
         ]
-        track_genres: list[str] = []
+        # Tags de todos os artistas creditados, com peso. A mesma tag vinda de
+        # dois artistas soma — numa colaboração, isso é o que se quer.
+        artist_tags: list[taxonomy.Tag] = []
         for name in track_artist_names:
-            track_genres.extend(artist_genres.get(name, []))
-        track_genres = sorted(set(track_genres))
+            artist_tags.extend(artist_genres.get(name, []))
 
-        subgenre_tags = sorted(set(lastfm_tags) | set(track_genres))
+        classification = taxonomy.classify(artist_tags=artist_tags, track_tags=lastfm_tags)
+        subgenre_tags = _display_tags(lastfm_tags, artist_tags)
 
-        if not track_genres and not lastfm_tags:
+        if classification.genre is None:
             missing_genre += 1
+        else:
+            # UM voto por faixa, no gênero classificado. Antes cada tag contava
+            # um voto: uma faixa com três artistas deixava até nove, e "rock"
+            # liderava por ser contado junto com "classic rock" e "hard rock".
+            genre_counter[classification.genre] += 1
+            if classification.subgenre:
+                subgenre_counter[classification.subgenre] += 1
 
-        for g in track_genres:
-            genre_counter[g] += 1
-        for t in subgenre_tags:
-            subgenre_counter[t] += 1
         for name in track_artist_names:
             artist_counter[name] += 1
 
@@ -172,8 +177,12 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
                 image=images[0]["url"] if images else None,
                 duration_ms=track.get("duration_ms") or 0,
                 popularity=track.get("popularity"),
-                genres=track_genres,
+                genres=classification.genres,
                 subgenre_tags=subgenre_tags,
+                genre=classification.genre,
+                subgenre=classification.subgenre,
+                genre_confidence=classification.confidence or None,
+                genre_evidence=classification.evidence,
                 bpm=deezer["bpm"],
                 preview_url=deezer["preview_url"],
                 deezer_url=deezer["deezer_url"],
@@ -196,12 +205,11 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         snapshot_id=playlist_data.get("snapshot_id"),
     )
 
-    # A distribuição de subgêneros mostra só o que a de gêneros não mostra: uma tag
-    # que já é gênero de algum artista da playlist ficaria repetida nos dois
-    # gráficos. As tags de cada faixa seguem completas (agrupamento e busca usam).
-    genre_keys = {g.lower() for g in genre_counter}
-    for tag in [t for t in subgenre_counter if t.lower() in genre_keys]:
-        del subgenre_counter[tag]
+    # Os dois gráficos não se repetem mais por construção: `genre_counter` só
+    # recebe rótulo de gênero da taxonomia e `subgenre_counter` só rótulo de
+    # subgênero, que são conjuntos disjuntos. A limpeza que existia aqui —
+    # apagar do gráfico de subgêneros toda tag que também era gênero — era
+    # remendo de contar strings livres, e saiu junto.
 
     def top_counts(counter: Counter, limit: int = 25) -> list[GenreCount]:
         return [GenreCount(label=label, count=count) for label, count in counter.most_common(limit)]
@@ -298,6 +306,39 @@ async def _add_audio(analysis: PlaylistAnalysis) -> PlaylistAnalysis:
     playlist_analysis_cache[analysis.playlist.id] = completed
     await _persist(completed, has_audio=True)
     return completed
+
+
+# Tags por faixa que seguem para a tela, o agrupamento e a busca semântica.
+# Mais que isto não cabe na tabela de faixas e só adiciona ruído ao TF-IDF.
+MAX_DISPLAY_TAGS = 12
+
+
+def _display_tags(*fontes: list[taxonomy.Tag]) -> list[str]:
+    """As tags da faixa em texto, da mais forte para a mais fraca.
+
+    Fica de fora só o que a taxonomia descarta de propósito (país, instrumento,
+    "seen live"). Tag que ela ainda não conhece CONTINUA aqui: pode ser gênero
+    de verdade faltando no YAML, e tanto o agrupamento por clima quanto a busca
+    semântica aproveitam a palavra mesmo sem ela estar classificada.
+
+    A ordem é por peso do Last.fm, não alfabética: a primeira tag é a que mais
+    descreve a faixa, e é ela que aparece quando a tabela corta a lista.
+    """
+    tabela = taxonomy.load()
+    melhor: dict[str, taxonomy.Tag] = {}
+    for fonte in fontes:
+        # `as_tags` aceita tag sem peso: é a forma que o banco guardava antes.
+        for tag in taxonomy.as_tags(fonte or []):
+            if tabela.discarded(tag.name):
+                continue
+            chave = tag.name.strip().lower()
+            if not chave:
+                continue
+            atual = melhor.get(chave)
+            if atual is None or tag.weight > atual.weight:
+                melhor[chave] = tag
+    ordenadas = sorted(melhor.values(), key=lambda t: (-t.weight, t.name.lower()))
+    return [t.name for t in ordenadas[:MAX_DISPLAY_TAGS]]
 
 
 def _release_year(release_date: str | None) -> int | None:
