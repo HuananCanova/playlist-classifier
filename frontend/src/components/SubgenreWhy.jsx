@@ -18,13 +18,27 @@ function segmentos(blend) {
 }
 
 // O que faltou, deduzido de quais fontes aparecem na evidência.
-function faltas(evidence) {
+// "As fontes discordam" só vale entre fontes distintas: cada fonte vira o
+// conjunto do que ela diz (a fonte de tags emite uma linha por tag), e há
+// discordância quando duas fontes têm conjuntos disjuntos. Sobreposição conta
+// como acordo. Ex.: artist_tags {full-on, darkpsy} sozinha não discorda; com
+// tempo {goa}, sim.
+export function motivosIncerteza(evidence) {
   const fontes = new Set(evidence.map((e) => e.source));
   const itens = [];
   if (!fontes.has("tempo")) itens.push("sem BPM conhecido");
   if (!fontes.has("track_tags")) itens.push("o Last.fm só marca o artista, não a faixa");
-  const diz = new Set(evidence.map((e) => e.says).filter(Boolean));
-  if (evidence.length >= 2 && diz.size >= 2) itens.push("as fontes discordam");
+  const porFonte = new Map();
+  for (const e of evidence) {
+    if (!e.says) continue;
+    if (!porFonte.has(e.source)) porFonte.set(e.source, new Set());
+    porFonte.get(e.source).add(e.says);
+  }
+  const conjuntos = [...porFonte.values()];
+  const discordam = conjuntos.some((a, i) =>
+    conjuntos.slice(i + 1).some((b) => ![...a].some((x) => b.has(x)))
+  );
+  if (discordam) itens.push("as fontes discordam");
   return itens;
 }
 
@@ -62,7 +76,7 @@ export default function SubgenreWhy({ track }) {
   if (blend.length === 0) return null;
   const evidence = track.subgenre_evidence || [];
   const segs = segmentos(blend);
-  const falta = track.subgenre_unsure ? faltas(evidence) : [];
+  const falta = track.subgenre_unsure ? motivosIncerteza(evidence) : [];
 
   return (
     <section className="panel">
