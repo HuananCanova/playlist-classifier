@@ -62,7 +62,7 @@ def test_old_digest_without_fields_is_ignored_not_crash():
     digests = {"p1": _d("p1", velho, _t("a", "full-on"))}
     out = subgenre_library.subgenre_tracks(digests, _pls("p1"), "full-on")
     assert [t["id"] for t in out["confident"]] == ["a"]
-    assert subgenre_library.library_subgenres({"p1": _d("p1", velho)})
+    assert subgenre_library.library_subgenres({"p1": _d("p1", velho)}) == []
 
 
 def test_library_lists_full_vocabulary_of_present_genres_with_counts():
@@ -106,3 +106,37 @@ def test_routes_list_and_detail_and_enrich_not_swallowed(rotas, monkeypatch):
     assert ok.status_code == 200
     assert [t["id"] for t in ok.json()["confident"]] == ["a"]
     assert rotas.get("/api/subgenres/enrich").json()["running"] is False
+
+
+def test_divergent_copies_collapse_to_one_record_consistently():
+    # p1: puxa para darkpsy (0.4, em dúvida); p2: full-on confiante com 0.8 -> vence p2.
+    # Ordem do dict invertida de propósito: o resultado não pode depender dela.
+    digests = {
+        "p2": _d("p2", _t("a", "full-on", blend=[["full-on", 0.8]])),
+        "p1": _d("p1", _t("a", "darkpsy", unsure=True, blend=[["darkpsy", 0.4]])),
+    }
+    pls = _pls("p1", "p2")
+    full = subgenre_library.subgenre_tracks(digests, pls, "full-on")
+    dark = subgenre_library.subgenre_tracks(digests, pls, "darkpsy")
+    assert [(t["id"], t["share"]) for t in full["confident"]] == [("a", 0.8)]
+    assert full["leaning"] == [] and dark["confident"] == [] and dark["leaning"] == []
+    assert [p["id"] for p in full["confident"][0]["playlists"]] == ["p1", "p2"]
+    rows = {r["name"]: r for r in subgenre_library.library_subgenres(digests)}
+    assert (rows["full-on"]["confident"], rows["full-on"]["unsure"]) == (1, 0)
+    assert (rows["darkpsy"]["confident"], rows["darkpsy"]["unsure"]) == (0, 0)
+
+
+def test_collapse_ties_prefer_confident_then_lowest_playlist_id():
+    iguais = [["full-on", 0.6]]
+    digests = {
+        "p1": _d("p1", _t("a", "full-on", unsure=True, blend=iguais)),
+        "p2": _d("p2", _t("a", "full-on", blend=iguais)),
+    }
+    out = subgenre_library.subgenre_tracks(digests, _pls("p1", "p2"), "full-on")
+    assert [t["id"] for t in out["confident"]] == ["a"] and out["leaning"] == []
+    digests = {
+        "p2": _d("p2", _t("a", "full-on", blend=iguais) | {"bpm": 1.0}),
+        "p1": _d("p1", _t("a", "full-on", blend=iguais) | {"bpm": 2.0}),
+    }
+    out = subgenre_library.subgenre_tracks(digests, _pls("p1", "p2"), "full-on")
+    assert out["confident"][0]["bpm"] == 2.0
