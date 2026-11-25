@@ -8,6 +8,7 @@ import PlaylistList from "./pages/PlaylistList.jsx";
 import PlaylistDetail from "./pages/PlaylistDetail.jsx";
 import Profile from "./pages/Profile.jsx";
 import Search from "./pages/Search.jsx";
+import Subgenre from "./pages/Subgenre.jsx";
 import TrackDetail from "./pages/TrackDetail.jsx";
 
 function BrandMark() {
@@ -129,6 +130,14 @@ export default function App() {
             element={
               <RequireAuth>
                 <TrackDetail />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/subgenero/:name"
+            element={
+              <RequireAuth>
+                <Subgenre />
               </RequireAuth>
             }
           />

@@ -80,6 +80,11 @@ export const api = {
   chatStatus: () => get("/api/chat/status"),
   getProfile: () => get("/api/profile"),
   getProfileBuild: () => get("/api/profile/build"),
+  getSubgenres: () => get("/api/subgenres"),
+  getSubgenre: (name) => request(`/api/subgenres/${encodeURIComponent(name)}`),
+  getEnrich: () => request("/api/subgenres/enrich"),
+  startEnrich: () => request("/api/subgenres/enrich", { method: "POST" }),
+  stopEnrich: () => request("/api/subgenres/enrich", { method: "DELETE" }),
   buildProfile: () => request("/api/profile/build", { method: "POST" }),
 
   // Não passa por request(): precisamos do corpo como stream, não como JSON.
