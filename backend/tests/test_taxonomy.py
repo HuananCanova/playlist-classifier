@@ -431,7 +431,7 @@ def test_subgenre_info_unknown_is_none():
 
 def test_forest_is_its_own_subgenre():
     assert taxonomy.resolve("forest psy") == taxonomy.Node("psytrance", "forest psy")
-    assert taxonomy.resolve("forest") == taxonomy.Node("psytrance", "forest psy")
+    assert taxonomy.resolve("forest psytrance") == taxonomy.Node("psytrance", "forest psy")
     assert taxonomy.resolve("dark psy") == taxonomy.Node("psytrance", "darkpsy")
 
 
@@ -470,3 +470,13 @@ def test_every_bpm_range_has_source():
         assert s.source == "https://psytranceguide.com", s.name
         assert s.about, s.name
         assert s.bpm[0] < s.bpm[1]
+
+
+def test_twilight_e_forest_soltos_nao_votam_em_psytrance():
+    # "twilight" e "forest" sozinhos aparecem em música que não é psy (Muse marcado twilight).
+    assert taxonomy.resolve("twilight") is None
+    assert taxonomy.resolve("forest") is None
+    assert taxonomy.resolve("night full-on").subgenre == "night full-on"
+    assert taxonomy.resolve("forest psy").subgenre == "forest psy"
+    assert taxonomy.resolve("forest psytrance").subgenre == "forest psy"
+    assert taxonomy.resolve("forest darkpsy").subgenre == "forest psy"

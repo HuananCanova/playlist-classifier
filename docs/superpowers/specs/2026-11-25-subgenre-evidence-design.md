@@ -310,6 +310,13 @@ threshold. Under the new rules many of those cases should rightly become
   section 4, so the `release` source is dropped: Task 8 is skipped and
   `DISCOGS_ENABLED` stays False. The client and token stay, unused, in case a
   later reference needs them.
+- **Subgenre eval suite: 35 cases, none of the 8 main subgenres reaches the 8
+  per class asked in section 6** (4–6 each). The guide gives only 4 examples per
+  style, Beatport pages mostly say just "Psy-Trance", Beatport has no offbeat or
+  psychill and merges darkpsy+forest and hitech+psycore, and ambiguous pages
+  were left out rather than filling the quota by guesswork
+  (`evals/subgenre_refs.yaml`). So weights and thresholds stay untuned initial
+  values; the suite gates regressions, it does not calibrate.
 
 ## Stage B (later, its own spec)
 

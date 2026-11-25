@@ -28,7 +28,6 @@ import httpx
 from . import deezer_client, evidence_store, lastfm_client, reclassify, taxonomy
 from .evidence_store import TrackEvidence
 from .genre_analysis import LASTFM_CONCURRENCY, gather_with_concurrency
-from .taxonomy import Tag
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +38,10 @@ LOTE = 48
 # ~50 requisições por 5s e cada faixa custa até duas) = 180 faixas por minuto.
 TRACKS_PER_MINUTE = 180
 
+# Quantas mensagens de erro o progresso guarda (as mais recentes); o total fica
+# em `error_count`, para um acervo grande sem rede não encher a memória.
+MAX_ERRORS = 50
+
 
 @dataclass
 class EnrichProgress:
@@ -47,8 +50,16 @@ class EnrichProgress:
     done: int = 0
     current: str | None = None
     errors: list[str] = field(default_factory=list)
+    error_count: int = 0
     started_at: float | None = None
     finished_at: float | None = None
+
+
+    def error(self, message: str) -> None:
+        """Registra um erro: conta todos, guarda só as últimas `MAX_ERRORS` mensagens."""
+        self.error_count += 1
+        self.errors.append(message)
+        del self.errors[:-MAX_ERRORS]
 
 
 @dataclass
@@ -78,13 +89,16 @@ def _genres_with_bpm(cache: dict[str, bool], genres: list[str]) -> bool:
 def pending_tracks(digests: dict[str, dict]) -> list[dict]:
     """Faixas únicas dos resumos que ainda não têm evidência completa.
 
+    Faixa sem artista ou sem nome fica de fora: sem eles não há o que perguntar
+    ao Last.fm nem ao Deezer, e ela ficaria pendente para sempre.
+
     Quem tem gênero com faixa de BPM (psytrance) vem primeiro: é onde a
     evidência muda a resposta. Lê o banco; chame fora do event loop."""
     unicas: dict[str, dict] = {}
     for digest in digests.values():
         for t in (digest or {}).get("tracks", []):
             tid = t.get("id")
-            if tid and tid not in unicas:
+            if tid and tid not in unicas and t.get("name") and t.get("artists"):
                 unicas[tid] = {
                     "id": tid,
                     "name": t.get("name") or "",
@@ -106,18 +120,7 @@ def estimate_minutes(pending: int) -> int:
 
 # ── busca ────────────────────────────────────────────────────────────────────
 
-def _merge_artist_tags(per_artist: list[list[Tag]]) -> list[Tag]:
-    """Junta as tags de vários artistas creditados; a repetida fica com o maior peso."""
-    best: dict[str, Tag] = {}
-    for tags in per_artist:
-        for tag in tags:
-            key = tag.name.strip().lower()
-            if key not in best or tag.weight > best[key].weight:
-                best[key] = tag
-    return sorted(best.values(), key=lambda t: -t.weight)
-
-
-async def _lastfm(client: httpx.AsyncClient, track: dict, have: TrackEvidence | None, errors: list[str]) -> dict:
+async def _lastfm(client: httpx.AsyncClient, track: dict, have: TrackEvidence | None, progress: EnrichProgress) -> dict:
     """Os campos de tags que faltam para esta faixa. Campo que falhou fica fora."""
     out: dict = {}
     artists = track["artists"]
@@ -128,9 +131,10 @@ async def _lastfm(client: httpx.AsyncClient, track: dict, have: TrackEvidence | 
             answers = [await lastfm_client.get_artist_tags(client, a) for a in artists]
             if any(isinstance(a, lastfm_client.NoAnswer) for a in answers):
                 raise RuntimeError("Last.fm não respondeu")
-            out["artist_tags"] = _merge_artist_tags(answers)
+            # Vários artistas creditados: a mesma regra da análise de playlist.
+            out["artist_tags"] = taxonomy.merge_tags(*answers)
         except Exception as exc:
-            errors.append(f"{label}: tags do artista ({type(exc).__name__})")
+            progress.error(f"{label}: tags do artista ({type(exc).__name__})")
 
     if have is None or have.track_tags is None:
         try:
@@ -139,17 +143,8 @@ async def _lastfm(client: httpx.AsyncClient, track: dict, have: TrackEvidence | 
                 raise RuntimeError("Last.fm não respondeu")
             out["track_tags"] = list(tags)
         except Exception as exc:
-            errors.append(f"{label}: tags da faixa ({type(exc).__name__})")
+            progress.error(f"{label}: tags da faixa ({type(exc).__name__})")
     return out
-
-
-def _deezer_fields(info: dict) -> dict | None:
-    """O que gravar da resposta do Deezer, ou None se foi falha (não grava)."""
-    if isinstance(info, deezer_client.NotFound):
-        return {"deezer_checked_at": time.time()}
-    if isinstance(info, deezer_client.Incomplete) or info.get("deezer_id") is None:
-        return None
-    return {"deezer_id": info["deezer_id"], "bpm": info.get("bpm"), "deezer_checked_at": time.time()}
 
 
 async def _lote(client: httpx.AsyncClient, lote: list[dict], progress: EnrichProgress) -> None:
@@ -157,7 +152,7 @@ async def _lote(client: httpx.AsyncClient, lote: list[dict], progress: EnrichPro
     campos: dict[str, dict] = {t["id"]: {} for t in lote}
 
     async def tags(t: dict) -> None:
-        campos[t["id"]].update(await _lastfm(client, t, have.get(t["id"]), progress.errors))
+        campos[t["id"]].update(await _lastfm(client, t, have.get(t["id"]), progress))
 
     sem_deezer = [
         t for t in lote
@@ -171,12 +166,12 @@ async def _lote(client: httpx.AsyncClient, lote: list[dict], progress: EnrichPro
         try:
             respostas = await deezer_client.get_many(client, pares)
         except Exception as exc:
-            progress.errors.append(f"Deezer ({type(exc).__name__})")
+            progress.error(f"Deezer ({type(exc).__name__})")
             return
         for t, info in zip(sem_deezer, respostas):
-            achado = _deezer_fields(info)
+            achado = evidence_store.deezer_fields(info)
             if achado is None:
-                progress.errors.append(f"{t['name']}: Deezer não respondeu")
+                progress.error(f"{t['name']}: Deezer não respondeu")
             else:
                 campos[t["id"]].update(achado)
 
@@ -205,7 +200,7 @@ async def _rodar(job: _Job, digests: dict[str, dict], fila: list[dict]) -> None:
     contagem = await asyncio.to_thread(reclassify.account, list(digests))
     logger.info(
         "Enriquecimento concluído: %d/%d faixas, %d erros, reclassificado %s",
-        progress.done, progress.total, len(progress.errors), contagem,
+        progress.done, progress.total, progress.error_count, contagem,
     )
 
 
@@ -216,7 +211,7 @@ def _finalizar(job: _Job, task: asyncio.Task) -> None:
     progress.finished_at = time.time()
     if not task.cancelled() and task.exception() is not None:
         logger.error("Enriquecimento falhou", exc_info=task.exception())
-        progress.errors.append(f"Falha inesperada: {type(task.exception()).__name__}")
+        progress.error(f"Falha inesperada: {type(task.exception()).__name__}")
 
 
 async def start(account: str, digests: dict[str, dict]) -> EnrichProgress:

@@ -161,3 +161,21 @@ def test_account_rewrites_stored_rows():
     assert profile_store.load("p1")["tracks"][0]["subgenre_blend"]
     row = db.query_one("SELECT analysis FROM playlist_analyses WHERE playlist_id = 'p1'")
     assert PlaylistAnalysis.model_validate_json(row["analysis"]).tracks[0].subgenre_blend
+
+
+def test_reclassify_with_evidence_orders_tags_by_weight():
+    # 14 tags: as 12 leves vêm antes no alfabeto, mas as pesadas não podem cair no corte.
+    leves = [Tag(f"aaa{i:02d}", 5.0) for i in range(12)]
+    ev = TrackEvidence("t1", artist_tags=[Tag("psytrance", 100), Tag("trance", 90), *leves], track_tags=[])
+
+    nova = reclassify.track(_faixa(), ev)
+    assert nova.subgenre_tags[:2] == ["psytrance", "trance"]
+
+    evidence_store.put(ev)
+    resumo, _ = reclassify.digest({"tracks": [{"id": "t1", "genres": [], "tags": [], "bpm": None}]})
+    assert resumo["tracks"][0]["tags"][:2] == ["psytrance", "trance"]
+
+
+def test_reclassify_without_evidence_keeps_alphabetical_tags():
+    nova = reclassify.track(_faixa(genres=["psytrance"], subgenre_tags=["zebra", "darkpsy"]), None)
+    assert nova.subgenre_tags == ["darkpsy", "psytrance", "zebra"]

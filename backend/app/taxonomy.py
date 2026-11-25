@@ -245,6 +245,23 @@ def as_tags(tags: Iterable[Tag | tuple[str, float] | str]) -> list[Tag]:
     return out
 
 
+def merge_tags(*sources: Iterable[Tag | tuple[str, float] | str]) -> list[Tag]:
+    """Junta listas de tags: uma por nome (sem caixa nem espaço), com o maior peso.
+
+    É a regra para as tags de vários artistas creditados (o maior peso, não a
+    soma) e para a ordem das tags exibidas. Ordem: peso decrescente, nome como
+    desempate — determinístico."""
+    best: dict[str, Tag] = {}
+    for source in sources:
+        for tag in as_tags(source or []):
+            key = tag.name.strip().lower()
+            if not key:
+                continue
+            if key not in best or tag.weight > best[key].weight:
+                best[key] = tag
+    return sorted(best.values(), key=lambda t: (-t.weight, t.name.strip().lower()))
+
+
 def _votes(tags: list[Tag], share: float) -> tuple[dict[Node, float], dict[Node, list[Tag]], list[str]]:
     """Distribui `share` de voto entre os nós que as tags resolveram.
 

@@ -101,7 +101,8 @@ export default function EnrichPanel({ onDone }) {
 
   const running = Boolean(progress.running);
   const pending = progress.pending ?? 0;
-  const errors = progress.errors ?? [];
+  // O backend guarda só as últimas mensagens; o total vem em `error_count`.
+  const errorCount = progress.error_count ?? (progress.errors ?? []).length;
   if (!running && pending === 0 && !error) return null;
 
   const minutes = Math.max(1, Math.round(progress.estimated_minutes ?? 1));
@@ -138,9 +139,9 @@ export default function EnrichPanel({ onDone }) {
               </button>
             )}
           </div>
-          {errors.length > 0 && (
+          {errorCount > 0 && (
             <p className="coverage-errors">
-              {errors.length} {errors.length === 1 ? "busca falhou" : "buscas falharam"}; rode de novo para tentar só
+              {nf.format(errorCount)} {errorCount === 1 ? "busca falhou" : "buscas falharam"}; rode de novo para tentar só
               essas.
             </p>
           )}

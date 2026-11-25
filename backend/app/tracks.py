@@ -113,13 +113,17 @@ async def _guardar_evidencia(track_id: str, n_artistas: int, artist_tags, tags, 
     """Só o que respondeu. Daqui só se conhecem as tags do artista principal, então
     numa faixa com mais artistas elas não substituem a lista combinada que a análise
     da playlist guarda. O Deezer devolve None tanto para "não achou" quanto para
-    falha, então só um match conta como consultado (e sem o id, que esta rota não lê)."""
+    falha, então só um match conta como consultado — e só o de confiança `alta`:
+    um aproximado pode ser outra gravação, e o BPM dele ficaria como evidência
+    permanente. Fora isso, os campos do Deezer não são tocados."""
+    alta = bool(deezer) and deezer.get("confianca") == "alta" and deezer.get("deezer_id") is not None
     ev = evidence_store.TrackEvidence(
         track_id=track_id,
         artist_tags=None if isinstance(artist_tags, NoAnswer) or n_artistas != 1 else artist_tags,
         track_tags=None if isinstance(tags, NoAnswer) else tags,
-        bpm=(deezer or {}).get("bpm"),
-        deezer_checked_at=time.time() if deezer else None,
+        bpm=deezer.get("bpm") if alta else None,
+        deezer_id=deezer["deezer_id"] if alta else None,
+        deezer_checked_at=time.time() if alta else None,
     )
     try:
         await asyncio.to_thread(evidence_store.put, ev)

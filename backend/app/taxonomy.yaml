@@ -201,6 +201,11 @@ ignore:
   # "alternative rock", "hardcore punk"), e é a forma específica que classifica.
   # Mantê-los resolveria para o gênero errado metade das vezes.
   ambiguos:
+    # "twilight" e "forest" soltos marcam também música que não é psy (Muse
+    # aparece como twilight); só as formas compostas ("night full-on",
+    # "forest psy", "forest psytrance") apontam o subgênero.
+    - twilight
+    - forest
     - alternative
     - progressive
     - prog
@@ -343,7 +348,7 @@ genres:
         about: "Psy melódico e enérgico de pista, com baixo ritmado e leads marcantes."
         source: https://psytranceguide.com
       night full-on:
-        aliases: [night fullon, twilight]
+        aliases: [night fullon]
         bpm: [145, 150]
         about: "Full-on mais escuro e sombrio, para a madrugada, com baixo mais seco."
         source: https://psytranceguide.com
@@ -358,7 +363,7 @@ genres:
         about: "Psy sombrio e denso, com texturas estranhas e clima de tensão."
         source: https://psytranceguide.com
       forest psy:
-        aliases: [forest, forest psytrance, forest darkpsy]
+        aliases: [forest psytrance, forest darkpsy]
         bpm: [150, 160]
         about: "Variante rápida e orgânica do dark, com sons de floresta e atmosfera misteriosa."
         source: https://psytranceguide.com

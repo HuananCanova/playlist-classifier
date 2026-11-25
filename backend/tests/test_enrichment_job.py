@@ -298,3 +298,49 @@ async def test_job_retries_deezer_detail_failure_in_the_same_process(monkeypatch
     await _rodar(digests)
     ev = evidence_store.get_many(["a"])["a"]
     assert (ev.bpm, ev.deezer_id) == (150.0, 42) and ev.deezer_checked_at is not None
+
+
+# ── correções da revisão final ───────────────────────────────────────────────
+
+
+async def test_deezer_fallback_failure_after_empty_strict_is_not_not_found():
+    # A busca estrita responde vazia; a livre falha: não dá para dizer "não tem".
+    def handler(req):
+        if req.url.params.get("q", "").startswith("artist:"):
+            return httpx.Response(200, json={"data": []})
+        return httpx.Response(503)
+
+    info = await deezer_client.get_track_info(_cliente_deezer(handler), "Fallback", "Caiu")
+    assert not isinstance(info, NotFound)
+    assert info["deezer_id"] is None
+    assert deezer_client.enrichment_store.get_deezer_match("fallback::caiu") is None
+
+
+async def test_deezer_strict_failure_then_empty_fallback_is_not_not_found():
+    def handler(req):
+        if req.url.params.get("q", "").startswith("artist:"):
+            return httpx.Response(503)
+        return httpx.Response(200, json={"data": []})
+
+    info = await deezer_client.get_track_info(_cliente_deezer(handler), "Estrita", "Caiu")
+    assert not isinstance(info, NotFound)
+    assert deezer_client.enrichment_store.get_deezer_match("estrita::caiu") is None
+
+
+def test_pending_skips_tracks_without_artist_or_name():
+    digests = _digests(_t("a"), _t("b", artists=()), {"id": "c", "name": "", "artists": ["X"], "genres": []})
+    assert [t["id"] for t in enrichment_job.pending_tracks(digests)] == ["a"]
+
+
+async def test_errors_are_capped_with_a_total_count(fontes):
+    n = enrichment_job.MAX_ERRORS + 5
+    tracks = [_t(f"f{i}") for i in range(n)]
+    fontes.falha_faixa = {t["name"] for t in tracks}
+    await _rodar(_digests(*tracks))
+
+    progress = enrichment_job.progress_dict(CONTA)
+    assert progress["error_count"] == n
+    assert len(progress["errors"]) == enrichment_job.MAX_ERRORS
+    # Ficam as mais recentes: a última faixa está lá, a primeira não.
+    assert any(e.startswith(f"Faixa f{n - 1}:") for e in progress["errors"])
+    assert not any(e.startswith("Faixa f0:") for e in progress["errors"])

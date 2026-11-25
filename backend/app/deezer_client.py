@@ -154,6 +154,7 @@ async def buscar_faixa(
 
     bpm = d.get("bpm")
     resultado = {
+        "deezer_id": candidato.get("id"),
         # 0 significa "o Deezer não sabe", não "zero batidas por minuto".
         "bpm": round(bpm, 1) if isinstance(bpm, (int, float)) and bpm > 0 else None,
         "preview_url": candidato.get("preview") or None,
@@ -303,12 +304,16 @@ async def get_track_info(client: httpx.AsyncClient, artist: str, track: str) -> 
 
     strict = await _search(client, f'artist:"{artist}" track:"{clean_track}"')
     candidates = strict
+    fallback_failed = False
     if not candidates:
         candidates = await _search(client, f"{artist} {clean_track}")
-    if strict is None and candidates is None:
-        return empty  # o Deezer não respondeu: nada a guardar
+        fallback_failed = candidates is None
 
     match = _pick_best(candidates or [], artist, track)
+    if not match and (strict is None or fallback_failed):
+        # Uma das buscas não respondeu: "não achei" seria palpite, e ficaria
+        # guardado por dias. Vale como falha — nada a guardar.
+        return empty
     if not match:
         achou_nada = NotFound(empty)
         deezer_track_cache[cache_key] = achou_nada

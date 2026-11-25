@@ -87,15 +87,32 @@ def _tem_tags(evidencia: TrackEvidence | None) -> bool:
 
 def _tags_da_faixa(guardadas: list[str], evidencia: TrackEvidence | None) -> list[str]:
     """As tags de exibição: as da evidência quando existe (não dependem do que uma
-    passada anterior escreveu), senão o balaio do guardado."""
+    passada anterior escreveu), senão o balaio do guardado.
+
+    A evidência tem peso, então a ordem é por peso — a mesma regra de
+    `genre_analysis._display_tags` (`taxonomy.merge_tags`) — e o corte de
+    exibição não derruba uma tag forte só por vir depois no alfabeto. Só o
+    balaio sem peso fica em ordem alfabética."""
     if _tem_tags(evidencia):
-        return _balaio([t.name for t in (evidencia.artist_tags or []) + (evidencia.track_tags or [])])
+        return [t.name for t in taxonomy.merge_tags(evidencia.track_tags or [], evidencia.artist_tags or [])]
     return guardadas
 
 
 def _blend(genero, artista, faixa, evidencia, bpm_guardado):
     bpm = evidencia.bpm if evidencia is not None and evidencia.bpm is not None else bpm_guardado
     return subgenre.blend(genero, artist_tags=artista, track_tags=faixa, bpm=bpm)
+
+
+def subgenre_of(faixa: TrackGenreInfo, evidence: TrackEvidence | None, bpm: float | None) -> subgenre.SubgenreResult:
+    """O blend de subgênero da faixa no gênero que ela já tem, com este BPM.
+
+    As tags saem da evidência quando ela tem; senão do que a análise guardou,
+    num balaio que entra como tags de artista (a mesma regra de `track`)."""
+    if _tem_tags(evidence):
+        artista, da_faixa = evidence.artist_tags or [], evidence.track_tags or []
+    else:
+        artista, da_faixa = taxonomy.as_tags(_balaio(faixa.genres, faixa.subgenre_tags)), []
+    return subgenre.blend(faixa.genre, artist_tags=artista, track_tags=da_faixa, bpm=bpm)
 
 
 def track(faixa: TrackGenreInfo, evidence: TrackEvidence | None = None) -> TrackGenreInfo:

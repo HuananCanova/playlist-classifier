@@ -113,7 +113,8 @@ async def test_track_detail_has_blend_and_stores_evidence(monkeypatch):
     from app import enrichment_store, tracks
 
     async def fake_parallel(client, artist, title, duration):
-        return {"bpm": 146.0, "preview_url": None, "deezer_url": None}, [Tag("full-on", 80.0)], [Tag("psytrance", 100.0)]
+        deezer = {"deezer_id": 3, "bpm": 146.0, "preview_url": None, "deezer_url": None, "confianca": "alta"}
+        return deezer, [Tag("full-on", 80.0)], [Tag("psytrance", 100.0)]
 
     monkeypatch.setattr(tracks, "_buscar_em_paralelo", fake_parallel)
     enrichment_store.put_spotify_tracks(
@@ -133,7 +134,8 @@ async def test_track_detail_reference_follows_lean(monkeypatch):
     from app.cache import track_detail_cache
 
     async def fake_parallel(client, artist, title, duration):
-        return {"bpm": 146.0, "preview_url": None, "deezer_url": None}, [Tag("full-on", 80.0)], [Tag("psytrance", 100.0)]
+        deezer = {"deezer_id": 3, "bpm": 146.0, "preview_url": None, "deezer_url": None, "confianca": "alta"}
+        return deezer, [Tag("full-on", 80.0)], [Tag("psytrance", 100.0)]
 
     monkeypatch.setattr(tracks, "_buscar_em_paralelo", fake_parallel)
     enrichment_store.put_spotify_tracks(
@@ -145,3 +147,155 @@ async def test_track_detail_reference_follows_lean(monkeypatch):
 
     assert tracks._referencia(None) is None
     assert tracks._referencia("não existe") is None
+
+
+# ── colaboração: as tags dos artistas se juntam com o maior peso ─────────────
+
+
+async def test_collab_artist_tags_keep_max_weight_not_sum(monkeypatch):
+    tracks = [{"id": "t1", "name": "Um", "duration_ms": 1, "album": {}, "artists": [{"name": "A"}, {"name": "B"}]}]
+    _install(monkeypatch, tracks=tracks)
+
+    async def artist_tags(client, name):
+        return {
+            "A": [Tag("psytrance", 100.0), Tag("full-on", 40.0)],
+            "B": [Tag("psytrance", 90.0), Tag("Full-On", 70.0)],
+        }[name]
+
+    monkeypatch.setattr(genre_analysis, "get_artist_tags", artist_tags)
+
+    await genre_analysis.build_playlist_analysis("tok", "p1", include_audio=False)
+
+    ev = evidence_store.get_many(["t1"])["t1"]
+    # A mesma regra do job de enriquecimento: uma tag por nome, com o maior peso.
+    assert ev.artist_tags == [Tag("psytrance", 100.0), Tag("Full-On", 70.0)]
+
+
+def test_merge_tags_is_the_job_rule():
+    from app import taxonomy
+
+    merged = taxonomy.merge_tags([Tag("a", 10.0), Tag("B", 50.0)], [Tag(" b ", 80.0), Tag("c", 10.0)])
+    assert merged == [Tag(" b ", 80.0), Tag("a", 10.0), Tag("c", 10.0)]
+
+
+# ── completar com áudio uma análise feita sem ──────────────────────────────
+
+
+async def _sem_audio_depois_com(monkeypatch, resposta):
+    _install(monkeypatch)  # artista só "psytrance": sem voto de subgênero
+    analysis = await genre_analysis.build_playlist_analysis("tok", "p1", include_audio=False)
+    assert analysis.tracks[0].subgenre_blend == []
+
+    async def deezer_many(client, pairs):
+        return [resposta for _ in pairs]
+
+    monkeypatch.setattr(genre_analysis, "get_deezer_many", deezer_many)
+    return await genre_analysis.add_audio(analysis)
+
+
+async def test_add_audio_recomputes_blend_and_bars(monkeypatch):
+    completed = await _sem_audio_depois_com(
+        monkeypatch, {"deezer_id": 9, "bpm": 100.0, "preview_url": None, "deezer_url": "u"}
+    )
+
+    track = completed.tracks[0]
+    assert track.bpm == 100.0
+    assert track.subgenre_lean == "psychill"
+    assert track.subgenre == "psychill"
+    assert any(e.source == "tempo" for e in track.subgenre_evidence)
+    assert [(b.label, b.confident > 0) for b in completed.subgenre_bars] == [("psychill", True)]
+    assert [(g.label, g.count) for g in completed.subgenre_distribution] == [("psychill", 1)]
+
+    ev = evidence_store.get_many(["t1"])["t1"]
+    assert (ev.bpm, ev.deezer_id) == (100.0, 9) and ev.deezer_checked_at is not None
+
+
+async def test_add_audio_records_not_found(monkeypatch):
+    from app.deezer_client import NotFound
+
+    await _sem_audio_depois_com(
+        monkeypatch, NotFound({"deezer_id": None, "bpm": None, "preview_url": None, "deezer_url": None})
+    )
+    ev = evidence_store.get_many(["t1"])["t1"]
+    assert ev.deezer_checked_at is not None and ev.bpm is None and ev.deezer_id is None
+
+
+async def test_add_audio_failure_stores_nothing(monkeypatch):
+    await _sem_audio_depois_com(monkeypatch, {"deezer_id": None, "bpm": None, "preview_url": None, "deezer_url": None})
+    ev = evidence_store.get_many(["t1"])["t1"]
+    assert ev.deezer_checked_at is None and ev.bpm is None
+
+
+# ── página da faixa: correspondência aproximada do Deezer não vira evidência ─
+
+
+async def _detalhe_com_deezer(monkeypatch, track_id, deezer):
+    from app import enrichment_store, tracks
+    from app.cache import track_detail_cache
+
+    async def fake_parallel(client, artist, title, duration):
+        return deezer, [Tag("full-on", 80.0)], [Tag("psytrance", 100.0)]
+
+    monkeypatch.setattr(tracks, "_buscar_em_paralelo", fake_parallel)
+    enrichment_store.put_spotify_tracks(
+        [{"id": track_id, "name": "X", "duration_ms": 1, "album": {}, "artists": [{"name": "A"}]}]
+    )
+    track_detail_cache.pop(track_id, None)
+    await tracks.build_track_detail("tok", track_id)
+    return evidence_store.get_many([track_id])[track_id]
+
+
+async def test_track_detail_approximate_deezer_match_is_not_stored(monkeypatch):
+    deezer = {"deezer_id": 5, "bpm": 146.0, "preview_url": None, "deezer_url": None, "confianca": "aproximada"}
+    ev = await _detalhe_com_deezer(monkeypatch, "t20", deezer)
+    assert (ev.bpm, ev.deezer_id, ev.deezer_checked_at) == (None, None, None)
+    assert ev.track_tags == [Tag("full-on", 80.0)]
+
+
+async def test_track_detail_high_confidence_match_stores_id(monkeypatch):
+    deezer = {"deezer_id": 5, "bpm": 146.0, "preview_url": None, "deezer_url": None, "confianca": "alta"}
+    ev = await _detalhe_com_deezer(monkeypatch, "t21", deezer)
+    assert (ev.bpm, ev.deezer_id) == (146.0, 5) and ev.deezer_checked_at is not None
+
+
+async def test_buscar_faixa_returns_deezer_id():
+    import httpx
+
+    from app import deezer_client
+
+    def handler(req):
+        if req.url.path.endswith("/search"):
+            return httpx.Response(200, json={"data": [{"id": 77, "title": "Raro", "artist": {"name": "Zeta"}, "link": "l"}]})
+        return httpx.Response(200, json={"id": 77, "bpm": 145})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        info = await deezer_client.buscar_faixa(client, "Zeta", "Raro")
+    assert info["deezer_id"] == 77 and info["confianca"] == "alta"
+
+
+# ── IA: subgêneros com a parte afirmada separada da incerta ────────────────
+
+
+async def test_ai_tool_separates_confident_from_unsure(monkeypatch):
+    import json
+
+    from app import ai_tools
+
+    tracks = [
+        {"id": f"t{i}", "name": f"F{i}", "duration_ms": 1, "album": {}, "artists": [{"name": "A"}]} for i in range(3)
+    ]
+    _install(monkeypatch, tracks=tracks)
+
+    async def track_tags(client, a, name):
+        # F0 tem tag de faixa (afirmada); F1 e F2 só têm o artista (incertas).
+        return [Tag("full-on", 100.0)] if name == "F0" else []
+
+    async def artist_tags(client, name):
+        return [Tag("psytrance", 100.0), Tag("full-on", 50.0)]
+
+    monkeypatch.setattr(genre_analysis, "get_track_tags", track_tags)
+    monkeypatch.setattr(genre_analysis, "get_artist_tags", artist_tags)
+    monkeypatch.setattr(ai_tools, "build_playlist_analysis", genre_analysis.build_playlist_analysis)
+
+    payload = json.loads(await ai_tools.analisar_playlist_json("tok", "p-ia"))
+    assert payload["subgeneros"] == [{"subgenero": "full-on", "faixas_confiantes": 1, "faixas_incertas": 2}]

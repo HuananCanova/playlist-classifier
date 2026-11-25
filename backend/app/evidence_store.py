@@ -9,8 +9,8 @@ blend.
 import time
 from dataclasses import dataclass
 
-from . import db
-from .enrichment_store import _decode_tags, _encode_tags
+from . import db, deezer_client
+from .enrichment_store import decode_tags, encode_tags
 from .taxonomy import Tag
 
 
@@ -29,8 +29,8 @@ class TrackEvidence:
 def _from_row(row) -> TrackEvidence:
     return TrackEvidence(
         track_id=row["track_id"],
-        artist_tags=None if row["artist_tags"] is None else _decode_tags(row["artist_tags"]),
-        track_tags=None if row["track_tags"] is None else _decode_tags(row["track_tags"]),
+        artist_tags=None if row["artist_tags"] is None else decode_tags(row["artist_tags"]),
+        track_tags=None if row["track_tags"] is None else decode_tags(row["track_tags"]),
         bpm=row["bpm"],
         deezer_id=row["deezer_id"],
         deezer_checked_at=row["deezer_checked_at"],
@@ -66,14 +66,26 @@ def put(ev: TrackEvidence) -> None:
             "VALUES (?, ?, ?, ?, ?, ?, ?)",
             (
                 ev.track_id,
-                None if artist_tags is None else _encode_tags(artist_tags),
-                None if track_tags is None else _encode_tags(track_tags),
+                None if artist_tags is None else encode_tags(artist_tags),
+                None if track_tags is None else encode_tags(track_tags),
                 pick(ev.bpm, old.bpm),
                 pick(ev.deezer_id, old.deezer_id),
                 pick(ev.deezer_checked_at, old.deezer_checked_at),
                 time.time(),
             ),
         )
+
+
+def deezer_fields(info: dict) -> dict | None:
+    """O que gravar de uma resposta de `deezer_client.get_track_info`, ou None se foi falha.
+
+    Achou (com id) → bpm, id e quando; `NotFound` (o Deezer respondeu que não
+    tem) → só quando; falha ou detalhe incompleto → nada."""
+    if isinstance(info, deezer_client.NotFound):
+        return {"deezer_checked_at": time.time()}
+    if isinstance(info, deezer_client.Incomplete) or info.get("deezer_id") is None:
+        return None
+    return {"deezer_id": info["deezer_id"], "bpm": info.get("bpm"), "deezer_checked_at": time.time()}
 
 
 def missing(track_ids: list[str]) -> list[str]:
