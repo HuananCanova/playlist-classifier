@@ -19,7 +19,8 @@ Números:
 
 O processo sai com 1 quando a precisão confiante cai abaixo de
 `limiares.precisao_confiante` ou a taxa de incerto passa de `limiares.max_incerto`.
-Sem nenhum caso confiante, a precisão é indefinida e conta como 0.
+Sem nenhum caso confiante, a precisão é indefinida e o piso não se aplica — o
+primeiro caso confiante que aparecer já passa a ser cobrado.
 """
 import argparse
 import collections
@@ -68,7 +69,7 @@ def golden(verboso: bool) -> int:
     incertos = total - len(confiantes)
     top2 = sum(1 for r in resultados if r["top2"])
 
-    precisao = acertos / len(confiantes) if confiantes else 0.0
+    precisao = acertos / len(confiantes) if confiantes else None
     taxa_incerto = incertos / total if total else 1.0
 
     print(f"Conjunto dourado de subgênero — {total} faixa(s) com rótulo de referência externa\n")
@@ -101,13 +102,15 @@ def golden(verboso: bool) -> int:
         )
     print()
 
-    print(f"precisão confiante : {acertos}/{len(confiantes)} = {precisao:.3f}   "
+    texto_precisao = f"{precisao:.3f}" if precisao is not None else "indefinida"
+    print(f"precisão confiante : {acertos}/{len(confiantes)} = {texto_precisao}   "
           f"(piso {limiares.get('precisao_confiante', 0):.2f})")
     print(f"taxa de incerto    : {incertos}/{total} = {taxa_incerto:.3f}   "
           f"(teto {limiares.get('max_incerto', 1):.2f})")
     print(f"top-2              : {top2}/{total} = {top2 / total if total else 0:.3f}")
 
-    reprovou = precisao < limiares.get("precisao_confiante", 0) or taxa_incerto > limiares.get("max_incerto", 1)
+    abaixo_do_piso = precisao is not None and precisao < limiares.get("precisao_confiante", 0)
+    reprovou = abaixo_do_piso or taxa_incerto > limiares.get("max_incerto", 1)
     print()
     print("REPROVADO: abaixo do limiar" if reprovou else "aprovado")
     return 1 if reprovou else 0

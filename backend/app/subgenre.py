@@ -16,7 +16,8 @@ from . import taxonomy
 from .models import EvidenceLine, SubgenreBar, SubgenreShare
 from .taxonomy import Tag
 
-# Quanto cada fonte pesa no blend (calibrados na Task 9).
+# Quanto cada fonte pesa no blend. Valores iniciais, escolhidos à mão e NÃO
+# calibrados: o conjunto dourado ainda não tem casos suficientes para isso.
 SOURCE_WEIGHTS = {"track_tags": 1.0, "tempo": 0.8, "artist_tags": 0.4}
 DEFAULT_SOURCE_WEIGHT = 0.6  # fonte extra sem peso próprio
 
@@ -24,14 +25,19 @@ DEFAULT_SOURCE_WEIGHT = 0.6  # fonte extra sem peso próprio
 # a esta distância dela.
 TEMPO_FALLOFF_BPM = 6.0
 
+# Um andamento que empata no topo entre mais rótulos que isto não estreita o
+# subgênero: não confirma outra fonte nem conta como evidência própria.
+TEMPO_MAX_TIED_TO_NARROW = 2
+
 # Abaixo desta fatia o vencedor não basta para virar subgênero.
-# PROVISÓRIO: 0,4 veio de 7 casos confiantes, todos guiados por BPM, de 35 do
-# conjunto dourado externo (evals/subgenre_golden.yaml), e NÃO é calibração.
-# Nenhum desses casos tem tag de faixa (o Last.fm não devolveu nenhuma), então
-# a fonte mais pesada não foi testada. Com 0,5 (valor anterior) nenhum caso
-# virava subgênero; 0,3 a 0,4 dão o mesmo resultado e 0,45 perde quase todos.
-# Refazer a medição quando houver tags de faixa reais ou andamento medido no
-# áudio (Estágio B).
+# PROVISÓRIO: 0,4 foi escolhido com 7 casos confiantes de 35 do conjunto
+# dourado externo (evals/subgenre_golden.yaml), e NÃO é calibração. Esses 7
+# eram tag do artista + um BPM que cabia em 3+ subgêneros; desde que esse
+# andamento deixou de confirmar o artista, nenhum caso sai confiante (0 de 35)
+# e o limiar não tem mais nenhum caso que o teste. Nenhum caso tem tag de
+# faixa (o Last.fm não devolveu nenhuma), então a fonte mais pesada também não
+# foi testada. Refazer a medição quando houver tags de faixa reais ou
+# andamento medido no áudio (Estágio B).
 UNSURE_MIN_SHARE = 0.4
 
 
@@ -140,7 +146,14 @@ def tempo_source(genre: str, bpm: float | None) -> SourceResult | None:
         detail = f"{prefix}; {tied[0]} vai de {low:g} a {high:g}"
     else:
         detail = f"{prefix}; cabe em {', '.join(tied)}"
-    return SourceResult("tempo", distribution, [Evidence("tempo", tied[0], detail)])
+    # Empatado, o andamento não aponta um rótulo só (`says` nulo); o detalhe lista os empatados.
+    says = tied[0] if len(tied) == 1 else None
+    return SourceResult("tempo", distribution, [Evidence("tempo", says, detail)])
+
+
+def _narrows(source: SourceResult) -> bool:
+    """Se a fonte separa subgêneros: um andamento que cabe em muitos não separa."""
+    return source.name != "tempo" or len(_tied_top(source.distribution)) <= TEMPO_MAX_TIED_TO_NARROW
 
 
 def blend(
@@ -175,14 +188,17 @@ def blend(
     ranked = _ranked(_normalized(mixed))
     lean, confidence = ranked[0]
 
-    heaviest = sorted(sources, key=weight, reverse=True)[:2]
-    # Empate no topo conta como concordância: o andamento costuma caber em
-    # vários subgêneros ao mesmo tempo.
+    # Só fontes que estreitam o subgênero confirmam ou contrariam: um andamento
+    # que cabe em três ou mais subgêneros entra no blend, mas não sustenta nada.
+    informative = [s for s in sources if _narrows(s)]
+    heaviest = sorted(informative, key=weight, reverse=True)[:2]
+    # Empate no topo (de até dois rótulos) conta como concordância: o andamento
+    # costuma cair onde duas faixas de BPM se sobrepõem.
     disagree = len(heaviest) == 2 and not (
         set(_tied_top(heaviest[0].distribution)) & set(_tied_top(heaviest[1].distribution))
     )
     unsure = (
-        all(s.name == "artist_tags" for s in sources)
+        all(s.name == "artist_tags" for s in informative)
         or confidence < UNSURE_MIN_SHARE
         or disagree
     )

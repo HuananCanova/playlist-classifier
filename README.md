@@ -303,10 +303,13 @@ ponderadas:
 A faixa de BPM de cada subgênero psy vem do [Guia de Psytrance](https://psytranceguide.com)
 (18 estilos, v1.2, de 2017 — uma opinião curada, registrada por subgênero em
 `source` no `taxonomy.yaml` para poder trocar ou somar outra referência; as
-descrições são nossas, a fonte só é citada e linkada). Dois detalhes do
-andamento: **empate conta como concordância** (um BPM costuma caber em vários
-subgêneros ao mesmo tempo) e um BPM que não cabe em nenhuma faixa é **relido
-como o dobro** (72 por 144, o erro de meio-tempo comum em detectores de BPM).
+descrições são nossas, a fonte só é citada e linkada). Três detalhes do
+andamento: **empate entre dois subgêneros conta como concordância** (um BPM
+costuma cair onde duas faixas se sobrepõem); um BPM que cabe em **três ou mais**
+subgêneros ao mesmo tempo (146 BPM cabe em seis) **não estreita nada** — entra
+no blend, mas não confirma nem contraria outra fonte; e um BPM que não cabe em
+nenhuma faixa é **relido como o dobro** (72 por 144, o erro de meio-tempo comum
+em detectores de BPM).
 
 Os pesos ficam em `SOURCE_WEIGHTS`, no topo de `app/subgenre.py`. Uma fonte nova
 (o áudio, no Estágio B) entra como mais uma dessas distribuições, sem mexer no
@@ -316,7 +319,8 @@ resto.
 
 A faixa fica incerta (`subgenre_unsure`) quando acontece qualquer um destes:
 
-- **só o artista falou** — tags de artista sozinhas nunca decidem;
+- **só o artista falou** — tags de artista sozinhas nunca decidem, nem com um
+  andamento que cabe em três ou mais subgêneros ao lado;
 - **o vencedor tem pouca fatia** — abaixo de `UNSURE_MIN_SHARE` (0,4);
 - **as duas fontes mais pesadas discordam** — os rótulos de topo não se tocam.
 
@@ -387,16 +391,20 @@ Os números de hoje, sem enfeite:
 
 ```
 35 casos
-precisão confiante : 5/7 = 0.714   (piso 0.65)
-taxa de incerto    : 28/35 = 0.800   (teto 0.85)
+precisão confiante : 0/0 = indefinida   (piso 0.65)
+taxa de incerto    : 35/35 = 1.000   (teto 1.00)
 top-2              : 16/35 = 0.457
 ```
 
-A leitura honesta: o app **afirma** pouco (7 de 35), acerta 5 dessas 7 e se
-abstém em 80%. "Incerto" nunca conta como acerto. O piso e o teto do CI saíram
-desta primeira medição, não foram escolhidos antes — existem para reprovar
-regressão, não para comemorar. Sete casos confiantes é muito pouco para a
-precisão: um acerto a mais ou a menos move 14 pontos.
+A leitura honesta: hoje o app **não afirma nenhum** dos 35 casos. "Incerto"
+nunca conta como acerto. Numa primeira medição ele afirmava 7 (5 certos, 2
+errados), mas os 7 eram "tag do artista + um BPM que cabe em três ou mais
+subgêneros" — o andamento não estreitava nada e o artista decidia sozinho, que
+é justamente o que o app promete não fazer. Sem tag de faixa no conjunto, sobra
+o top-2 (16 de 35) como sinal de que o blend aponta na direção certa. O piso de
+precisão (0,65, da primeira medição) só se aplica quando houver caso confiante —
+o primeiro errado reprova; o teto de incerto fica em 1,0 porque não há folga
+acima de 35/35. Existem para reprovar regressão, não para comemorar.
 
 ### Limites medidos
 
@@ -407,11 +415,14 @@ precisão: um acerto a mais ou a menos move 14 pontos.
   seguirá incerta até haver outra fonte de andamento.
 - **O Last.fm não devolveu tag de faixa nenhuma** para as faixas de referência.
   Resultado: a fonte mais pesada (tags da faixa) **não foi testada** no conjunto
-  dourado — todo caso afirmado hoje é guiado por BPM.
-- **`UNSURE_MIN_SHARE = 0.4` é provisório.** Veio desses 7 casos confiantes, não é
-  calibração: com 0,5 nenhum caso virava subgênero; 0,3 a 0,4 dão o mesmo
-  resultado; 0,45 perde quase todos. O comentário no código marca isso. Refazer a
-  medição quando houver tags de faixa reais ou andamento medido no áudio.
+  dourado — e o BPM sozinho quase sempre cabe em vários subgêneros, então nenhum
+  caso sai afirmado.
+- **`UNSURE_MIN_SHARE = 0.4` e os pesos das fontes são provisórios.** O limiar
+  foi escolhido com aqueles 7 casos confiantes da primeira medição, que já não
+  saem confiantes — hoje nenhum caso o testa. Os pesos (`SOURCE_WEIGHTS`) são
+  valores iniciais, escolhidos à mão, nunca ajustados no conjunto. O comentário
+  no código marca isso. Refazer a medição quando houver tags de faixa reais ou
+  andamento medido no áudio.
 - **O Discogs foi avaliado e descartado.** Os estilos de lançamento que ele devolve
   para o psy do acervo são só `Psy-Trance`, `Progressive Trance` e `Goa Trance` —
   nada mais fino (o darkpsy do Klipsun volta como Psy-Trance / Progressive

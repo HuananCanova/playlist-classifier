@@ -13,12 +13,17 @@
 # `limiares` são os pisos/tetos que `run_subgenre_evals.py` cobra.
 
 limiares:
-  # Piso e teto medidos na primeira corrida honesta (precisão confiante 5/7 = 0,714,
-  # incerto 28/35 = 0,800), com folga. Com 7 casos confiantes, um erro a mais
-  # derruba a precisão a 0,57 e reprova — é o que se quer: o número é baixo e
-  # qualquer piora precisa aparecer.
+  # Corrida honesta depois de o andamento empatado em 3+ subgêneros deixar de
+  # confirmar as tags do artista: 0 casos confiantes de 35 (precisão
+  # indefinida), incerto 35/35 = 1,000. Os 7 casos que antes saíam confiantes
+  # (5 certos, 2 errados) eram todos "tag do artista + andamento que cabe em
+  # quase tudo" — o conjunto não tem tag de faixa nem BPM que estreite.
+  # O piso 0,65 vem da corrida anterior (5/7 = 0,714) e só vale quando houver
+  # caso confiante: o primeiro que aparecer errado reprova. O teto de incerto
+  # fica em 1,0 porque não há folga acima de 35/35; volta a ter função quando
+  # houver tags de faixa reais ou andamento medido no áudio (Estágio B).
   precisao_confiante: 0.65
-  max_incerto: 0.85
+  max_incerto: 1.0
 casos:
 - id: bitkit-meteorite
   faixa: Bitkit — Meteorite

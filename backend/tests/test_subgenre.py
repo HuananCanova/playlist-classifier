@@ -16,8 +16,8 @@ def test_tempo_inside_range_votes_that_subgenre():
     assert source.distribution.get("progressive psytrance", 0) == 0
     assert source.distribution.get("psy-techno", 0) == 0
     assert abs(sum(source.distribution.values()) - 1) < 1e-9
-    # Com o empate, a evidência lista todos os empatados; `says` é o primeiro.
-    assert source.evidence[0].says == "darkpsy"
+    # Com o empate, a evidência lista todos os empatados e não aponta um só.
+    assert source.evidence[0].says is None
     assert source.evidence[0].detail == (
         "146 BPM; cabe em darkpsy, full-on, goa trance, hypnotic psy, night full-on, nitzhonot"
     )
@@ -31,6 +31,36 @@ def test_tied_tempo_counts_as_agreement():
     result = blend("psytrance", artist_tags=[], track_tags=[Tag("full-on")], bpm=146)
     assert not result.unsure
     assert result.subgenre == "full-on"
+
+
+def test_tempo_single_label_says_it():
+    assert tempo_source("psytrance", 100).evidence[0].says == "psychill"
+
+
+def test_wide_tempo_tie_does_not_confirm_artist():
+    # 148 BPM cabe em seis subgêneros: não estreita nada, então só o artista sustenta.
+    result = blend("psytrance", artist_tags=[Tag("darkpsy")], track_tags=[], bpm=148)
+    assert result.unsure
+    assert result.subgenre is None
+    assert result.lean == "darkpsy"
+
+
+def test_wide_tempo_tie_read_as_double_does_not_confirm_artist():
+    result = blend("psytrance", artist_tags=[Tag("darkpsy")], track_tags=[], bpm=74)
+    assert result.unsure
+
+
+def test_four_way_tempo_tie_does_not_confirm_artist():
+    # 135 BPM: goa, offbeat, progressive e psy-techno empatados.
+    result = blend("psytrance", artist_tags=[Tag("progressive psytrance")], track_tags=[], bpm=135)
+    assert result.unsure
+
+
+def test_two_way_tempo_tie_confirms_artist():
+    # 132 BPM: só progressive e psy-techno — o andamento estreita, e confirma.
+    result = blend("psytrance", artist_tags=[Tag("progressive psytrance")], track_tags=[], bpm=132)
+    assert not result.unsure
+    assert result.subgenre == "progressive psytrance"
 
 
 def test_tempo_overlap_shares():

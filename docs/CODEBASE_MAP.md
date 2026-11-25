@@ -378,7 +378,7 @@ SSE event types: `tool`, `text`, `done` and `error`. If the client disconnects, 
 | `backend/evals/genre_golden.yaml` + `run_genre_evals.py` | genre (45 cases) and non-psy subgenre (29) accuracy, pure and offline; `--cobertura` lists unmapped tags | — |
 | `backend/evals/subgenre_refs.yaml` | external references (psytranceguide.com examples, Beatport track pages with URL) | — |
 | `backend/evals/congelar_subgeneros.py` | deliberate script: fetches Last.fm + Deezer inputs once and writes `subgenre_golden.yaml` (frozen, never touches the app DB) | — |
-| `backend/evals/run_subgenre_evals.py` | offline subgenre eval: confident precision (floor 0.65), unsure rate (ceiling 0.85), top-2; today 5/7, 28/35, 16/35 | — |
+| `backend/evals/run_subgenre_evals.py` | offline subgenre eval: confident precision (floor 0.65, skipped with no confident case), unsure rate (ceiling 1.0), top-2; today 0/0, 35/35, 16/35 | — |
 
 The tests make no network calls. `pytest.ini` sets `asyncio_mode = auto` and `testpaths = tests`.
 

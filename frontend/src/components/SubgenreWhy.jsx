@@ -22,11 +22,13 @@ function segmentos(blend) {
 // conjunto do que ela diz (a fonte de tags emite uma linha por tag), e há
 // discordância quando duas fontes têm conjuntos disjuntos. Sobreposição conta
 // como acordo. Ex.: artist_tags {full-on, darkpsy} sozinha não discorda; com
-// tempo {goa}, sim.
+// tempo {goa}, sim. O andamento empatado vem com `says` nulo (o backend não
+// escolhe um dos empatados), então não entra na comparação.
 export function motivosIncerteza(evidence) {
   const fontes = new Set(evidence.map((e) => e.source));
   const itens = [];
   if (!fontes.has("tempo")) itens.push("sem BPM conhecido");
+  else if (evidence.some((e) => e.source === "tempo" && !e.says)) itens.push("o BPM cabe em mais de um subgênero");
   if (!fontes.has("track_tags")) itens.push("o Last.fm só marca o artista, não a faixa");
   const porFonte = new Map();
   for (const e of evidence) {
