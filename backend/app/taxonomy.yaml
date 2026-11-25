@@ -31,7 +31,8 @@
 # ordenada por impacto, então as primeiras linhas são sempre o melhor lugar
 # para gastar os próximos cinco minutos.
 
-version: 2
+# v3: "twilight" e "forest" soltos viraram ambíguos; o que foi guardado em v2 precisa ser reclassificado.
+version: 3
 
 # ── O que NUNCA é gênero ─────────────────────────────────────────────────────
 #
