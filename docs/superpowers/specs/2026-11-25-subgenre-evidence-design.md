@@ -301,7 +301,15 @@ threshold. Under the new rules many of those cases should rightly become
   Per the rule in section 3: the tempo source stays (it's cheap), but most psy
   tracks will be "unsure" from tempo's point of view until Stage B's audio
   tempo model; Stage B moves up in priority.
-- **Discogs gate:** not run yet — needs the owner's `DISCOGS_TOKEN`.
+- **Discogs gate: failed.** Only 5 albums had a stored name (5/5 found: Psy-Trance
+  5, Progressive Trance 4). A wider read-only check over the releases of the 40
+  most frequent psy artists in the library (up to 25 releases each) returned
+  Psy-Trance 511, Progressive Trance 498, Goa Trance 20 as the psy styles —
+  nothing finer. Klipsun (darkpsy) comes back as Psy-Trance / Progressive
+  Trance. Discogs styles don't separate psy subgenres beyond the three named in
+  section 4, so the `release` source is dropped: Task 8 is skipped and
+  `DISCOGS_ENABLED` stays False. The client and token stay, unused, in case a
+  later reference needs them.
 
 ## Stage B (later, its own spec)
 
