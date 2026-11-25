@@ -249,3 +249,52 @@ def test_routes_return_429_without_a_listing_and_progress_otherwise(rotas):
     estado["429"] = True
     assert client.post("/api/subgenres/enrich").status_code == 429
     assert client.get("/api/subgenres/enrich").status_code == 200  # só consulta o que o job sabe
+
+
+async def test_deezer_incomplete_is_not_cached_so_next_call_retries():
+    detalhe_ok = {"valor": False}
+
+    def handler(req):
+        if req.url.path.endswith("/search"):
+            return httpx.Response(200, json={"data": [{"id": 42, "title": "Um", "artist": {"name": "A"}, "link": "http://dz/42"}]})
+        if not detalhe_ok["valor"]:
+            return httpx.Response(503)
+        return httpx.Response(200, json={"id": 42, "bpm": 140, "link": "http://dz/42"})
+
+    client = _cliente_deezer(handler)
+    primeira = await deezer_client.get_track_info(client, "A", "Um")
+    assert isinstance(primeira, deezer_client.Incomplete)
+
+    detalhe_ok["valor"] = True
+    segunda = await deezer_client.get_track_info(client, "A", "Um")
+    assert not isinstance(segunda, deezer_client.Incomplete)
+    assert segunda["bpm"] == 140.0
+
+
+async def test_job_retries_deezer_detail_failure_in_the_same_process(monkeypatch):
+    # Sem trocar get_many: a falha do detalhe passa pelo cliente real (e seus caches).
+    estado = {"detalhe": False}
+
+    def handler(req):
+        if req.url.path.endswith("/search"):
+            return httpx.Response(200, json={"data": [{"id": 42, "title": "Faixa a", "artist": {"name": "Artista"}, "link": "u"}]})
+        if not estado["detalhe"]:
+            return httpx.Response(503)
+        return httpx.Response(200, json={"id": 42, "bpm": 150, "link": "u"})
+
+    async def tags(*a, **k):
+        return [Tag("psytrance", 100.0)]
+
+    real = httpx.AsyncClient
+    monkeypatch.setattr(enrichment_job.httpx, "AsyncClient", lambda **kw: real(transport=httpx.MockTransport(handler)))
+    monkeypatch.setattr(lastfm_client, "get_artist_tags", tags)
+    monkeypatch.setattr(lastfm_client, "get_track_tags", tags)
+
+    digests = _digests(_t("a"))
+    await _rodar(digests)
+    assert evidence_store.get_many(["a"])["a"].deezer_checked_at is None
+
+    estado["detalhe"] = True
+    await _rodar(digests)
+    ev = evidence_store.get_many(["a"])["a"]
+    assert (ev.bpm, ev.deezer_id) == (150.0, 42) and ev.deezer_checked_at is not None

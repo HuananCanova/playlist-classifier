@@ -339,12 +339,13 @@ async def get_track_info(client: httpx.AsyncClient, artist: str, track: str) -> 
     except (httpx.HTTPError, ValueError, KeyError):
         pass  # fica só com o que a busca já deu (prévia e link)
 
+    # Sem o detalhe, o BPM ficou desconhecido por falha, não por ausência:
+    # guardar isso (no banco ou na memória) esconderia o BPM e impediria a
+    # próxima tentativa. Só o resultado completo entra nos caches.
     if not detail_ok:
         info = Incomplete(info)
-    deezer_track_cache[cache_key] = info
-    # Sem o detalhe, o BPM ficou desconhecido por falha, não por ausência:
-    # guardar isso esconderia o BPM por semanas. A próxima análise tenta de novo.
-    if detail_ok:
+    else:
+        deezer_track_cache[cache_key] = info
         await asyncio.to_thread(
             enrichment_store.put_deezer_match, cache_key, info["deezer_id"], info["bpm"], info["deezer_url"]
         )
