@@ -6,6 +6,7 @@ import AudioMetrics from "../components/AudioMetrics.jsx";
 import ChatWidget from "../components/ChatWidget.jsx";
 import { SearchHit } from "./Search.jsx";
 import BackLink from "../components/BackLink.jsx";
+import SubgenreWhy from "../components/SubgenreWhy.jsx";
 
 function Stat({ value, label, hint }) {
   return (
@@ -175,6 +176,8 @@ export default function TrackDetail() {
             </div>
           </section>
         )}
+
+        <SubgenreWhy track={track} />
 
         {similares.length > 0 && (
           <section className="panel">

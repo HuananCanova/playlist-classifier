@@ -82,6 +82,7 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
         genre_confidence=classificacao.confidence or None,
         genre_evidence=classificacao.evidence,
         **subgenre.subgenre_fields(mistura),
+        subgenre_reference=_referencia(mistura.lean),
         bpm=bpm,
         preview_url=(deezer or {}).get("preview_url"),
         deezer_url=(deezer or {}).get("deezer_url"),
@@ -91,6 +92,13 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
     track_detail_cache[track_id] = detail
     await _guardar_evidencia(faixa.get("id", track_id), len(artistas), artist_tags, tags, deezer)
     return detail
+
+
+def _referencia(lean: str | None) -> dict | None:
+    info = taxonomy.subgenre_info(lean) if lean else None
+    if info is None:
+        return None
+    return {"name": info.name, "bpm": list(info.bpm) if info.bpm else None, "about": info.about, "source": info.source}
 
 
 async def _evidencia_guardada(track_id: str):

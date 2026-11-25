@@ -126,3 +126,22 @@ async def test_track_detail_has_blend_and_stores_evidence(monkeypatch):
     assert detail.subgenre_blend and detail.subgenre_evidence
     ev = evidence_store.get_many(["t9"])["t9"]
     assert ev.track_tags == [Tag("full-on", 80.0)] and ev.bpm == 146.0
+
+
+async def test_track_detail_reference_follows_lean(monkeypatch):
+    from app import enrichment_store, tracks
+    from app.cache import track_detail_cache
+
+    async def fake_parallel(client, artist, title, duration):
+        return {"bpm": 146.0, "preview_url": None, "deezer_url": None}, [Tag("full-on", 80.0)], [Tag("psytrance", 100.0)]
+
+    monkeypatch.setattr(tracks, "_buscar_em_paralelo", fake_parallel)
+    enrichment_store.put_spotify_tracks(
+        [{"id": "t10", "name": "Dez", "duration_ms": 1, "album": {}, "artists": [{"name": "A"}]}]
+    )
+    track_detail_cache.pop("t10", None)
+    ref = (await tracks.build_track_detail("tok", "t10")).subgenre_reference
+    assert ref["name"] == "full-on" and len(ref["bpm"]) == 2 and "source" in ref and "about" in ref
+
+    assert tracks._referencia(None) is None
+    assert tracks._referencia("não existe") is None

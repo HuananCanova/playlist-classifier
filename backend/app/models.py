@@ -90,6 +90,9 @@ class TrackDetail(BaseModel):
     subgenre_confidence: float | None = None
     subgenre_unsure: bool = False
     subgenre_evidence: list[EvidenceLine] = []
+    # Referência do subgênero em que a faixa pende ({name, bpm, about, source}),
+    # para o cartão da faixa dispensar outra chamada. None sem lean ou fora do YAML.
+    subgenre_reference: dict | None = None
     # Vêm do Deezer e podem faltar: BPM só existe em ~43% das faixas, e o
     # preview em ~93%.
     bpm: float | None = None
