@@ -7,7 +7,7 @@ import asyncio
 
 from fastapi import APIRouter, HTTPException, Request
 
-from . import enrichment_job, profile_store
+from . import enrichment_job, profile_store, subgenre_library
 from .auth import get_valid_access_token
 from .playlists import account_key, get_playlist_summaries
 
@@ -58,3 +58,23 @@ async def stop_enrich(request: Request):
     account = account_key(request)
     await enrichment_job.cancel(account)
     return enrichment_job.progress_dict(account)
+
+
+@router.get("")
+async def library(request: Request):
+    """Os subgêneros do acervo com quantas faixas cada um tem."""
+    await get_valid_access_token(request)
+    return subgenre_library.library_subgenres(await _digests(request))
+
+
+# Depois de /enrich: o parâmetro de caminho engoliria a rota fixa.
+@router.get("/{name}")
+async def subgenre_page(name: str, request: Request):
+    """Faixas de um subgênero: as classificadas como ele e as que puxam para ele."""
+    await get_valid_access_token(request)
+    playlists = await get_playlist_summaries(request)
+    digests = await _digests(request)
+    page = subgenre_library.subgenre_tracks(digests, playlists, name)
+    if page is None:
+        raise HTTPException(status_code=404, detail="Subgênero desconhecido.")
+    return page
