@@ -105,6 +105,9 @@ class _Taxonomy:
         self.index: dict[str, Node] = {}
         self.ignored: set[str] = set()
         self.patterns: list[re.Pattern] = []
+        # Gêneros marcados `fallback` no YAML: supergêneros cuja tag SOLTA só
+        # vale quando nada mais classificou a faixa (ver `classify`).
+        self.fallbacks: set[str] = set()
 
         ignore = data.get("ignore") or {}
         for key, values in ignore.items():
@@ -116,6 +119,8 @@ class _Taxonomy:
 
         for genre, body in (data.get("genres") or {}).items():
             body = body or {}
+            if body.get("fallback"):
+                self.fallbacks.add(genre)
             self._put(genre, Node(genre, None))
             for alias in body.get("aliases") or []:
                 self._put(alias, Node(genre, None))
@@ -250,6 +255,22 @@ def classify(
 
     if not scores:
         return Classification(None, None, 0.0, [], [], sorted(set(artist_open + track_open)))
+
+    # Supergênero de carona sai da conta. "electronic" e "trance" aparecem como
+    # tag solta em quase toda faixa de techno, house ou psytrance, e contá-los
+    # inflava um rótulo que não diz o que a faixa é — no perfil desta conta,
+    # "electronic" chegava ao segundo lugar desse jeito. A tag solta de um
+    # gênero `fallback` só vale quando nada mais classificou a faixa; o subgênero
+    # dele (dubstep, ambient, progressive trance) pontua sempre, porque esse diz.
+    taxonomia = load()
+    de_carona = {
+        node for node in scores
+        if node.subgenre is None and node.genre in taxonomia.fallbacks
+    }
+    if de_carona and len(de_carona) < len(scores):
+        for node in de_carona:
+            del scores[node]
+            sources.pop(node, None)
 
     # O filho pontua o pai: é o que faz "minimal techno" ser techno.
     genre_scores: dict[str, float] = {}

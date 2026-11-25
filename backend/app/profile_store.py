@@ -52,6 +52,11 @@ def digest_from_analysis(analysis: PlaylistAnalysis, *, has_audio: bool) -> dict
         "snapshot_id": p.snapshot_id,
         "saved_at": time.time(),
         "has_audio": has_audio,
+        # Qual versão da taxonomia classificou estes rótulos. Não faz parte do
+        # `VERSION` do resumo de propósito: taxonomia nova não invalida o
+        # resumo (que seria uma varredura do Spotify), só pede reclassificação
+        # local — `scripts/reclassificar_generos.py`.
+        "genre_taxonomy": analysis.genre_taxonomy,
         "playlist": {
             "id": p.id,
             "name": p.name,

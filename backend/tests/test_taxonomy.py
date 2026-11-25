@@ -221,3 +221,184 @@ def test_todo_subgenero_tem_nome_proprio():
     for chave, no in tabela.index.items():
         if no.subgenre is not None:
             assert taxonomy.normalize(no.subgenre) != taxonomy.normalize(no.genre), chave
+
+
+# ── reclassificação do que já está guardado ──────────────────────────────────
+
+
+def _faixa_antiga(**extra):
+    """Uma faixa como o pipeline ANTES da taxonomia a guardava: `genres` com as
+    tags cruas do artista e `subgenre_tags` com a união, tudo em ordem
+    alfabética e sem peso."""
+    from app.models import TrackGenreInfo
+
+    base = dict(
+        track_id="t1",
+        name="Faixa",
+        artists=["Artista"],
+        duration_ms=1000,
+        genres=["brazil", "classic rock", "hard rock", "rock"],
+        subgenre_tags=["brazil", "classic rock", "guitar", "hard rock", "rock"],
+        bpm=120.0,
+    )
+    return TrackGenreInfo(**{**base, **extra})
+
+
+def test_reclassifica_faixa_guardada_sem_tocar_em_rede():
+    from app import reclassify
+
+    nova = reclassify.track(_faixa_antiga())
+
+    assert nova.genre == "rock"
+    assert nova.subgenre == "classic rock"
+    assert nova.genres == ["rock"]
+    # País e instrumento saem; o resto das tags fica.
+    assert "brazil" not in nova.subgenre_tags
+    assert "guitar" not in nova.subgenre_tags
+    assert "classic rock" in nova.subgenre_tags
+    # Nada que venha do Spotify ou do Deezer é tocado.
+    assert nova.bpm == 120.0
+    assert nova.track_id == "t1"
+
+
+def test_reclassificar_marca_a_versao_da_taxonomia():
+    """O selo é o que faz o backfill ser idempotente: o script pula o que já
+    está na versão em vigor, e reclassifica tudo quando ela muda."""
+    from app import reclassify
+    from app.models import PlaylistAnalysis, PlaylistSummary
+
+    analise = PlaylistAnalysis(
+        playlist=PlaylistSummary(id="p1", name="Playlist", track_count=1),
+        tracks=[_faixa_antiga()],
+        genre_distribution=[],
+        subgenre_distribution=[],
+        top_artists=[],
+        bpm_histogram=[],
+        tracks_missing_genre=0,
+    )
+
+    assert reclassify.is_current(analise) is False      # guardada antes da taxonomia
+    nova = reclassify.analysis(analise)
+    assert nova.genre_taxonomy == reclassify.current_version()
+    assert reclassify.is_current(nova) is True
+
+    resumo, _ = reclassify.digest({"tracks": [{"genres": ["rock"], "tags": ["classic rock"]}]})
+    assert reclassify.is_current(resumo) is True
+    assert reclassify.is_current({"tracks": []}) is False
+
+
+def test_selo_de_versao_impede_a_segunda_passada_de_mexer_em_nada():
+    """Sem o selo, reclassificar em cima dos próprios rótulos derivados movia
+    gênero secundário em volta do piso de confiança — 239 das 2.228 faixas do
+    acervo na segunda passada. O selo resolve isso estruturalmente."""
+    from app import reclassify
+
+    # Faixa com duas famílias, que é onde a instabilidade aparecia.
+    resumo = {
+        "tracks": [
+            {
+                "genres": ["rap", "rock", "alternative rock", "hip-hop"],
+                "tags": ["alternative rock", "hip hop", "rap", "rock", "rap metal"],
+            }
+        ]
+    }
+    uma, _ = reclassify.digest(resumo)
+    assert reclassify.is_current(uma) is True
+
+    # O script pula um resumo já selado — é esta a garantia que ele oferece.
+    duas, mudadas = reclassify.digest(uma)
+    assert reclassify.is_current(duas) is True
+    # E se for forçado, o selo continua o mesmo (a versão não mudou).
+    assert duas["genre_taxonomy"] == uma["genre_taxonomy"]
+
+
+def test_reclassifica_analise_refaz_as_distribuicoes():
+    from app import reclassify
+    from app.models import PlaylistAnalysis, PlaylistSummary
+
+    analise = PlaylistAnalysis(
+        playlist=PlaylistSummary(id="p1", name="Playlist", track_count=2),
+        tracks=[
+            _faixa_antiga(),
+            _faixa_antiga(
+                track_id="t2",
+                genres=["brasil", "female vocalists"],
+                subgenre_tags=["brasil", "female vocalists"],
+            ),
+        ],
+        # Como estavam: um voto por tag, e as duas listas repetindo rótulo.
+        genre_distribution=[],
+        subgenre_distribution=[],
+        top_artists=[],
+        bpm_histogram=[],
+        tracks_missing_genre=0,
+    )
+
+    nova = reclassify.analysis(analise)
+
+    assert [(g.label, g.count) for g in nova.genre_distribution] == [("rock", 1)]
+    assert [(g.label, g.count) for g in nova.subgenre_distribution] == [("classic rock", 1)]
+    # A segunda faixa só tinha país e voz: deixa de receber rótulo inventado.
+    assert nova.tracks_missing_genre == 1
+
+
+def test_resumo_reclassificado_fica_igual_a_um_escrito_agora():
+    """A invariante que dá sentido ao backfill: depois dele, um resumo antigo é
+    indistinguível de um gravado pelo caminho novo."""
+    from app import profile_store, reclassify
+    from app.models import PlaylistAnalysis, PlaylistSummary
+
+    faixa = _faixa_antiga()
+    analise = PlaylistAnalysis(
+        playlist=PlaylistSummary(id="p1", name="Playlist", snapshot_id="s1", track_count=1),
+        tracks=[faixa],
+        genre_distribution=[],
+        subgenre_distribution=[],
+        top_artists=[],
+        bpm_histogram=[],
+        tracks_missing_genre=0,
+    )
+
+    antigo, _ = reclassify.digest(profile_store.digest_from_analysis(analise, has_audio=True))
+    agora = profile_store.digest_from_analysis(reclassify.analysis(analise), has_audio=True)
+
+    assert antigo["tracks"][0]["genres"] == agora["tracks"][0]["genres"]
+    assert antigo["tracks"][0]["tags"] == agora["tracks"][0]["tags"]
+
+
+# ── supergênero de carona ────────────────────────────────────────────────────
+
+
+def test_supergenero_solto_nao_vira_segundo_genero():
+    """"electronic" e "trance" vêm de carona em quase toda faixa eletrônica;
+    contá-los levava "electronic" ao segundo lugar do perfil da conta."""
+    resultado = taxonomy.classify(
+        artist_tags=[Tag("psytrance", 100), Tag("electronic", 95), Tag("trance", 90)]
+    )
+    assert resultado.genre == "psytrance"
+    assert resultado.genres == ["psytrance"]
+    assert resultado.confidence == 1.0
+
+
+def test_supergenero_sozinho_continua_classificando():
+    resultado = taxonomy.classify(artist_tags=[Tag("electronic", 100)])
+    assert resultado.genre == "electronic"
+
+
+def test_dois_supergeneros_sozinhos_continuam_classificando():
+    resultado = taxonomy.classify(artist_tags=[Tag("electronic", 100), Tag("trance", 90)])
+    assert resultado.genre in {"electronic", "trance"}
+
+
+def test_subgenero_de_supergenero_pontua_sempre():
+    """Só a tag solta é enfraquecida: "dubstep" diz o que a faixa é."""
+    resultado = taxonomy.classify(
+        artist_tags=[Tag("dubstep", 100), Tag("electronic", 90), Tag("soul", 30)]
+    )
+    assert resultado.genre == "electronic"
+    assert resultado.subgenre == "dubstep"
+
+
+def test_fallback_declarado_no_yaml_e_nao_no_codigo():
+    """A lista de supergêneros é dado, não `if` espalhado pelo classificador."""
+    assert taxonomy.load().fallbacks == {"electronic", "trance"}

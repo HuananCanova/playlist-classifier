@@ -17,6 +17,13 @@
 # funk carioca) ficaram FORA de propósito — um conjunto dourado com cara ou
 # coroa dentro mede sorte.
 #
+# "Stay High (Habits Remix)", da Tove Lo com o Hippie Sabotage, saiu daqui pelo
+# mesmo motivo, e vale registrar por quê: ela trocou de resposta quando a regra
+# de supergênero entrou (`fallback` em taxonomy.yaml), porque "pop" e
+# "electronic" se defendem igualmente numa faixa que é remix de uma música pop.
+# Rotular de novo para acompanhar a implementação seria ajustar a régua ao que
+# está sendo medido.
+#
 # Formato de cada caso:
 #   id          identificador curto
 #   faixa       artista — título, só para a saída ficar legível
@@ -257,16 +264,31 @@ casos:
     genero: electronic
     subgenero: dubstep
 
-  - id: tove-lo-stay-high
-    faixa: Tove Lo, Hippie Sabotage — Stay High (Habits Remix)
+  - id: supergenero-de-carona-nao-conta
+    faixa: (caso sintético) psytrance marcada também como "electronic"
     nota: >
-      Rótulo revisto: a artista é pop, mas a faixa é o remix do Hippie Sabotage,
-      e "electronic" + "trip-hop" (140) descrevem o que toca melhor que "pop"
-      (100). Caso útil justamente por isso: o gênero é da FAIXA, não da carreira
-      de quem canta.
-    artista: [[pop, 100], [electronic, 80], [trip-hop, 60], [Hip-Hop, 40], [swedish, 30]]
+      Quase toda faixa de techno, house ou psytrance também é marcada com
+      "electronic" ou "trance". Contar isso como um segundo gênero levava
+      "electronic" ao segundo lugar do perfil da conta sem dizer nada sobre a
+      música. A tag solta de um supergênero (`fallback` no YAML) só vale quando
+      nada mais classificou a faixa.
+    artista: [[psytrance, 100], [electronic, 95], [trance, 90]]
+    genero: psytrance
+
+  - id: supergenero-sozinho-ainda-classifica
+    faixa: (caso sintético) faixa que só diz "electronic"
+    nota: A regra enfraquece o supergênero de carona, não o apaga do vocabulário.
+    artista: [[electronic, 100], [seen live, 40]]
     genero: electronic
-    subgenero: trip-hop
+
+  - id: subgenero-de-supergenero-conta-sempre
+    faixa: (caso sintético) dubstep, que é subgênero de electronic
+    nota: >
+      "dubstep" diz o que a faixa é; "electronic" solto não. Só o segundo é
+      enfraquecido, e por isso esta faixa continua sendo electronic.
+    artista: [[dubstep, 100], [electronic, 90], [soul, 30]]
+    genero: electronic
+    subgenero: dubstep
 
   - id: alborosie-no-cocaine
     faixa: Alborosie — No Cocaine

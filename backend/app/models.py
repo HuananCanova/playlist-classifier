@@ -163,3 +163,8 @@ class PlaylistAnalysis(BaseModel):
     average_bpm: float | None = None
     tracks_missing_genre: int
     tracks_missing_bpm: int = 0
+    # Versão da taxonomia que classificou esta análise (`app/taxonomy.yaml`).
+    # None = análise guardada antes da taxonomia existir. É o que permite
+    # reclassificar o que está no banco sem rede e sem refazer o que já está
+    # em dia — ver `scripts/reclassificar_generos.py`.
+    genre_taxonomy: int | None = None

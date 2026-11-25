@@ -332,6 +332,11 @@ genres:
       dark progressive: [dark prog]
 
   trance:
+    # Ver `fallback` em electronic: num acervo de psytrance, "trance" vem de
+    # carona em quase toda faixa. Como supergênero ele não acrescenta nada a uma
+    # faixa que já é psytrance; como gênero próprio (uma faixa de "progressive
+    # trance", ou só "trance") continua valendo.
+    fallback: true
     aliases: [trance music]
     subgenres:
       progressive trance: []
@@ -372,6 +377,16 @@ genres:
       uk garage: [2-step]
 
   electronic:
+    # `fallback`: "electronic", "dance" e "edm" são supergêneros. Quase toda
+    # faixa de techno, house ou psytrance também é marcada com eles, e contar
+    # isso como um segundo gênero inflava "electronic" até o segundo lugar do
+    # perfil sem dizer nada sobre a música. Então a tag SOLTA de um gênero
+    # fallback só vale quando nada mais classificou a faixa — uma faixa que só
+    # diz "electronic" continua sendo electronic.
+    #
+    # Só a tag solta é enfraquecida: "dubstep" e "ambient" são subgêneros daqui
+    # e pontuam normalmente, porque dizem de verdade o que a faixa é.
+    fallback: true
     aliases: [electronica, electro, edm, dance, electronic music, idm]
     subgenres:
       ambient: [dark ambient]
