@@ -24,8 +24,11 @@ DEFAULT_SOURCE_WEIGHT = 0.6  # fonte extra sem peso próprio
 # a esta distância dela.
 TEMPO_FALLOFF_BPM = 6.0
 
-# Abaixo desta fatia o vencedor não basta para virar subgênero.
-UNSURE_MIN_SHARE = 0.5
+# Abaixo desta fatia o vencedor não basta para virar subgênero. Medido no
+# conjunto dourado externo (evals/subgenre_golden.yaml): 0,3 a 0,4 dão o mesmo
+# resultado; 0,5 (o valor anterior) não deixava nenhum caso virar subgênero e
+# 0,45 já perde quase todos. Fica 0,4, o meio do patamar.
+UNSURE_MIN_SHARE = 0.4
 
 
 class Evidence(NamedTuple):

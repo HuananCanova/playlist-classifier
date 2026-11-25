@@ -1,0 +1,74 @@
+# Referências externas do conjunto dourado de subgênero.
+#
+# O rótulo de cada caso vem de FORA do app e de quem o mantém: ou é um exemplo
+# que o Guia de Psytrance (psytranceguide.com) lista para o estilo, ou é o
+# gênero/subgênero que a própria página da faixa no Beatport exibe. Nenhum
+# rótulo é julgamento nosso, nem sai das playlists da conta.
+#
+# Formato de cada caso:
+#   id          identificador curto
+#   artista     nome usado nas consultas ao Last.fm e ao Deezer (o principal, quando há vários)
+#   credito     artistas como creditados na referência (só para leitura)
+#   titulo      título da faixa
+#   subgenero   o subgênero da taxonomia que a referência indica
+#   referencia  onde se confere: URL da faixa no Beatport, ou o guia + a seção
+#   fonte       "guia" | "beatport"
+#
+# Cobertura honesta: o guia dá 4 exemplos por estilo; as páginas do Beatport só
+# trazem subgênero em parte das faixas (a maioria vem só "Psy-Trance"), e o
+# Beatport não tem offbeat nem psychill, e junta darkpsy+forest ("Dark & Forest")
+# e hitech+psycore ("Psycore & Hi-Tech"). Esses estilos ficam com os 4 do guia.
+# Faixas que o Beatport marca só como "Psy-Trance" ou com subgênero ambíguo
+# foram lidas e DEIXADAS DE FORA em vez de completar a cota por palpite.
+
+casos:
+  # ── progressive psytrance ──────────────────────────────────────────────────
+  - {id: bitkit-meteorite, artista: Bitkit, titulo: Meteorite, subgenero: progressive psytrance, fonte: guia, referencia: "https://psytranceguide.com (seção Progressive Psy)"}
+  - {id: porat-undipresia, artista: Porat, titulo: Undipresia, subgenero: progressive psytrance, fonte: guia, referencia: "https://psytranceguide.com (seção Progressive Psy)"}
+  - {id: ticon-you-can-have-my-fraggies, artista: Ticon, titulo: You Can Have My Fraggies, subgenero: progressive psytrance, fonte: guia, referencia: "https://psytranceguide.com (seção Progressive Psy)"}
+  - {id: vibrasphere-morning-breeze, artista: Vibrasphere, titulo: Morning Breeze, subgenero: progressive psytrance, fonte: guia, referencia: "https://psytranceguide.com (seção Progressive Psy)"}
+  - {id: paracozm-time, artista: Paracozm, titulo: Time, subgenero: progressive psytrance, fonte: beatport, referencia: "https://www.beatport.com/track/time/16088721"}
+  - {id: ebony-willis-exoskeleton, artista: Ebony Willis, titulo: Exoskeleton, subgenero: progressive psytrance, fonte: beatport, referencia: "https://www.beatport.com/track/exoskeleton/20712047"}
+
+  # ── full-on ────────────────────────────────────────────────────────────────
+  - {id: digicult-cosmic-company, artista: DigiCult, titulo: Cosmic Company, subgenero: full-on, fonte: guia, referencia: "https://psytranceguide.com (seção Full-on)"}
+  - {id: electro-sun-we-can-dance, artista: Electro Sun, credito: "Electro Sun & System Nipel", titulo: We Can Dance, subgenero: full-on, fonte: guia, referencia: "https://psytranceguide.com (seção Full-on)"}
+  - {id: alternative-control-haarp, artista: Alternative Control, titulo: HAARP, subgenero: full-on, fonte: guia, referencia: "https://psytranceguide.com (seção Full-on)"}
+  - {id: sundose-in-the-music, artista: Sundose, titulo: In The Music, subgenero: full-on, fonte: guia, referencia: "https://psytranceguide.com (seção Full-on)"}
+
+  # ── offbeat ────────────────────────────────────────────────────────────────
+  - {id: vaishiyas-axon-and-john, artista: Vaishiyas, titulo: Axon & John, subgenero: offbeat, fonte: guia, referencia: "https://psytranceguide.com (seção Offbeat)"}
+  - {id: interactive-noise-temptation, artista: Interactive Noise, titulo: Temptation, subgenero: offbeat, fonte: guia, referencia: "https://psytranceguide.com (seção Offbeat)"}
+  - {id: symphonix-hit-and-run, artista: Symphonix, titulo: Hit And Run (Ticon Remix), subgenero: offbeat, fonte: guia, referencia: "https://psytranceguide.com (seção Offbeat)"}
+  - {id: dj-fabio-and-moon-emotionally-unplugged, artista: DJ Fabio, credito: "Dj Fabio & Moon", titulo: Emotionally Unplugged, subgenero: offbeat, fonte: guia, referencia: "https://psytranceguide.com (seção Offbeat)"}
+
+  # ── darkpsy ────────────────────────────────────────────────────────────────
+  - {id: asylom-no-time-to-die, artista: Asylom, credito: "Asylom, Kaza", titulo: No Time to Die, subgenero: darkpsy, fonte: guia, referencia: "https://psytranceguide.com (seção Dark Psy)"}
+  - {id: sychotria-alien-fashion, artista: Sychotria, credito: "Sychotria & Fungoloyds", titulo: Alien Fashion, subgenero: darkpsy, fonte: guia, referencia: "https://psytranceguide.com (seção Dark Psy)"}
+  - {id: fungus-funk-duck-the-mechwarrior, artista: Fungus Funk, titulo: Duck The Mechwarrior, subgenero: darkpsy, fonte: guia, referencia: "https://psytranceguide.com (seção Dark Psy)"}
+  - {id: blisargon-space-invaders, artista: Blisargon, credito: "Blisargon & Demogorgon", titulo: Space Invaders, subgenero: darkpsy, fonte: guia, referencia: "https://psytranceguide.com (seção Dark Psy)"}
+
+  # ── forest psy ─────────────────────────────────────────────────────────────
+  - {id: helan-and-halvan-gnomen, artista: Helan & Halvan, titulo: Gnomen, subgenero: forest psy, fonte: guia, referencia: "https://psytranceguide.com (seção Forest Psy)"}
+  - {id: skydda-skogen-oneiro, artista: Skydda Skogen, titulo: Oneiro, subgenero: forest psy, fonte: guia, referencia: "https://psytranceguide.com (seção Forest Psy)"}
+  - {id: egons-embrace-aleinn-a-ny, artista: Egon's Embrace, titulo: Aleinn a Ny, subgenero: forest psy, fonte: guia, referencia: "https://psytranceguide.com (seção Forest Psy)"}
+  - {id: distorted-goblin-reborn, artista: Distorted Goblin, titulo: Reborn, subgenero: forest psy, fonte: guia, referencia: "https://psytranceguide.com (seção Forest Psy)"}
+
+  # ── goa trance ─────────────────────────────────────────────────────────────
+  - {id: oforia-oasis, artista: Oforia, titulo: Oasis, subgenero: goa trance, fonte: guia, referencia: "https://psytranceguide.com (seção Goa Trance)"}
+  - {id: artifact303-feelings, artista: Artifact303, titulo: Feelings, subgenero: goa trance, fonte: guia, referencia: "https://psytranceguide.com (seção Goa Trance)"}
+  - {id: radical-distortion-psychedelic-dreams, artista: Radical Distortion, titulo: Psychedelic Dreams, subgenero: goa trance, fonte: guia, referencia: "https://psytranceguide.com (seção Goa Trance)"}
+  - {id: filteria-ultimator, artista: Filteria, titulo: Ultimator!, subgenero: goa trance, fonte: guia, referencia: "https://psytranceguide.com (seção Goa Trance)"}
+  - {id: goa-experience-ekinoxe, artista: Goa Experience, titulo: Ekinoxe, subgenero: goa trance, fonte: beatport, referencia: "https://www.beatport.com/track/ekinoxe/14665339"}
+
+  # ── hitech ─────────────────────────────────────────────────────────────────
+  - {id: yuxibu-new-civilization, artista: Yuxibu, titulo: New Civilization, subgenero: hitech, fonte: guia, referencia: "https://psytranceguide.com (seção Hi-Tech)"}
+  - {id: acajou-deez-nuts, artista: Acajou, titulo: Deez Nuts, subgenero: hitech, fonte: guia, referencia: "https://psytranceguide.com (seção Hi-Tech)"}
+  - {id: gotalien-diwali, artista: Gotalien, titulo: Diwali, subgenero: hitech, fonte: guia, referencia: "https://psytranceguide.com (seção Hi-Tech)"}
+  - {id: ixotul-sonic-singularity, artista: Ixotul, credito: "Ixotul & Flowrest", titulo: Sonic Singularity, subgenero: hitech, fonte: guia, referencia: "https://psytranceguide.com (seção Hi-Tech)"}
+
+  # ── psychill ───────────────────────────────────────────────────────────────
+  - {id: astronaut-ape-high-above-the-clouds, artista: Astronaut Ape, titulo: High Above The Clouds, subgenero: psychill, fonte: guia, referencia: "https://psytranceguide.com (seção Psychill)"}
+  - {id: flucturion-pro-temporo, artista: Flucturion 2.0, titulo: Pro Temporo, subgenero: psychill, fonte: guia, referencia: "https://psytranceguide.com (seção Psychill)"}
+  - {id: man-with-no-name-azymuth, artista: Man With No Name, titulo: Azymuth, subgenero: psychill, fonte: guia, referencia: "https://psytranceguide.com (seção Psychill)"}
+  - {id: gyrro-from-metariel, artista: Gyrro, titulo: From Metariel, subgenero: psychill, fonte: guia, referencia: "https://psytranceguide.com (seção Psychill)"}
