@@ -402,3 +402,67 @@ def test_subgenero_de_supergenero_pontua_sempre():
 def test_fallback_declarado_no_yaml_e_nao_no_codigo():
     """A lista de supergêneros é dado, não `if` espalhado pelo classificador."""
     assert taxonomy.load().fallbacks == {"electronic", "trance"}
+
+
+# ── dados de referência dos subgêneros (BPM, descrição, fonte) ───────────────
+
+
+def test_subgenre_mapping_form_loads():
+    info = taxonomy.subgenre_info("full-on")
+    assert info.genre == "psytrance"
+    assert info.bpm == (140.0, 148.0)
+    assert info.about
+
+
+def test_old_list_form_still_loads():
+    assert taxonomy.resolve("alt rock") == taxonomy.Node("rock", "alternative rock")
+    info = taxonomy.subgenre_info("alternative rock")
+    assert info.genre == "rock"
+    assert info.bpm is None and info.about is None and info.source is None
+
+
+def test_subgenre_info_unknown_is_none():
+    assert taxonomy.subgenre_info("nao existe") is None
+
+
+def test_forest_is_its_own_subgenre():
+    assert taxonomy.resolve("forest psy") == taxonomy.Node("psytrance", "forest psy")
+    assert taxonomy.resolve("forest") == taxonomy.Node("psytrance", "forest psy")
+    assert taxonomy.resolve("dark psy") == taxonomy.Node("psytrance", "darkpsy")
+
+
+def test_offbeat_resolves():
+    assert taxonomy.resolve("offbeat") == taxonomy.Node("psytrance", "offbeat")
+    assert taxonomy.resolve("offbeat psy") == taxonomy.Node("psytrance", "offbeat")
+
+
+def test_goa_is_weak():
+    assert taxonomy.resolve("goa").subgenre == "goa trance"
+    assert taxonomy.tag_weight_factor("goa") == 0.3
+    assert taxonomy.tag_weight_factor("Goa") == 0.3
+    assert taxonomy.tag_weight_factor("goa trance") == 1.0
+    assert taxonomy.tag_weight_factor("qualquer coisa") == 1.0
+
+
+def test_weak_alias_pesa_menos_no_voto():
+    fraca = taxonomy.classify(track_tags=[Tag("goa", 100), Tag("techno", 100)])
+    forte = taxonomy.classify(track_tags=[Tag("goa trance", 100), Tag("techno", 100)])
+    assert forte.genre == "psytrance"
+    assert fraca.genre == "techno"
+
+
+def test_subgenres_of_psytrance_in_yaml_order():
+    nomes = [s.name for s in taxonomy.subgenres_of("psytrance")]
+    assert nomes[:3] == ["progressive psytrance", "full-on", "night full-on"]
+    assert nomes.index("darkpsy") < nomes.index("forest psy") < nomes.index("hitech")
+    assert nomes[-2:] == ["dark progressive", "suomi"]
+    assert taxonomy.subgenres_of("nao existe") == []
+
+
+def test_every_bpm_range_has_source():
+    com_bpm = [s for g in taxonomy.load().genres for s in taxonomy.subgenres_of(g) if s.bpm]
+    assert len(com_bpm) >= 10
+    for s in com_bpm:
+        assert s.source == "https://psytranceguide.com", s.name
+        assert s.about, s.name
+        assert s.bpm[0] < s.bpm[1]

@@ -51,6 +51,10 @@ CONFIDENCE_FLOOR = 0.15
 # Tags por faixa citadas como evidência da classificação.
 MAX_EVIDENCE = 4
 
+# Peso aplicado a um alias marcado `weak` no YAML: a tag resolve para o
+# subgênero, mas vale pouco ("goa" sozinho costuma ser só o selo de época).
+WEAK_FACTOR = 0.3
+
 
 class Tag(NamedTuple):
     """Uma tag com o peso que o Last.fm dá a ela (0–100 na API)."""
@@ -64,6 +68,16 @@ class Node(NamedTuple):
 
     genre: str
     subgenre: str | None
+
+
+class SubgenreInfo(NamedTuple):
+    """Um subgênero com os dados de referência que o YAML guarda sobre ele."""
+
+    genre: str
+    name: str
+    bpm: tuple[float, float] | None
+    about: str | None
+    source: str | None
 
 
 class Classification(NamedTuple):
@@ -108,6 +122,9 @@ class _Taxonomy:
         # Gêneros marcados `fallback` no YAML: supergêneros cuja tag SOLTA só
         # vale quando nada mais classificou a faixa (ver `classify`).
         self.fallbacks: set[str] = set()
+        # Aliases fracos (chave normalizada) e dados de referência dos subgêneros.
+        self.weak: set[str] = set()
+        self.subgenre_infos: dict[str, SubgenreInfo] = {}
 
         ignore = data.get("ignore") or {}
         for key, values in ignore.items():
@@ -124,10 +141,28 @@ class _Taxonomy:
             self._put(genre, Node(genre, None))
             for alias in body.get("aliases") or []:
                 self._put(alias, Node(genre, None))
-            for subgenre, aliases in (body.get("subgenres") or {}).items():
+            for subgenre, spec in (body.get("subgenres") or {}).items():
+                # Duas formas: a lista de aliases (antiga) ou um mapeamento com
+                # aliases, weak, bpm, about e source.
+                if isinstance(spec, dict):
+                    aliases = spec.get("aliases") or []
+                    weak = spec.get("weak") or []
+                    bpm = spec.get("bpm")
+                else:
+                    aliases, weak, bpm, spec = spec or [], [], None, {}
                 self._put(subgenre, Node(genre, subgenre))
-                for alias in aliases or []:
+                for alias in aliases:
                     self._put(alias, Node(genre, subgenre))
+                for alias in weak:
+                    self._put(alias, Node(genre, subgenre))
+                    self.weak.add(normalize(alias))
+                self.subgenre_infos[normalize(subgenre)] = SubgenreInfo(
+                    genre=genre,
+                    name=subgenre,
+                    bpm=(float(bpm[0]), float(bpm[1])) if bpm else None,
+                    about=spec.get("about"),
+                    source=spec.get("source"),
+                )
 
         self.genres: list[str] = list((data.get("genres") or {}).keys())
 
@@ -180,6 +215,21 @@ def resolve(tag: str) -> Node | None:
     return load().resolve(tag)
 
 
+def subgenre_info(name: str) -> SubgenreInfo | None:
+    """Os dados de referência de um subgênero (pelo nome canônico), ou None."""
+    return load().subgenre_infos.get(normalize(name))
+
+
+def subgenres_of(genre: str) -> list[SubgenreInfo]:
+    """Os subgêneros de um gênero, na ordem do YAML."""
+    return [i for i in load().subgenre_infos.values() if i.genre == genre]
+
+
+def tag_weight_factor(tag: str) -> float:
+    """`WEAK_FACTOR` para um alias marcado `weak` no YAML; 1.0 para o resto."""
+    return WEAK_FACTOR if normalize(tag) in load().weak else 1.0
+
+
 def as_tags(tags: Iterable[Tag | tuple[str, float] | str]) -> list[Tag]:
     """Aceita Tag, (nome, peso) ou só o nome — tags antigas do banco são strings."""
     out: list[Tag] = []
@@ -213,7 +263,11 @@ def _votes(tags: list[Tag], share: float) -> tuple[dict[Node, float], dict[Node,
             continue
         resolved.append((node, tag))
 
-    total = sum(max(t.weight, 0.0) for _, t in resolved)
+    # Alias fraco entra no voto com peso reduzido, antes de normalizar.
+    def weight(tag: Tag) -> float:
+        return max(tag.weight, 0.0) * tag_weight_factor(tag.name)
+
+    total = sum(weight(t) for _, t in resolved)
     scores: dict[Node, float] = {}
     sources: dict[Node, list[Tag]] = {}
     if total <= 0:
@@ -224,7 +278,7 @@ def _votes(tags: list[Tag], share: float) -> tuple[dict[Node, float], dict[Node,
         return scores, sources, unresolved
 
     for node, tag in resolved:
-        scores[node] = scores.get(node, 0.0) + share * max(tag.weight, 0.0) / total
+        scores[node] = scores.get(node, 0.0) + share * weight(tag) / total
         sources.setdefault(node, []).append(tag)
     return scores, sources, unresolved
 
