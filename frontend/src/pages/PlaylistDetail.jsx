@@ -94,6 +94,9 @@ export default function PlaylistDetail() {
   const identified = playlist.track_count - tracks_missing_genre;
   const minutes = Math.round(tracks.reduce((s, t) => s + t.duration_ms, 0) / 60000);
   const duration = minutes >= 60 ? `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}` : `${minutes} min`;
+  // Com um gênero só (um álbum inteiro, ou uma playlist toda de psytrance), o
+  // caminho dos gêneros vira uma linha reta em 100%, sem nada para mostrar.
+  const singleGenre = genre_distribution.length <= 1;
 
   return (
     <>
@@ -131,7 +134,9 @@ export default function PlaylistDetail() {
           </p>
         )}
 
-        <GenreFlow tracks={tracks} genreDistribution={genre_distribution} trackCount={playlist.track_count} />
+        {!singleGenre && (
+          <GenreFlow tracks={tracks} genreDistribution={genre_distribution} trackCount={playlist.track_count} />
+        )}
 
         {/* Sem subgênero próprio, o painel sairia vazio: gêneros ocupa a linha sozinho. */}
         <div className={subgenre_distribution.length > 0 ? "charts-grid" : undefined}>
@@ -139,7 +144,9 @@ export default function PlaylistDetail() {
             data={genre_distribution}
             total={playlist.track_count}
             title="Gêneros"
-            subtitle="Tags do artista no Last.fm. As cores são as mesmas do caminho acima."
+            subtitle={
+              singleGenre ? "Tags do artista no Last.fm." : "Tags do artista no Last.fm. As cores são as mesmas do caminho acima."
+            }
             colorFor={colorFor}
           />
           {subgenre_distribution.length > 0 && (
