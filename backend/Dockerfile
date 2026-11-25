@@ -20,6 +20,11 @@ RUN python -c "from chromadb.utils import embedding_functions; embedding_functio
 COPY app ./app
 COPY evals ./evals
 COPY tests ./tests
+# Ferramentas de manutenção precisam rodar ONDE o dado está — os volumes do
+# container. `scripts/reclassificar_generos.py` reclassifica gênero no banco
+# sem rede, e sem isto só daria para rodá-lo no banco da máquina de quem
+# desenvolve, que não é o que o app serve.
+COPY scripts ./scripts
 COPY pytest.ini ./
 
 # Índice vetorial e banco SQLite; monte volumes para sobreviverem ao container.

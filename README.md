@@ -142,27 +142,86 @@ O classificador (`app/taxonomy.py` + `app/taxonomy.yaml`) resolve em três etapa
    que a do artista, e o empate resolve por regra fixa para o resultado não
    mudar entre execuções.
 
+Uma quarta regra saiu da medição, não do projeto: **supergênero de carona não
+conta**. `electronic` e `trance` aparecem como tag solta em quase toda faixa de
+techno, house ou psytrance, e contá-los levava `electronic` ao segundo lugar do
+perfil da conta sem dizer nada sobre a música. Gênero marcado `fallback` no YAML
+só vale, como tag solta, quando nada mais classificou a faixa — mas os
+subgêneros dele (`dubstep`, `ambient`, `progressive trance`) pontuam sempre,
+porque esses dizem o que a faixa é.
+
 Cada faixa sai com `genre`, `subgenre`, `genre_confidence` e `genre_evidence` —
 as tags que elegeram o gênero, para a interface poder explicar a decisão em vez
 de só afirmá-la.
 
-O efeito nas mesmas 2.228 faixas:
+O efeito no acervo de teste, medido depois de aplicar:
 
 | | Antes (contando tags) | Depois (classificando) |
 | --- | --- | --- |
-| Rótulos no gráfico de gêneros | 547 | 21 |
-| Votos de gênero lançados | 7.817 | 2.153 (um por faixa) |
-| Topo da lista | rock 422, psytrance 352, electronic 338, progressive trance 208 | rock 567, psytrance 307, electronic 267, hip-hop 192 |
+| Rótulos distintos de gênero | 547 | **22** |
+| Gráfico da playlist | um voto por tag de cada artista: uma faixa com três artistas deixava até nove | **um voto por faixa**, no gênero classificado |
+| Topo do perfil da conta | rock 422, psytrance 352, electronic 338, progressive trance 208 | rock 809, psytrance 390, metal 285, pop 249 |
+| Diversidade de gênero | sem significado (contava grafias) | **13,0** gêneros efetivos |
 
-Faixas sem gênero subiram de 60 para 75: as que só tinham tag de país ou de
-comportamento deixaram de receber um rótulo inventado, e a interface diz isso.
+No perfil da conta, uma faixa conta em cada gênero que tenha ficado acima do
+piso de confiança — "quanto do meu acervo é rock" não é pergunta exclusiva. Já o
+gráfico de uma playlist conta um voto por faixa, no gênero vencedor. São
+semânticas diferentes de propósito, e as duas saem da mesma classificação.
 
-**Como isso é medido.** `evals/genre_golden.yaml` tem 43 faixas reais do acervo
-com o gênero rotulado à mão, e as tags com peso imitando a distribuição da API —
-medir sem peso mediria outro programa. Dois casos tiveram o rótulo revisto depois
-da primeira execução, com o motivo registrado no próprio arquivo: o gênero é da
-faixa, não da carreira de quem canta, e uma família com duas tags ganha de uma
-tag só um pouco mais pesada.
+Das 2.069 faixas únicas do acervo, 2.003 recebem gênero. As 66 que sobram só
+tinham tag de país, de humor ou de voz — e deixaram de receber um rótulo
+inventado, com a interface dizendo isso.
+
+### Reclassificar o que já está guardado
+
+A taxonomia classifica no momento da análise, então playlists analisadas antes
+dela ficam guardadas com os rótulos antigos — e a página de Perfil lê exatamente
+esses resumos. Refazer as análises custaria uma varredura completa do Spotify, e
+esta conta já foi suspensa por 18 horas uma vez por volume de requisição
+(ver [Limites do Spotify](#limites-do-spotify)).
+
+Não é preciso: as tags já estão dentro de cada análise e de cada resumo.
+
+```bash
+cd backend
+python -m scripts.reclassificar_generos --dry-run   # mostra o que mudaria
+python -m scripts.reclassificar_generos             # grava
+
+# no Docker, onde fica o banco que o app serve:
+docker compose exec backend python -m scripts.reclassificar_generos
+docker compose restart backend                       # solta o cache em memória
+```
+
+**Não chama Spotify, Last.fm, Deezer nem modelo nenhum** — roda com a internet
+desligada. Só toca gênero: BPM, prévia, data de adição e popularidade ficam como
+estão. E é idempotente por construção, não por coincidência: cada análise e cada
+resumo guardam em `genre_taxonomy` a versão da taxonomia que os classificou, e o
+script pula o que já está em dia. Isso importa porque o dado guardado contém os
+rótulos que o próprio script derivou — reclassificar em cima deles move gênero
+secundário em volta do piso de confiança (medido: 239 das 2.228 faixas na
+segunda passada). Com o selo, a segunda passada não reescreve nada, e subir a
+versão da taxonomia reescreve tudo.
+
+Uma diferença honesta em relação a uma análise nova: o que está guardado tem o
+nome da tag, não o peso — o peso só passou a ser gravado agora. Então o backfill
+decide pela taxonomia (hierarquia, sinônimo, descarte), não pela força relativa
+da tag. Quando a playlist for analisada de novo, a classificação é refinada pelo
+peso sem nada a desfazer.
+
+**Como isso é medido.** `evals/genre_golden.yaml` tem 45 casos — faixas reais do
+acervo com o gênero rotulado à mão, mais alguns sintéticos para as regras do
+classificador — e as tags com peso imitando a distribuição da API, porque medir
+sem peso mediria outro programa.
+
+O arquivo registra também o que ficou de fora e por quê, que é a parte que
+sustenta o número. Faixas com duas respostas defensáveis (Manu Chao entre latin
+e reggae, Anitta entre pop e funk carioca) não entram: um conjunto dourado com
+cara ou coroa dentro mede sorte. E uma delas saiu depois de entrar — "Stay High
+(Habits Remix)" trocou de resposta quando a regra de supergênero chegou, o que a
+revelou ambígua; rotular de novo para acompanhar a implementação seria ajustar a
+régua ao que está sendo medido. Dois rótulos foram revistos (com o motivo no
+arquivo) porque o julgamento inicial era o mais fraco, não para fazer o teste
+passar.
 
 ```bash
 cd backend
@@ -171,13 +230,13 @@ python -m evals.run_genre_evals --cobertura   # o que falta na taxonomia
 ```
 
 ```
-gênero    : 43/43 = 1.000   (limiar 0.90)
+gênero    : 45/45 = 1.000   (limiar 0.90)
 subgênero : 33/33 = 1.000   (limiar 0.75)
-confiança : média 0.85, mínima 0.46, máxima 1.00
+confiança : média 0.89, mínima 0.50, máxima 1.00
 ```
 
 O conjunto é pequeno e o limiar (0,90) existe para o CI reprovar regressão, não
-para comemorar o 1,0 — com 43 casos, um acerto a mais ou a menos move 2 pontos.
+para comemorar o 1,0 — com 45 casos, um acerto a mais ou a menos move 2 pontos.
 O relatório de cobertura é o número mais honesto sobre o que falta: dos 16.610
 usos de tag do acervo, **80,6%** são classificados, **15,7%** descartados de
 propósito e **3,7%** ainda não têm casa no YAML — e a tag pendente mais frequente

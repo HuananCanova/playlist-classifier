@@ -221,6 +221,7 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         subgenre_distribution=top_counts(subgenre_counter),
         top_artists=top_counts(artist_counter, limit=15),
         tracks_missing_genre=missing_genre,
+        genre_taxonomy=taxonomy.load().version,
         **_bpm_fields(track_infos),
     )
     if include_audio:
