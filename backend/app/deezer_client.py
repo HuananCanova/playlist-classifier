@@ -390,3 +390,33 @@ async def get_many(client: httpx.AsyncClient, pairs: list[tuple[str, str]]) -> l
             return await get_track_info(client, artist, track)
 
     return await asyncio.gather(*(one(a, t) for a, t in pairs))
+
+
+ALBUM_URL = "https://api.deezer.com/album"
+
+
+async def get_track_label(client: httpx.AsyncClient, deezer_id: int) -> str | None:
+    """Selo (gravadora) do lançamento de uma faixa do Deezer, pelo id da faixa.
+
+    O selo só aparece no detalhe do álbum, então custa duas chamadas: a faixa
+    (para achar o álbum) e o álbum. Devolve "" quando o álbum não tem selo
+    — ausência de dado é resposta — e None quando alguma chamada falhou, para
+    que quem guarda não confunda falha com "sem selo".
+    """
+    try:
+        resp = await client.get(f"{TRACK_URL}/{deezer_id}", timeout=10.0)
+        resp.raise_for_status()
+        detail = resp.json()
+        if not isinstance(detail, dict) or "error" in detail:
+            return None
+        album_id = (detail.get("album") or {}).get("id")
+        if not album_id:
+            return ""
+        resp = await client.get(f"{ALBUM_URL}/{album_id}", timeout=10.0)
+        resp.raise_for_status()
+        album = resp.json()
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return None
+    if not isinstance(album, dict) or "error" in album:
+        return None
+    return (album.get("label") or "").strip()

@@ -318,6 +318,39 @@ threshold. Under the new rules many of those cases should rightly become
   (`evals/subgenre_refs.yaml`). So weights and thresholds stay untuned initial
   values; the suite gates regressions, it does not calibrate.
 
+## Record label evidence (added 2026-11-26, replaces Stage B for now)
+
+Stage B (audio embeddings) is on hold: the Essentia models are CC BY-NC-SA
+(non-commercial) and the owner plans to make the project public. Instead, the
+**record label** of each track's release becomes one more evidence source. In
+psytrance the label is a strong, per-release hint (Suntrip → goa, Parvati →
+forest/dark, Alwarda → hitech, Ultimae → psychill), it is data we already
+reach (Deezer album detail, one extra call per album, no key), and it explains
+itself in plain words.
+
+**Label gate, golden set** (`python -m scripts.medir_selos_psy --golden`):
+27/35 tracks (77%) have a Deezer label, against 9/35 with BPM and 0/35 with
+track tags. 23 distinct labels; most point where the reference does (Suntrip
+→ goa ×2, Spin Twist → offbeat ×2, Alwarda/Enterrec/Black Out → hitech,
+Cosmonautica/Mystic Sound → psychill); Dacru and Avatar are split; one wrong
+match (XL Recordings). Still to measure: the same report on the owner's
+library (`--faixas 400`, needs the Docker database), to see how many of the
+library's psy tracks fall into a few labels worth mapping by hand.
+
+**Design rules:**
+- A hand-written `labels.yaml`: label name (plus aliases) → subgenre shares,
+  a one-line description in our own words, and a source link (Discogs label
+  page or the label's site). Mixed labels get split shares, not one answer.
+- The map is **not** built from the golden set (that would grade our own
+  homework); the golden set only measures it.
+- An unknown label abstains. A known label is one source among the others in
+  `subgenre.blend` and can't make a track confident on its own.
+- Label lookups are stored per Deezer album (labels don't change), so a
+  library is fetched once.
+- The track page's "why" card shows the label line; the AI chat tools receive
+  the label and its description so the model can explain it, but the label
+  never reaches the classifier through the model — classification stays pure.
+
 ## Stage B (later, its own spec)
 
 - Fetch 30s Deezer previews server-side, compute an audio embedding
