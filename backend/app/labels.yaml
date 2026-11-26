@@ -1,0 +1,376 @@
+# Selos (gravadoras) → subgênero, como evidência de classificação.
+#
+# No psytrance o selo é uma pista forte e por lançamento: um disco da Suntrip é
+# goa, um da Parvati é forest. E é um dado que já alcançamos — o detalhe do
+# álbum no Deezer traz o selo, uma chamada por álbum, sem chave.
+#
+# Por que vale a pena: medido na biblioteca real (390 faixas psy), 207 têm selo
+# (53%, ou 73% das encontradas no Deezer) e os selos se concentram — quatro
+# cobrem 45% das faixas com selo. Comparado com as outras fontes no conjunto
+# dourado: selo 77%, BPM 26%, tag de faixa 0%.
+#
+# ── De onde vem este mapa ───────────────────────────────────────────────────
+#
+# Das listas "Notable labels" de cada estilo em https://psytranceguide.com/ —
+# a mesma referência que a taxonomia já cita para as faixas de BPM. **Não** do
+# conjunto dourado: construir o mapa a partir dele seria corrigir a própria
+# prova. O conjunto dourado só mede.
+#
+# Cada entrada diz de qual estilo do guia ela veio, para dar para conferir.
+# Estilo do guia → subgênero daqui:
+#
+#   Progressive Psy → progressive psytrance    Dark Psy      → darkpsy
+#   Hypnotic Psy    → hypnotic psy             Forest Psy    → forest psy
+#   Psy-Techno      → psy-techno               Hi-Tech       → hitech
+#   Offbeat         → offbeat                  Psycore       → psycore
+#   Goa Trance      → goa trance               Suomi         → suomi
+#   Nitzhonot       → nitzhonot                Psychill      → psychill
+#   Full-on         → full-on                  Night Full-on → night full-on
+#
+# Quatro estilos do guia NÃO têm equivalente nesta taxonomia — "Psychedelic"
+# (145–155), "Psytrance" (138–144, que aqui é o gênero e não um subgênero),
+# "Raw Trance" e "Tribal". Selo que o guia lista só nesses estilos fica de
+# fora: é melhor se abster do que forçar um rótulo que não existe aqui.
+#
+# ── Selo fora do mapa se abstém ─────────────────────────────────────────────
+#
+# Selo desconhecido não vota — nem chuta, nem conta como incerteza. Isso é
+# carga, não detalhe: entre as faixas psy da biblioteca aparecem "Universal
+# Music Australia", "Pink Floyd Records", "Spinnin' Records", "Kontor Records"
+# e "Lord Huron" (nome de artista no campo de selo). Nenhum pode votar.
+#
+# ── Lacunas conhecidas (precisam de fonte, não de palpite) ──────────────────
+#
+# - Shamanic Tales (20 faixas na biblioteca): o guia lista em "Psytrance", que
+#   aqui é o gênero. É o selo do Astrix, de Tel Aviv — provavelmente full-on,
+#   mas "provavelmente" não entra num mapa de evidência.
+# - Blue Tunes Records (10 faixas): o guia lista em "Tribal" (136–140), estilo
+#   que não modelamos. Mapear para offbeat ou progressive seria chute.
+# - Nano Records, Sol Music, Enterrec, HOMmega: idem, só em estilos sem
+#   equivalente aqui.
+# - Alwarda, Cosmonautica, Mystic Sound, Zenon Records, Nutek: não aparecem no
+#   guia. Entram quando houver uma fonte para citar.
+#
+# ── Formato ─────────────────────────────────────────────────────────────────
+#
+#   <nome do selo>:
+#     shares: {<subgênero>: <fatia>}   # soma 1; selo misto divide, não escolhe
+#     aliases: [...]                   # grafias alternativas (opcional)
+#     nota: uma linha, em palavras nossas                 # vai para a tela
+#     fonte: URL                       # onde conferir
+#     estilos: [...]                   # os estilos do guia que geraram as fatias
+
+version: 1
+
+fonte_padrao: https://psytranceguide.com/
+
+selos:
+
+  # ── progressive psytrance ────────────────────────────────────────────────
+  Iboga Records:
+    shares: {progressive psytrance: 0.7, hypnotic psy: 0.3}
+    aliases: [Iboga]
+    nota: Selo dinamarquês de Copenhague, referência do psy progressivo desde os anos 1990.
+    estilos: [Progressive Psy, Hypnotic Psy, Psytrance]
+  Stereo Society:
+    shares: {progressive psytrance: 0.5, hypnotic psy: 0.5}
+    nota: Divide o catálogo entre o psy progressivo e o hipnótico.
+    estilos: [Progressive Psy, Hypnotic Psy]
+  TesseracTstudio:
+    shares: {progressive psytrance: 1.0}
+    aliases: [Tesseractstudio, TesseracT Studio]
+    nota: Selo russo de psy progressivo.
+    estilos: [Progressive Psy]
+  Sourcecode Transmissions:
+    shares: {progressive psytrance: 1.0}
+    nota: Catálogo de psy progressivo.
+    estilos: [Progressive Psy]
+  Bassclef Records:
+    shares: {progressive psytrance: 1.0}
+    nota: Catálogo de psy progressivo.
+    estilos: [Progressive Psy]
+  Comet Collective:
+    shares: {progressive psytrance: 1.0}
+    nota: Catálogo de psy progressivo.
+    estilos: [Progressive Psy]
+  TechSafari Records:
+    shares: {progressive psytrance: 1.0}
+    aliases: [Tech Safari Records]
+    nota: Catálogo de psy progressivo.
+    estilos: [Progressive Psy]
+  Uxmal Records:
+    shares: {progressive psytrance: 1.0}
+    nota: Catálogo de psy progressivo.
+    estilos: [Progressive Psy]
+
+  # ── offbeat ──────────────────────────────────────────────────────────────
+  Spin Twist Records:
+    shares: {offbeat: 1.0}
+    aliases: [Spintwist Records, Spin Twist, Spintwist]
+    nota: Selo alemão de 2005, do offbeat que o guia também chama de "Hamburg psy".
+    estilos: [Offbeat]
+  432 Records:
+    shares: {offbeat: 1.0}
+    nota: Catálogo de offbeat.
+    estilos: [Offbeat]
+  Audioload Music:
+    shares: {offbeat: 1.0}
+    nota: Catálogo de offbeat.
+    estilos: [Offbeat]
+
+  # ── goa trance ───────────────────────────────────────────────────────────
+  Suntrip Records:
+    shares: {goa trance: 1.0}
+    aliases: [Suntrip]
+    nota: Selo belga dedicado ao goa melódico e ao seu revival.
+    estilos: [Goa Trance]
+  Global Sect:
+    shares: {goa trance: 1.0}
+    aliases: [Global Sect Music]
+    nota: Catálogo de goa.
+    estilos: [Goa Trance]
+  Avatar Records:
+    shares: {goa trance: 1.0}
+    nota: Catálogo de goa.
+    estilos: [Goa Trance]
+  Timewarp:
+    shares: {goa trance: 1.0}
+    aliases: [Timewarp Records]
+    nota: Catálogo de goa.
+    estilos: [Goa Trance]
+  Twisted Records:
+    shares: {goa trance: 1.0}
+    aliases: [Twisted Records Ltd]
+    nota: Selo britânico de psicodelia, listado pelo guia no goa.
+    estilos: [Goa Trance]
+
+  # ── full-on e night full-on ──────────────────────────────────────────────
+  Dacru Records:
+    shares: {full-on: 1.0}
+    aliases: [Dacru]
+    nota: Selo belga de full-on.
+    estilos: [Full-on]
+  Agitato Records:
+    shares: {full-on: 1.0}
+    nota: Catálogo de full-on.
+    estilos: [Full-on]
+  Rave Tool:
+    shares: {full-on: 1.0}
+    aliases: [Rave Tool Records]
+    nota: Catálogo de full-on.
+    estilos: [Full-on]
+  United Beats Records:
+    shares: {full-on: 1.0}
+    nota: Catálogo de full-on.
+    estilos: [Full-on]
+  Utopia Records:
+    shares: {full-on: 1.0}
+    nota: Catálogo de full-on.
+    estilos: [Full-on]
+  Mainstage Records:
+    # O guia também lista em "Tribal", que não modelamos; a fatia vai toda para
+    # o estilo que sabemos representar.
+    shares: {full-on: 1.0}
+    nota: Catálogo de full-on (o guia também o lista no tribal).
+    estilos: [Full-on, Tribal]
+  3D Vision:
+    shares: {night full-on: 1.0}
+    aliases: [3D Vision Records]
+    nota: Catálogo de night full-on.
+    estilos: [Night Full-on]
+  Hypergate Records:
+    shares: {night full-on: 1.0}
+    nota: Catálogo de night full-on.
+    estilos: [Night Full-on]
+  Lysergic Records:
+    shares: {night full-on: 1.0}
+    nota: Catálogo de night full-on.
+    estilos: [Night Full-on]
+  Nexus Media:
+    shares: {night full-on: 1.0}
+    nota: Catálogo de night full-on.
+    estilos: [Night Full-on]
+  Mechanik Records:
+    shares: {night full-on: 1.0}
+    nota: Catálogo de night full-on.
+    estilos: [Night Full-on]
+
+  # ── darkpsy, forest e psycore ────────────────────────────────────────────
+  Parvati Records:
+    shares: {forest psy: 1.0}
+    aliases: [Parvati]
+    nota: Selo dinamarquês, nome central do forest.
+    estilos: [Forest Psy]
+  Forestdelic Records:
+    shares: {forest psy: 1.0}
+    nota: Catálogo de forest.
+    estilos: [Forest Psy]
+  Digital Shiva Power:
+    shares: {forest psy: 1.0}
+    nota: Catálogo de forest.
+    estilos: [Forest Psy]
+  Sonic Chakras Records:
+    shares: {forest psy: 1.0}
+    nota: Catálogo de forest.
+    estilos: [Forest Psy]
+  Horrordelic Records:
+    shares: {darkpsy: 0.5, psycore: 0.5}
+    aliases: [Horrordelic]
+    nota: Divide o catálogo entre darkpsy e psycore.
+    estilos: [Dark Psy, Psycore]
+  Bhooteshwara Records:
+    shares: {darkpsy: 1.0}
+    nota: Catálogo de darkpsy.
+    estilos: [Dark Psy]
+  Hekwapi Records:
+    shares: {darkpsy: 1.0}
+    nota: Catálogo de darkpsy.
+    estilos: [Dark Psy]
+  Insomnia Records:
+    shares: {darkpsy: 1.0}
+    nota: Catálogo de darkpsy.
+    estilos: [Dark Psy]
+  Moon Koradji Records:
+    shares: {darkpsy: 1.0}
+    nota: Catálogo de darkpsy.
+    estilos: [Dark Psy]
+  Sonic Loom:
+    shares: {darkpsy: 1.0}
+    aliases: [Sonic Loom Records]
+    nota: Catálogo de darkpsy.
+    estilos: [Dark Psy]
+  Woo-Dog Records:
+    # Também listado no estilo "Psychedelic" (145–155), que não modelamos.
+    shares: {darkpsy: 1.0}
+    aliases: [Woo Dog Records, Woodog Records]
+    nota: Catálogo de darkpsy.
+    estilos: [Dark Psy, Psychedelic]
+  Alice-D Records:
+    shares: {psycore: 1.0}
+    aliases: [Alice D Records]
+    nota: Catálogo de psycore.
+    estilos: [Psycore]
+  Popol Vuh Records:
+    shares: {psycore: 1.0}
+    nota: Catálogo de psycore.
+    estilos: [Psycore]
+  Voodoo Hoodoo Recordings:
+    shares: {psycore: 1.0}
+    nota: Catálogo de psycore.
+    estilos: [Psycore]
+
+  # ── hitech ───────────────────────────────────────────────────────────────
+  Black Out Records:
+    shares: {hitech: 1.0}
+    aliases: [Blackout Records]
+    nota: Catálogo de hitech.
+    estilos: [Hi-Tech]
+  Hipnotic Tribe Records:
+    shares: {hitech: 1.0}
+    nota: Catálogo de hitech.
+    estilos: [Hi-Tech]
+  Kamino Records:
+    shares: {hitech: 1.0}
+    nota: Catálogo de hitech.
+    estilos: [Hi-Tech]
+  No Beef Massage Records:
+    shares: {hitech: 1.0}
+    nota: Catálogo de hitech.
+    estilos: [Hi-Tech]
+  Multidimensional Music:
+    shares: {hitech: 1.0}
+    nota: Catálogo de hitech.
+    estilos: [Hi-Tech]
+  Shamanism Records:
+    shares: {hitech: 1.0}
+    nota: Catálogo de hitech.
+    estilos: [Hi-Tech]
+
+  # ── psy-techno ───────────────────────────────────────────────────────────
+  IbogaTech:
+    shares: {psy-techno: 1.0}
+    aliases: [Iboga Tech]
+    nota: Braço de techno do Iboga, aberto por volta de 2017.
+    estilos: [Psy-Techno]
+  Alula Tunes:
+    shares: {psy-techno: 1.0}
+    nota: Catálogo de psy-techno.
+    estilos: [Psy-Techno]
+  Arlette Records:
+    shares: {psy-techno: 1.0}
+    nota: Catálogo de psy-techno.
+    estilos: [Psy-Techno]
+  Horns And Hoofs Entertainment:
+    shares: {psy-techno: 1.0}
+    aliases: [Horns and Hoofs]
+    nota: Catálogo de psy-techno.
+    estilos: [Psy-Techno]
+  Subios Records:
+    shares: {psy-techno: 1.0}
+    nota: Catálogo de psy-techno.
+    estilos: [Psy-Techno]
+  Techgnosis Records:
+    shares: {psy-techno: 1.0}
+    nota: Catálogo de psy-techno.
+    estilos: [Psy-Techno]
+
+  # ── nitzhonot ────────────────────────────────────────────────────────────
+  Eutuchia Music:
+    shares: {nitzhonot: 1.0}
+    nota: Catálogo de nitzhonot.
+    estilos: [Nitzhonot]
+  Krembo Records:
+    shares: {nitzhonot: 1.0}
+    nota: Catálogo de nitzhonot.
+    estilos: [Nitzhonot]
+  Phototropic Records:
+    shares: {nitzhonot: 1.0}
+    nota: Catálogo de nitzhonot.
+    estilos: [Nitzhonot]
+  Sita Records:
+    shares: {nitzhonot: 1.0}
+    nota: Catálogo de nitzhonot.
+    estilos: [Nitzhonot]
+
+  # ── suomi ────────────────────────────────────────────────────────────────
+  Exogenic Records:
+    shares: {suomi: 1.0}
+    nota: Catálogo de suomisaundi.
+    estilos: [Suomi]
+  Random Records:
+    shares: {suomi: 1.0}
+    nota: Catálogo de suomisaundi.
+    estilos: [Suomi]
+  Sonic Dragon:
+    shares: {suomi: 1.0}
+    aliases: [Sonic Dragon Records]
+    nota: Catálogo de suomisaundi.
+    estilos: [Suomi]
+  Ultiva Records:
+    shares: {suomi: 1.0}
+    nota: Catálogo de suomisaundi.
+    estilos: [Suomi]
+
+  # ── psychill ─────────────────────────────────────────────────────────────
+  Ultimae Records:
+    shares: {psychill: 1.0}
+    aliases: [Ultimae]
+    nota: Selo francês de psychill e ambiente.
+    estilos: [Psychill]
+  Altar Records:
+    shares: {psychill: 1.0}
+    nota: Catálogo de psychill.
+    estilos: [Psychill]
+  Cosmicleaf Records:
+    shares: {psychill: 1.0}
+    aliases: [Cosmicleaf]
+    nota: Catálogo de psychill.
+    estilos: [Psychill]
+  Microcosmos Records:
+    shares: {psychill: 1.0}
+    nota: Catálogo de psychill.
+    estilos: [Psychill]
+  Mindspring Music:
+    shares: {psychill: 1.0}
+    nota: Catálogo de psychill.
+    estilos: [Psychill]

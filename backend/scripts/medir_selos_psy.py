@@ -72,6 +72,45 @@ def relatorio(resultados: list[tuple[dict, str | None, bool]], golden: bool) -> 
             por_selo[s][f["subgenero"]] += 1
         for selo, subs in sorted(por_selo.items(), key=lambda kv: -sum(kv[1].values())):
             print(f"  {selo:40} {dict(subs)}")
+        _mapa(com_selo)
+
+
+def _mapa(com_selo: list[tuple[dict, str]]) -> None:
+    """O quanto o mapa escrito à mão (`app/labels.yaml`) acerta.
+
+    Mede o MAPA, não o selo: quantos selos vistos ele conhece, e quando conhece,
+    se a maior fatia bate com o subgênero da referência externa. O mapa é
+    escrito a partir do guia, nunca daqui — medir e calibrar no mesmo conjunto
+    seria corrigir a própria prova.
+    """
+    from app import labels  # importado aqui: o modo biblioteca não precisa
+
+    conhecidos = [(f, s, labels.lookup(s)) for f, s in com_selo]
+    mapeados = [(f, s, i) for f, s, i in conhecidos if i is not None]
+    acertos = [
+        (f, s, i)
+        for f, s, i in mapeados
+        if max(i.shares.items(), key=lambda kv: (kv[1], kv[0]))[0] == f["subgenero"]
+    ]
+    parciais = [
+        (f, s, i) for f, s, i in mapeados if f["subgenero"] in i.shares and (f, s, i) not in acertos
+    ]
+
+    total = len(com_selo)
+    print(f"\n  mapa de selos (app/labels.yaml):")
+    print(f"    selos no mapa:       {len(mapeados)}/{total} das faixas com selo")
+    print(f"    maior fatia = refer.: {len(acertos)}/{len(mapeados) or 1}")
+    print(f"    refer. numa fatia menor: {len(parciais)}")
+    for f, s, i in mapeados:
+        topo = max(i.shares.items(), key=lambda kv: (kv[1], kv[0]))[0]
+        marca = "ok  " if topo == f["subgenero"] else ("~   " if f["subgenero"] in i.shares else "ERRO")
+        print(f"    [{marca}] {s[:28]:30} mapa={topo:22} referência={f['subgenero']}")
+
+    fora = sorted({s for _, s, i in conhecidos if i is None})
+    if fora:
+        print(f"\n    fora do mapa ({len(fora)}), em ordem — a fila para buscar fonte:")
+        for s in fora:
+            print(f"      {s}")
 
 
 async def main_async(n: int, golden: bool) -> None:

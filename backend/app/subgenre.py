@@ -18,8 +18,18 @@ from .taxonomy import Tag
 
 # Quanto cada fonte pesa no blend. Valores iniciais, escolhidos à mão e NÃO
 # calibrados: o conjunto dourado ainda não tem casos suficientes para isso.
-SOURCE_WEIGHTS = {"track_tags": 1.0, "tempo": 0.8, "artist_tags": 0.4}
+#
+# `label` (o selo do lançamento) entra acima da tag do artista e abaixo do
+# andamento: ele descreve o disco, não a carreira de quem assina, mas um selo
+# lança mais de um subgênero. Peso inicial, igualmente não calibrado.
+SOURCE_WEIGHTS = {"track_tags": 1.0, "tempo": 0.8, "label": 0.7, "artist_tags": 0.4}
 DEFAULT_SOURCE_WEIGHT = 0.6  # fonte extra sem peso próprio
+
+# Fontes que descrevem algo MAIOR que a faixa: a carreira do artista, o
+# catálogo do selo. Sozinhas elas apontam uma direção, não a faixa — um selo de
+# full-on lança uma faixa mais lenta sem deixar de ser aquele selo. Quando só
+# elas falaram, o resultado fica `unsure`: vira `lean`, não vira subgênero.
+SOURCES_THAT_NEED_COMPANY = {"artist_tags", "label"}
 
 # Um BPM fora da faixa de um subgênero perde verossimilhança linearmente e zera
 # a esta distância dela.
@@ -198,7 +208,7 @@ def blend(
         set(_tied_top(heaviest[0].distribution)) & set(_tied_top(heaviest[1].distribution))
     )
     unsure = (
-        all(s.name == "artist_tags" for s in informative)
+        all(s.name in SOURCES_THAT_NEED_COMPANY for s in informative)
         or confidence < UNSURE_MIN_SHARE
         or disagree
     )

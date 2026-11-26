@@ -333,9 +333,52 @@ itself in plain words.
 track tags. 23 distinct labels; most point where the reference does (Suntrip
 → goa ×2, Spin Twist → offbeat ×2, Alwarda/Enterrec/Black Out → hitech,
 Cosmonautica/Mystic Sound → psychill); Dacru and Avatar are split; one wrong
-match (XL Recordings). Still to measure: the same report on the owner's
-library (`--faixas 400`, needs the Docker database), to see how many of the
-library's psy tracks fall into a few labels worth mapping by hand.
+match (XL Recordings).
+
+**Label gate, owner's library** (`python -m scripts.medir_selos_psy --faixas 400`,
+run 2026-11-25 against a consistent snapshot of the Docker database so the
+running app was untouched): 390 distinct psy tracks, 285 found on Deezer, **207
+with a label (53% of all, 73% of those found)**, 78 network failures — retrying
+those would raise the figure, so 53% is a floor. 77 distinct labels, and they
+concentrate hard:
+
+| | tracks | cumulative share of labelled |
+| --- | --- | --- |
+| Iboga Records | 34 | 16% |
+| Spin Twist Records | 30 | 31% |
+| Shamanic Tales | 20 | 41% |
+| Blue Tunes Records | 10 | 45% |
+| top 10 | — | 57% |
+| top 28 | — | 76% |
+
+**The gate passes.** Four labels cover 45% of labelled tracks and ten cover
+57%, so a map of a few dozen entries written by hand reaches most of the
+library — the condition the gate was set to test. The tail also confirms the
+abstain rule is load-bearing: `Lord Huron`, `Pink Floyd Records`, `Universal
+Music Australia`, `Spinnin' Records` and `Kontor Records` appear among psy
+tracks (majors, and an artist name sitting in the label field), and none of
+them may vote.
+
+**Map built, and measured** (`app/labels.yaml`, `app/labels.py`, 2026-11-25).
+Source: the "Notable labels" list under each style on https://psytranceguide.com/
+— the same reference the taxonomy already cites for BPM ranges. 63 labels, 14
+of the guide's 18 styles mapped; four styles have no equivalent here
+("Psychedelic", "Psytrance" (our genre, not a subgenre), "Raw Trance",
+"Tribal"), so labels listed only under those abstain.
+
+On the golden set, measuring the map rather than the raw label
+(`python -m scripts.medir_selos_psy --golden`): of the tracks with a label, the
+map **knows 6 and gets 5 right**; the miss is Dacru Records, which the guide
+lists under Full-on while the reference calls that track progressive — the
+mixed-label case the split shares exist for, and the reference's own crosstab
+shows Dacru split too. Ten labels seen are outside the map (Alwarda, Enterrec,
+Shamanic Tales, Oforia, Skruv, Padang, Monstera, Proton Brazil, HOT-Q, Tribal
+Vision); the script prints them as the queue for sourcing.
+
+So the map is accurate where it speaks and silent elsewhere, which is the
+intended shape. Coverage grows by finding sources, not by guessing: the
+deliberate gaps are listed at the top of `labels.yaml` with the reason for
+each.
 
 **Design rules:**
 - A hand-written `labels.yaml`: label name (plus aliases) → subgenre shares,
