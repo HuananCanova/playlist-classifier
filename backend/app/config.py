@@ -20,6 +20,10 @@ class Settings(BaseSettings):
 
     lastfm_api_key: str
 
+    # Token pessoal do Discogs (https://www.discogs.com/settings/developers).
+    # Opcional: sem ele o app não consulta os estilos dos discos.
+    discogs_token: str | None = None
+
     # Só o servidor MCP usa: ele roda fora do navegador, sem cookie de sessão.
     # Obtenha uma vez com `python -m scripts.spotify_refresh_token`.
     spotify_refresh_token: str = ""

@@ -111,6 +111,22 @@ MIGRATIONS: list[str] = [
     CREATE INDEX sessions_expires_at ON sessions (expires_at);
     CREATE INDEX sessions_user_id ON sessions (user_id);
     """,
+    # 3 — evidência por faixa para classificar subgênero (evidence_store.py).
+    # Sem validade: serve para reclassificar offline o que já foi buscado.
+    # NULL em tags = não buscado; lista vazia = buscado e sem tags.
+    # deezer_checked_at NULL = Deezer nunca consultado; preenchido com bpm e
+    # deezer_id NULL = consultado e sem correspondência (resposta de verdade).
+    """
+    CREATE TABLE track_evidence (
+        track_id          TEXT PRIMARY KEY,
+        artist_tags       TEXT,
+        track_tags        TEXT,
+        bpm               REAL,
+        deezer_id         INTEGER,
+        deezer_checked_at REAL,
+        updated_at        REAL NOT NULL
+    );
+    """,
 ]
 
 _lock = threading.RLock()

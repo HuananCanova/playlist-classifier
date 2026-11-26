@@ -17,12 +17,22 @@
 # "hip-hop", "Hip Hop" e "hip_hop" caem no mesmo alias sem precisar listar as
 # três formas.
 #
+# Um subgênero é uma lista de aliases OU um mapeamento com dados de referência:
+#   nome:
+#     aliases: [grafias da mesma coisa]
+#     weak: [aliases que resolvem para o subgênero mas valem só 30% no voto,
+#            porque sozinhos dizem pouco — ex.: "goa"]
+#     bpm: [mínimo, máximo]
+#     about: "uma linha, em português"
+#     source: de onde veio a faixa de BPM
+#
 # Como estender: rode `python -m evals.run_genre_evals --cobertura` para ver
 # quais tags do acervo ainda não têm casa, em ordem de frequência. A lista sai
 # ordenada por impacto, então as primeiras linhas são sempre o melhor lugar
 # para gastar os próximos cinco minutos.
 
-version: 1
+# v3: "twilight" e "forest" soltos viraram ambíguos; o que foi guardado em v2 precisa ser reclassificado.
+version: 3
 
 # ── O que NUNCA é gênero ─────────────────────────────────────────────────────
 #
@@ -192,6 +202,11 @@ ignore:
   # "alternative rock", "hardcore punk"), e é a forma específica que classifica.
   # Mantê-los resolveria para o gênero errado metade das vezes.
   ambiguos:
+    # "twilight" e "forest" soltos marcam também música que não é psy (Muse
+    # aparece como twilight); só as formas compostas ("night full-on",
+    # "forest psy", "forest psytrance") apontam o subgênero.
+    - twilight
+    - forest
     - alternative
     - progressive
     - prog
@@ -321,15 +336,72 @@ genres:
   psytrance:
     # Parente do trance, mas no acervo desta conta é a identidade principal
     # (352 faixas) e tem subcultura própria — por isso é gênero, não subgênero.
-    aliases: [psy trance, psychedelic trance, psy-trance, psychedelic]
+    aliases: [psy trance, psychedelic trance, psy-trance, psychedelic, psychodelic]
     subgenres:
-      progressive psytrance: [progressive psy, prog psy, progrisse psytrance, future progressive psytrance]
-      goa trance: [goa]
-      darkpsy: [dark psy, forest psy]
-      full-on: [fullon]
-      psychill: [psybient]
-      hitech: [hi-tech, hitech psy]
+      progressive psytrance:
+        aliases: [progressive psy, prog psy, progrisse psytrance, future progressive psytrance, psyprog]
+        bpm: [130, 140]
+        about: "Psy de pulso contido e camadas longas, com graves rolantes e clima hipnótico."
+        source: https://psytranceguide.com
+      full-on:
+        aliases: [fullon]
+        bpm: [140, 148]
+        about: "Psy melódico e enérgico de pista, com baixo ritmado e leads marcantes."
+        source: https://psytranceguide.com
+      night full-on:
+        aliases: [night fullon]
+        bpm: [145, 150]
+        about: "Full-on mais escuro e sombrio, para a madrugada, com baixo mais seco."
+        source: https://psytranceguide.com
+      offbeat:
+        aliases: [offbeat psy, offbeat psytrance]
+        bpm: [134, 140]
+        about: "Baixo no contratempo, com groove saltitante e quase sempre bem-humorado."
+        source: https://psytranceguide.com
+      darkpsy:
+        aliases: [dark psy]
+        bpm: [140, 155]
+        about: "Psy sombrio e denso, com texturas estranhas e clima de tensão."
+        source: https://psytranceguide.com
+      forest psy:
+        aliases: [forest psytrance, forest darkpsy]
+        bpm: [150, 160]
+        about: "Variante rápida e orgânica do dark, com sons de floresta e atmosfera misteriosa."
+        source: https://psytranceguide.com
+      hitech:
+        aliases: [hi-tech, hitech psy]
+        bpm: [170, 200]
+        about: "Psy rápido e técnico, com sons complexos e muita energia dançante."
+        source: https://psytranceguide.com
+      psycore:
+        bpm: [170, 250]
+        about: "O extremo de velocidade do psy, agressivo e carregado de distorção."
+        source: https://psytranceguide.com
+      goa trance:
+        weak: [goa]
+        bpm: [135, 150]
+        about: "Som clássico dos anos 90, com melodias sinuosas e clima místico."
+        source: https://psytranceguide.com
+      psy-techno:
+        aliases: [psytechno]
+        bpm: [125, 137]
+        about: "Mistura psy com techno: pulso reto, groove seco e menos melodia."
+        source: https://psytranceguide.com
+      nitzhonot:
+        bpm: [145, 160]
+        about: "Estilo israelense do começo dos anos 2000, com melodias alegres e rápidas."
+        source: https://psytranceguide.com
+      hypnotic psy:
+        bpm: [140, 150]
+        about: "Psy repetitivo e circular, que prende a atenção por camadas sutis."
+        source: https://psytranceguide.com
+      psychill:
+        aliases: [psybient]
+        bpm: [90, 120]
+        about: "Psy em andamento lento, com atmosferas e texturas para relaxar."
+        source: https://psytranceguide.com
       dark progressive: [dark prog]
+      suomi: [suomisaundi, suomi psy]
 
   trance:
     # Ver `fallback` em electronic: num acervo de psytrance, "trance" vem de

@@ -100,6 +100,14 @@ playlist-classifier/
 │   │   ├── deezer_client.py     # BPM + preview (two implementations in one file!)
 │   │   ├── lastfm_client.py     # genre tags (only genre source)
 │   │   ├── genre_analysis.py    # build_playlist_analysis, add_audio (+ persists everything)
+│   │   ├── taxonomy.py / .yaml  # tag → genre/subgenre; subgenre BPM range, about, source, weak aliases
+│   │   ├── subgenre.py          # pure evidence blend (track tags, artist tags, tempo) + "unsure" rule
+│   │   ├── evidence_store.py    # per-track separated weighted tags + BPM, no TTL (offline reclassify)
+│   │   ├── enrichment_job.py    # opt-in "Buscar evidência" job (Last.fm + Deezer, no Spotify, resumable)
+│   │   ├── reclassify.py        # offline reclassification of stored analyses/digests
+│   │   ├── subgenres.py         # /api/subgenres routes: library by subgenre + enrichment job control
+│   │   ├── subgenre_library.py  # pure counts/tracks per subgenre from stored digests
+│   │   ├── discogs_client.py    # evaluated and dropped (styles don't separate psy); unused
 │   │   ├── playlists.py         # /api/playlists routes, analysis_for_user (permission + store)
 │   │   ├── tracks.py            # /api/tracks routes
 │   │   ├── search.py            # /api/search routes (semantic search + index control)
@@ -115,8 +123,9 @@ playlist-classifier/
 │   │   ├── ai_tools.py          # provider-neutral tools, scope enforcement, prompts
 │   │   ├── metrics.py           # in-memory per-turn token/latency ring buffer
 │   │   └── mcp_server.py        # MCP stdio server (python -m app.mcp_server)
-│   ├── evals/                   # golden.yaml + run_evals.py (real LLM, fixture data)
-│   ├── scripts/                 # spotify_refresh_token.py (mint SPOTIFY_REFRESH_TOKEN)
+│   ├── evals/                   # golden.yaml + run_evals.py (real LLM); genre_golden + run_genre_evals;
+│   │                            # subgenre_refs/subgenre_golden + congelar_subgeneros + run_subgenre_evals
+│   ├── scripts/                 # spotify_refresh_token, reclassificar_generos, medir_fontes_psy
 │   ├── tests/                   # pytest suite, no network
 │   ├── Dockerfile, pytest.ini, requirements.txt, .env.example
 │   ├── .data/ .chroma/ .state/   # runtime state (gitignored); .profile_cache/ is legacy, imported
@@ -128,7 +137,7 @@ playlist-classifier/
 │   │   ├── PlayerContext.jsx    # singleton <audio> + Web Audio analyser
 │   │   ├── audioAnalysis.js     # client-side waveform peaks + spectral metrics
 │   │   ├── index.css            # entire design system (~3.2k lines)
-│   │   ├── pages/               # Login, PlaylistList, PlaylistDetail, TrackDetail, Search, Profile
+│   │   ├── pages/               # Login, PlaylistList, PlaylistDetail, TrackDetail, Subgenre, Search, Profile
 │   │   ├── components/          # charts, chat, player, tables
 │   │   └── charts/              # chartKit.js, ChartTooltip, GenreFlow
 │   ├── Dockerfile, nginx.conf, vite.config.js, package.json
@@ -312,6 +321,23 @@ in the session, because the scan outlives the 1h access token.
 - `1970-01-01` add dates are treated as unknown.
 - Missing months on the timeline are filled with zeros.
 
+### Backend: subgenre evidence
+
+| File | Purpose |
+|------|---------|
+| `backend/app/subgenre.py` | Pure. `blend(genre, artist_tags, track_tags, bpm, extra)` → `SubgenreResult` (blend, lean, subgenre, confidence, unsure, evidence). `SOURCE_WEIGHTS` (track_tags 1.0, tempo 0.8, artist_tags 0.4), `TEMPO_FALLOFF_BPM=6`, `UNSURE_MIN_SHARE=0.4` (**provisional**, see comment). `extra` is where a new source (Stage B audio) plugs in |
+| `backend/app/taxonomy.py` + `taxonomy.yaml` | A subgenre is an alias list or a mapping `{aliases, weak, bpm, about, source}`; `subgenre_info`, `subgenres_of`, `tag_weight_factor` (`weak` aliases such as bare `goa` count 30%). Psy BPM ranges come from psytranceguide.com |
+| `backend/app/evidence_store.py` | `track_evidence` table keyed by track id, no TTL: artist and track tags kept apart with weights, `bpm`, `deezer_id`, `deezer_checked_at` (None = never asked; set with empty bpm = Deezer has no match) |
+| `backend/app/enrichment_job.py` | `pending_tracks(digests)`, `start(account, digests)`, `cancel`, `progress_dict`. Reads tracks from stored digests (zero Spotify), fetches only what is missing, failures stay `None` (never stored as `[]`), psy first, reclassifies offline when done |
+| `backend/app/reclassify.py` | Offline reclassification; uses `evidence_store` where it exists, otherwise the merged stored tags count as artist tags only (so the track stays unsure) |
+| `backend/app/subgenres.py` | `GET /api/subgenres` (library counts), `GET /api/subgenres/{name}` (reference + tracks), `GET/POST/DELETE /api/subgenres/enrich` (job) |
+| `backend/app/subgenre_library.py` | Pure: counts and track lists per subgenre from digests; old digests without blend fields are skipped |
+| `backend/scripts/medir_fontes_psy.py` | Read-only measurement of Deezer BPM and Discogs styles on a sample of psy tracks (the two gates); writes nothing to the DB |
+
+Track fields added by the blend: `subgenre_blend`, `subgenre_lean`, `subgenre`
+(null when unsure), `subgenre_confidence`, `subgenre_unsure`, `subgenre_evidence`;
+the playlist analysis carries `subgenre_bars` (confident + unsure part per subgenre).
+
 ### Backend: AI chat and MCP
 
 | File | Purpose | Tokens |
@@ -349,6 +375,10 @@ SSE event types: `tool`, `text`, `done` and `error`. If the client disconnects, 
 | `tests/test_vector_store.py` | real ONNX: semantic neighbors, scoped filter doesn't leak, similar tracks, upsert, empty cases | 941 |
 | `tests/test_scope.py` | tool schemas have no id params, exactly one scope id, history cap | 611 |
 | `tests/test_metrics.py` | aggregation, errors, ring buffer eviction, TTFT set once | 473 |
+| `backend/evals/genre_golden.yaml` + `run_genre_evals.py` | genre (45 cases) and non-psy subgenre (29) accuracy, pure and offline; `--cobertura` lists unmapped tags | — |
+| `backend/evals/subgenre_refs.yaml` | external references (psytranceguide.com examples, Beatport track pages with URL) | — |
+| `backend/evals/congelar_subgeneros.py` | deliberate script: fetches Last.fm + Deezer inputs once and writes `subgenre_golden.yaml` (frozen, never touches the app DB) | — |
+| `backend/evals/run_subgenre_evals.py` | offline subgenre eval: confident precision (floor 0.65, skipped with no confident case), unsure rate (ceiling 1.0), top-2; today 0/0, 35/35, 16/35 | — |
 
 The tests make no network calls. `pytest.ini` sets `asyncio_mode = auto` and `testpaths = tests`.
 
@@ -372,6 +402,7 @@ The tests make no network calls. `pytest.ini` sets `asyncio_mode = auto` and `te
 | `/playlists` | `PlaylistList` |
 | `/playlists/:id` | `PlaylistDetail` |
 | `/faixa/:id` | `TrackDetail` |
+| `/subgenero/:name` | `Subgenre` |
 | `/busca` | `Search` |
 | `/perfil` | `Profile` |
 | `*` | redirect to `/playlists` |
@@ -391,6 +422,8 @@ The tests make no network calls. `pytest.ini` sets `asyncio_mode = auto` and `te
 | `search` | GET `/api/search` | | Search |
 | `searchStatus` | GET `/api/search/status` | | Search |
 | `indexStatus` / `startIndex` / `stopIndex` | GET / POST / DELETE `/api/search/index` | | Search |
+| `getSubgenres` / `getSubgenre(name)` | GET `/api/subgenres` ✓ / `/api/subgenres/{name}` | | SubgenreList / Subgenre |
+| enrichment status / start / stop | GET / POST / DELETE `/api/subgenres/enrich` | | EnrichPanel |
 | `getProfile` | GET `/api/profile` | ✓ | Profile |
 | `getProfileBuild` / `buildProfile` | GET ✓ / POST `/api/profile/build` | | Profile |
 | `chatStatus` | GET `/api/chat/status` | ✓ | PlaylistDetail, TrackDetail |
@@ -409,6 +442,7 @@ The tests make no network calls. `pytest.ini` sets `asyncio_mode = auto` and `te
 | `pages/PlaylistList.jsx` | Playlist grid, client-side filter, "Atualizar" (`refresh=true`) keeps the grid dimmed instead of showing skeletons, generated cover placeholder for playlists without art, retry with `formatWait` on 429/502 | 1550 |
 | `pages/PlaylistDetail.jsx` | Hero stats, `GenreFlow`, genre/subgenre bars, `BpmChart`, `TopArtistsChart`, `ClusterPanel`, `TrackTable`, `ChatWidget scope="playlist"`; `colorFor` keeps bar colors in sync with GenreFlow's top 5 | 1452 |
 | `pages/TrackDetail.jsx` | `Waveform`, `AudioMetrics`, tags, similar tracks (reuses `SearchHit` from Search.jsx; an error shows as `[]`), `ChatWidget scope="track"`, note when the match is "aproximada" | 1687 |
+| `pages/Subgenre.jsx` | `/subgenero/:name`: our description, BPM range, source link, tracks in two groups ("classificadas" and "puxam para"), preview play, `EnrichPanel` | — |
 | `pages/Search.jsx` | Semantic search, coverage panel, index start/stop; polls `indexStatus` every 1.5s **on mount** and stops when the scan isn't running, so it picks up a scan started from Profile. Exports `SearchHit` | 2330 |
 | `pages/Profile.jsx` | Account dashboard (top artists/genres/tags, decades, add timeline, repeated tracks, playlist table), coverage, "Analisar as que faltam" button, block countdown | 6556 |
 
@@ -433,6 +467,10 @@ There is **no chart library**. All charts are hand-built SVG, HTML or canvas on 
 | `components/ColumnChart.jsx` | Column chart for ordered categories (Profile decades/timeline), rounded axis max, tick thinning that falls back to `major`/`majorLabel` labels | 1841 |
 | `components/BpmChart.jsx` | Dot per track plus a Gaussian density curve (bandwidth 6), shaded tempo zones | 2598 |
 | `components/ClusterPanel.jsx` | Fetches clusters; scatter plot with a color **and** marker shape per cluster, halos, label collision avoidance; renders nothing if there are no clusters and no note | 2860 |
+| `components/SubgenreBars.jsx` | Subgenre bars from the blends: solid part = confident tracks, light part = unsure; name links to the subgenre page, bar selects the track-table filter | — |
+| `components/SubgenreWhy.jsx` | Track page "Por que este subgênero": blend bar, one line per evidence source, reference range and source | — |
+| `components/EnrichPanel.jsx` | "Buscar evidência" button + progress polling for the enrichment job; hides when nothing is pending | — |
+| `components/SubgenreList.jsx` | Profile section: each genre with its subgenres and counts, linking to `/subgenero/:name`; hosts `EnrichPanel` | — |
 | `components/TrackTable.jsx` | Filterable track table with play buttons and a playing-bars indicator; exports `PlayIcon`/`PauseIcon` | 1264 |
 | `components/Waveform.jsx` | Live canvas spectrum and oscilloscope from `analyserRef`; the draw loop runs only while this track plays | 1515 |
 | `components/AudioMetrics.jsx` | Runs `analisarPrevia`, draws a static waveform canvas (click to seek or play), metric tiles | 1873 |
@@ -453,6 +491,7 @@ App
 ├─ /playlists/:id  PlaylistDetail → AnalysisLoader(SoundRibbon), GenreFlow, DistributionBarChart×2,
 │                                   BpmChart, TopArtistsChart, ClusterPanel, TrackTable, ChatWidget→ChatPanel, BackLink
 ├─ /faixa/:id      TrackDetail → Waveform, AudioMetrics, SearchHit, ChatWidget→ChatPanel, BackLink
+├─ /subgenero/:name Subgenre → EnrichPanel, TrackTable-style groups
 ├─ /busca          Search (SearchHit, Cobertura)
 ├─ /perfil         Profile → ColumnChart, DistributionBarChart
 └─ NowPlayingBar   (outside the routes and the .page-enter animation)
@@ -590,6 +629,7 @@ State that must survive restarts lives in SQLite (`backend/.data/app.sqlite3`, o
 | `lastfm_artist_tags`, `lastfm_track_tags` | `lastfm_client` | 30 days |
 | `deezer_matches` | `deezer_client.get_track_info` | 30 days (7 days for "not found") |
 | `spotify_tracks` | analyses and `tracks.build_track_detail` | 30 days |
+| `track_evidence` | `enrichment_job`, new analyses | no TTL (kept for offline reclassification) |
 
 Rules:
 - **Only real answers are stored.** Network errors, Last.fm error codes other than 6 and Deezer quota errors return empty data to the caller but are never written.
@@ -649,6 +689,7 @@ When changing anything that calls Spotify, keep all of these intact. `test_spoti
 
 - **Add a backend endpoint:** create or extend a router in `backend/app/<resource>.py`, add response models to `models.py`, register new routers in `main.py`, then add a function to `frontend/src/api.js` (use `get()` for idempotent GETs so they're deduped).
 - **Add a Spotify call:** add a method to `SpotifyClient` in `spotify_client.py` (never call `httpx` directly), add a cache in `cache.py`, and add a test in `test_spotify_client.py`. Think about the scan volume.
+- **Change subgenre logic:** `taxonomy.yaml` (aliases, `weak`, `bpm`, `about`, `source`) → `subgenre.py` (weights, `UNSURE_MIN_SHARE`) → `python -m evals.run_subgenre_evals` and `run_genre_evals`. A new evidence source is a `SourceResult` passed as `extra` to `blend`. Bump `ANALYSIS_FORMAT`/taxonomy version when stored fields change and rerun `scripts.reclassificar_generos`.
 - **Change genre/tag logic:** `lastfm_client.py` (`NOISE_TAGS`, limits) → `genre_analysis.py` → `profile_store.digest_from_analysis` (bump `VERSION` if the digest shape changes; bump `analysis_store.ANALYSIS_FORMAT` if `PlaylistAnalysis` changes). Stored Last.fm tags last 30 days: clear `lastfm_*` tables if the filtering changes.
 - **Persist something new:** append a migration to `db.MIGRATIONS`, add get/put functions in a `*_store.py`, keep network errors out of it, and cover it in `test_persistence.py`.
 - **Change BPM or previews:** `deezer_client.py` (both implementations) and `cache.py` TTLs.

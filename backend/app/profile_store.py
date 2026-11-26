@@ -78,6 +78,9 @@ def digest_from_analysis(analysis: PlaylistAnalysis, *, has_audio: bool) -> dict
                 "release_year": t.release_year,
                 "genres": t.genres,
                 "tags": t.subgenre_tags[:MAX_TAGS_PER_TRACK],
+                "subgenre_lean": t.subgenre_lean,
+                "subgenre_unsure": t.subgenre_unsure,
+                "subgenre_blend": [[b.label, round(b.share, 3)] for b in t.subgenre_blend],
             }
             for t in analysis.tracks
         ],

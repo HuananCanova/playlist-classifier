@@ -37,6 +37,22 @@ class Tool:
     run: Callable[..., Awaitable[str]]
 
 
+def _subgeneros_por_faixa(tracks) -> list[dict]:
+    """Faixas por subgênero que lideram, separando as afirmadas das incertas.
+
+    O rótulo de uma faixa incerta é só para onde ela pende — o modelo não pode
+    tratá-lo como fato, então as duas contagens vão separadas."""
+    contagem: dict[str, list[int]] = {}
+    for t in tracks:
+        if t.subgenre_lean:
+            contagem.setdefault(t.subgenre_lean, [0, 0])[1 if t.subgenre_unsure else 0] += 1
+    ordenado = sorted(contagem.items(), key=lambda item: (-sum(item[1]), item[0]))
+    return [
+        {"subgenero": label, "faixas_confiantes": conf, "faixas_incertas": inc}
+        for label, (conf, inc) in ordenado[:MAX_GENRES]
+    ]
+
+
 async def analisar_playlist_json(access_token: str, playlist_id: str) -> str:
     """Análise completa de uma playlist, serializada para o modelo."""
     try:
@@ -59,10 +75,7 @@ async def analisar_playlist_json(access_token: str, playlist_id: str) -> str:
                 {"genero": g.label, "faixas": g.count}
                 for g in analysis.genre_distribution[:MAX_GENRES]
             ],
-            "subgeneros": [
-                {"tag": g.label, "faixas": g.count}
-                for g in analysis.subgenre_distribution[:MAX_GENRES]
-            ],
+            "subgeneros": _subgeneros_por_faixa(analysis.tracks),
             "artistas_frequentes": [
                 {"artista": a.label, "faixas": a.count}
                 for a in analysis.top_artists[:10]
@@ -73,7 +86,9 @@ async def analisar_playlist_json(access_token: str, playlist_id: str) -> str:
             ],
             "observacao": (
                 f"A amostra mostra {min(MAX_TRACK_SAMPLE, len(analysis.tracks))} "
-                f"de {len(analysis.tracks)} faixas."
+                f"de {len(analysis.tracks)} faixas. Em `subgeneros`, só "
+                "`faixas_confiantes` é subgênero afirmado; `faixas_incertas` são "
+                "faixas que apenas pendem para ele, com evidência fraca ou em conflito."
             ),
         },
         ensure_ascii=False,
@@ -281,8 +296,10 @@ def build_tools(
                 description=(
                     "Analisa a playlist que o usuário está vendo: gêneros, "
                     "subgêneros, artistas mais frequentes e uma amostra das "
-                    "faixas com suas tags. Chame antes de responder qualquer "
-                    "pergunta sobre ela."
+                    "faixas com suas tags. Os subgêneros vêm com faixas "
+                    "confiantes (afirmadas) e incertas (só pendem para ele): "
+                    "não apresente as incertas como fato. Chame antes de "
+                    "responder qualquer pergunta sobre ela."
                 ),
                 parameters={"type": "object", "properties": {}, "required": []},
                 run=analisar_esta_playlist,

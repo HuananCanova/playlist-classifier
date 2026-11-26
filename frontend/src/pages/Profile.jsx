@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { api } from "../api.js";
 import { useAuth } from "../AuthContext.jsx";
 import ColumnChart from "../components/ColumnChart.jsx";
+import SubgenreList from "../components/SubgenreList.jsx";
 import DistributionBarChart from "../components/DistributionBarChart.jsx";
 import TasteTimeline from "../charts/TasteTimeline.jsx";
 import { NEUTRAL, SERIES, pct } from "../charts/chartKit.js";
@@ -269,6 +270,8 @@ export default function Profile() {
       <Coverage coverage={coverage} progress={progress} blocked={blocked} starting={starting} onBuild={build} />
 
       {stats && <Dashboard stats={stats} coverage={coverage} />}
+
+      <SubgenreList />
 
       {index && (partial || !stats) && <IndexPanel index={index} />}
 

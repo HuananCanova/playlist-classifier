@@ -37,7 +37,7 @@ def _fresh(fetched_at: float, ttl: float) -> bool:
 # ── Last.fm ─────────────────────────────────────────────────────────────────
 
 
-def _decode_tags(raw: str) -> list[Tag]:
+def decode_tags(raw: str) -> list[Tag]:
     """Lê as duas formas já gravadas nesta tabela.
 
     Antes da taxonomia, a tag era só o nome: `["shoegaze"]`. Agora leva o peso
@@ -59,7 +59,7 @@ def _decode_tags(raw: str) -> list[Tag]:
     return out
 
 
-def _encode_tags(tags: list[Tag]) -> str:
+def encode_tags(tags: list[Tag]) -> str:
     return db.dumps([{"name": t.name, "weight": t.weight} for t in tags])
 
 
@@ -67,13 +67,13 @@ def get_artist_tags(artist_key: str) -> list[Tag] | None:
     row = db.query_one("SELECT tags, fetched_at FROM lastfm_artist_tags WHERE artist_key = ?", (artist_key,))
     if row is None or not _fresh(row["fetched_at"], TAGS_TTL):
         return None
-    return _decode_tags(row["tags"])
+    return decode_tags(row["tags"])
 
 
 def put_artist_tags(artist_key: str, tags: list[Tag]) -> None:
     db.execute(
         "INSERT OR REPLACE INTO lastfm_artist_tags (artist_key, tags, fetched_at) VALUES (?, ?, ?)",
-        (artist_key, _encode_tags(tags), time.time()),
+        (artist_key, encode_tags(tags), time.time()),
     )
 
 
@@ -81,13 +81,13 @@ def get_track_tags(track_key: str) -> list[Tag] | None:
     row = db.query_one("SELECT tags, fetched_at FROM lastfm_track_tags WHERE track_key = ?", (track_key,))
     if row is None or not _fresh(row["fetched_at"], TAGS_TTL):
         return None
-    return _decode_tags(row["tags"])
+    return decode_tags(row["tags"])
 
 
 def put_track_tags(track_key: str, tags: list[Tag]) -> None:
     db.execute(
         "INSERT OR REPLACE INTO lastfm_track_tags (track_key, tags, fetched_at) VALUES (?, ?, ?)",
-        (track_key, _encode_tags(tags), time.time()),
+        (track_key, encode_tags(tags), time.time()),
     )
 
 

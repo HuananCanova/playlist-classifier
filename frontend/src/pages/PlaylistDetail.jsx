@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { api } from "../api.js";
+import SubgenreBars from "../components/SubgenreBars.jsx";
 import DistributionBarChart from "../components/DistributionBarChart.jsx";
 import TopArtistsChart from "../components/TopArtistsChart.jsx";
 import TrackTable from "../components/TrackTable.jsx";
@@ -11,6 +12,9 @@ import ChatWidget from "../components/ChatWidget.jsx";
 import BackLink from "../components/BackLink.jsx";
 import GenreFlow, { FLOW_SERIES_LIMIT } from "../charts/GenreFlow.jsx";
 import { NEUTRAL, SERIES, pct } from "../charts/chartKit.js";
+
+// Fora do componente: o GenreFlow memoriza o desenho por esta referência.
+const leanOf = (t) => (t.subgenre_lean ? [t.subgenre_lean] : []);
 
 function Stat({ value, label }) {
   return (
@@ -25,11 +29,13 @@ export default function PlaylistDetail() {
   const { id } = useParams();
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState(null);
+  const [selectedSub, setSelectedSub] = useState(null);
   const [chatAvailable, setChatAvailable] = useState(false);
 
   useEffect(() => {
     setAnalysis(null);
     setError(null);
+    setSelectedSub(null);
     api
       .getPlaylistAnalysis(id)
       .then(setAnalysis)
@@ -60,6 +66,20 @@ export default function PlaylistDetail() {
     return (label) => inFlow.get(label) ?? NEUTRAL;
   }, [analysis]);
 
+  // O caminho dos subgêneros usa as mesmas faixas-por-rótulo que o blend: conta
+  // direto o subgenre_lean, para as cinco séries e o "outros" baterem com ele.
+  const subFlowDistribution = useMemo(() => {
+    if (!analysis) return [];
+    const counts = new Map();
+    analysis.tracks.forEach((t) => {
+      if (t.subgenre_lean) counts.set(t.subgenre_lean, (counts.get(t.subgenre_lean) ?? 0) + 1);
+    });
+    return (analysis.subgenre_bars ?? [])
+      .map((b) => ({ label: b.label, count: counts.get(b.label) ?? 0 }))
+      .filter((g) => g.count > 0)
+      .sort((a, b) => b.count - a.count);
+  }, [analysis]);
+
   if (error) {
     return (
       <div className="container">
@@ -84,16 +104,30 @@ export default function PlaylistDetail() {
     playlist,
     tracks,
     genre_distribution,
-    subgenre_distribution,
     top_artists,
     average_bpm,
     tracks_missing_genre,
     tracks_missing_bpm,
   } = analysis;
 
+  const subgenre_distribution = analysis.subgenre_distribution ?? [];
+  const subgenreBars = analysis.subgenre_bars ?? [];
+  // Análises antigas não têm o blend: as barras caem para a contagem por faixa
+  // e perdem o filtro, que depende de subgenre_lean.
+  const hasBlend = subgenreBars.length > 0;
+  const barRows = hasBlend
+    ? subgenreBars
+    : subgenre_distribution.map((g) => ({ label: g.label, confident: g.count, unsure: 0 }));
+
   const identified = playlist.track_count - tracks_missing_genre;
   const minutes = Math.round(tracks.reduce((s, t) => s + t.duration_ms, 0) / 60000);
   const duration = minutes >= 60 ? `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, "0")}` : `${minutes} min`;
+  // Com um gênero só (um álbum inteiro, ou uma playlist toda de psytrance), o
+  // caminho dos gêneros vira uma linha reta em 100%, sem nada para mostrar.
+  const singleGenre = genre_distribution.length <= 1;
+  const distinctLeans = new Set(tracks.map((t) => t.subgenre_lean).filter(Boolean)).size;
+  // Sem variedade de gênero, o caminho dos subgêneros é o que ainda tem história.
+  const showSubFlow = singleGenre && distinctLeans >= 2;
 
   return (
     <>
@@ -131,23 +165,38 @@ export default function PlaylistDetail() {
           </p>
         )}
 
-        <GenreFlow tracks={tracks} genreDistribution={genre_distribution} trackCount={playlist.track_count} />
+        {!singleGenre && (
+          <GenreFlow tracks={tracks} genreDistribution={genre_distribution} trackCount={playlist.track_count} />
+        )}
+
+        {showSubFlow && (
+          <GenreFlow
+            tracks={tracks}
+            genreDistribution={subFlowDistribution}
+            trackCount={playlist.track_count}
+            labelsOf={leanOf}
+            title="O caminho dos subgêneros"
+            subtitle="Da primeira à última faixa, na ordem da playlist. A altura de cada linha é a parcela daquele subgênero naquele trecho. Passe o mouse para ver faixa a faixa; clique na legenda para isolar um subgênero."
+          />
+        )}
 
         {/* Sem subgênero próprio, o painel sairia vazio: gêneros ocupa a linha sozinho. */}
-        <div className={subgenre_distribution.length > 0 ? "charts-grid" : undefined}>
+        <div className={barRows.length > 0 ? "charts-grid" : undefined}>
           <DistributionBarChart
             data={genre_distribution}
             total={playlist.track_count}
             title="Gêneros"
-            subtitle="Tags do artista no Last.fm. As cores são as mesmas do caminho acima."
+            subtitle={
+              singleGenre ? "Tags do artista no Last.fm." : "Tags do artista no Last.fm. As cores são as mesmas do caminho acima."
+            }
             colorFor={colorFor}
           />
-          {subgenre_distribution.length > 0 && (
-            <DistributionBarChart
-              data={subgenre_distribution}
+          {barRows.length > 0 && (
+            <SubgenreBars
+              bars={barRows}
               total={playlist.track_count}
-              title="Subgêneros"
-              subtitle="Tags de cada faixa no Last.fm que não aparecem entre os gêneros"
+              onSelect={hasBlend ? setSelectedSub : null}
+              selected={selectedSub}
             />
           )}
         </div>
@@ -159,7 +208,11 @@ export default function PlaylistDetail() {
 
         <ClusterPanel playlistId={id} tracks={tracks} />
 
-        <TrackTable tracks={tracks} />
+        <TrackTable
+          tracks={tracks}
+          filter={selectedSub ? { subgenre: selectedSub } : null}
+          onClearFilter={() => setSelectedSub(null)}
+        />
       </div>
 
       {/* Fora do .page-enter: a animação de entrada vira bloco de contenção

@@ -1,0 +1,696 @@
+# Conjunto dourado de subgênero — entradas CONGELADAS.
+#
+# Gerado por `python -m evals.congelar_subgeneros` a partir de `subgenre_refs.yaml`.
+# NÃO edite os casos à mão: refaça o congelamento. Cada caso guarda o que o
+# Last.fm (tags da faixa e do artista, com peso) e o Deezer (BPM) devolveram na
+# data do congelamento, e o rótulo `subgenero` vem da referência externa
+# registrada em `referencia` — nunca de julgamento nosso nem do classificador.
+#
+# Formato: id, faixa, referencia, subgenero, artista (tags do artista),
+# faixa_tags (tags da faixa), bpm (null = Deezer sem BPM ou sem a faixa),
+# incompleto (true = alguma fonte não respondeu no congelamento).
+#
+# `limiares` são os pisos/tetos que `run_subgenre_evals.py` cobra.
+
+limiares:
+  # Corrida honesta depois de o andamento empatado em 3+ subgêneros deixar de
+  # confirmar as tags do artista: 0 casos confiantes de 35 (precisão
+  # indefinida), incerto 35/35 = 1,000. Os 7 casos que antes saíam confiantes
+  # (5 certos, 2 errados) eram todos "tag do artista + andamento que cabe em
+  # quase tudo" — o conjunto não tem tag de faixa nem BPM que estreite.
+  # O piso 0,65 vem da corrida anterior (5/7 = 0,714) e só vale quando houver
+  # caso confiante: o primeiro que aparecer errado reprova. O teto de incerto
+  # fica em 1,0 porque não há folga acima de 35/35; volta a ter função quando
+  # houver tags de faixa reais ou andamento medido no áudio (Estágio B).
+  precisao_confiante: 0.65
+  max_incerto: 1.0
+casos:
+- id: bitkit-meteorite
+  faixa: Bitkit — Meteorite
+  referencia: https://psytranceguide.com (seção Progressive Psy)
+  subgenero: progressive psytrance
+  artista:
+  - - psytrance
+    - 100
+  - - full on
+    - 60
+  - - psychedelic trance
+    - 33
+  - - goa
+    - 16
+  - - full-on
+    - 6
+  - - Goa Trance
+    - 4
+  - - psychedelic
+    - 3
+  - - trance
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: porat-undipresia
+  faixa: Porat — Undipresia
+  referencia: https://psytranceguide.com (seção Progressive Psy)
+  subgenero: progressive psytrance
+  artista:
+  - - psytrance
+    - 100
+  - - psychedelic
+    - 100
+  - - progressive psytrance
+    - 66
+  faixa_tags: []
+  bpm: null
+- id: ticon-you-can-have-my-fraggies
+  faixa: Ticon — You Can Have My Fraggies
+  referencia: https://psytranceguide.com (seção Progressive Psy)
+  subgenero: progressive psytrance
+  artista:
+  - - psytrance
+    - 100
+  - - progressive trance
+    - 77
+  - - progressive psytrance
+    - 51
+  - - electronic
+    - 31
+  - - goa
+    - 14
+  - - trance
+    - 7
+  - - psychedelic
+    - 7
+  - - psychedelic trance
+    - 2
+  faixa_tags: []
+  bpm: null
+- id: vibrasphere-morning-breeze
+  faixa: Vibrasphere — Morning Breeze
+  referencia: https://psytranceguide.com (seção Progressive Psy)
+  subgenero: progressive psytrance
+  artista:
+  - - psytrance
+    - 100
+  - - ambient
+    - 84
+  - - progressive trance
+    - 53
+  - - psychedelic
+    - 37
+  - - trance
+    - 16
+  - - electronic
+    - 8
+  - - progressive psytrance
+    - 8
+  - - chillout
+    - 2
+  faixa_tags: []
+  bpm: 137.8
+- id: paracozm-time
+  faixa: Paracozm — Time
+  referencia: https://www.beatport.com/track/time/16088721
+  subgenero: progressive psytrance
+  artista:
+  - - psytrance
+    - 100
+  - - psychedelic
+    - 44
+  - - psychedelic trance
+    - 29
+  - - goa
+    - 29
+  - - progressive psytrance
+    - 15
+  - - brazil
+    - 4
+  - - electronic
+    - 4
+  - - brazilian
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: ebony-willis-exoskeleton
+  faixa: Ebony Willis — Exoskeleton
+  referencia: https://www.beatport.com/track/exoskeleton/20712047
+  subgenero: progressive psytrance
+  artista: []
+  faixa_tags: []
+  bpm: null
+- id: digicult-cosmic-company
+  faixa: DigiCult — Cosmic Company
+  referencia: https://psytranceguide.com (seção Full-on)
+  subgenero: full-on
+  artista:
+  - - psytrance
+    - 100
+  - - psychedelic
+    - 40
+  - - psychedelic trance
+    - 26
+  - - trance
+    - 24
+  - - full on
+    - 12
+  - - full-on
+    - 2
+  - - electronic
+    - 1
+  - - belgian
+    - 1
+  faixa_tags: []
+  bpm: 146.1
+- id: electro-sun-we-can-dance
+  faixa: Electro Sun & System Nipel — We Can Dance
+  referencia: https://psytranceguide.com (seção Full-on)
+  subgenero: full-on
+  artista:
+  - - psytrance
+    - 100
+  - - full-on
+    - 73
+  - - psychedelic trance
+    - 41
+  - - psychedelic
+    - 21
+  - - trance
+    - 5
+  - - full on
+    - 2
+  - - goa
+    - 1
+  - - fullon
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: alternative-control-haarp
+  faixa: Alternative Control — HAARP
+  referencia: https://psytranceguide.com (seção Full-on)
+  subgenero: full-on
+  artista:
+  - - psytrance
+    - 100
+  - - psychedelic trance
+    - 100
+  - - full-on
+    - 16
+  - - goa
+    - 16
+  - - Need to Rate
+    - 8
+  - - psy trance
+    - 4
+  - - psychedelic
+    - 4
+  - - Rating 3 stars - Dull
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: sundose-in-the-music
+  faixa: Sundose — In The Music
+  referencia: https://psytranceguide.com (seção Full-on)
+  subgenero: full-on
+  artista:
+  - - psytrance
+    - 100
+  - - psychedelic trance
+    - 58
+  - - full-on
+    - 38
+  - - psychedelic
+    - 4
+  - - israeli
+    - 1
+  - - psychedelic trance full-on
+    - 1
+  - - full on
+    - 1
+  - - progressive trance
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: vaishiyas-axon-and-john
+  faixa: Vaishiyas — Axon & John
+  referencia: https://psytranceguide.com (seção Offbeat)
+  subgenero: offbeat
+  artista:
+  - - progressive psytrance
+    - 100
+  - - psytrance
+    - 95
+  - - progressive trance
+    - 59
+  - - goa
+    - 42
+  - - psychedelic trance
+    - 17
+  - - psychedelic
+    - 6
+  - - electronic
+    - 3
+  - - Home collection
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: interactive-noise-temptation
+  faixa: Interactive Noise — Temptation
+  referencia: https://psytranceguide.com (seção Offbeat)
+  subgenero: offbeat
+  artista:
+  - - progressive trance
+    - 100
+  - - progressive psytrance
+    - 73
+  - - psychedelic trance
+    - 34
+  - - progressive psychedelic
+    - 22
+  - - psychedelic
+    - 6
+  - - trance
+    - 3
+  - - psytrance
+    - 3
+  - - mexican
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: symphonix-hit-and-run
+  faixa: Symphonix — Hit And Run (Ticon Remix)
+  referencia: https://psytranceguide.com (seção Offbeat)
+  subgenero: offbeat
+  artista:
+  - - progressive psytrance
+    - 100
+  - - progressive trance
+    - 85
+  - - psytrance
+    - 54
+  - - psychedelic
+    - 32
+  - - trance
+    - 14
+  - - electronic
+    - 8
+  - - Progressive
+    - 4
+  - - goa
+    - 1
+  faixa_tags: []
+  bpm: 135.1
+- id: dj-fabio-and-moon-emotionally-unplugged
+  faixa: Dj Fabio & Moon — Emotionally Unplugged
+  referencia: https://psytranceguide.com (seção Offbeat)
+  subgenero: offbeat
+  artista:
+  - - progressive trance
+    - 100
+  - - goa
+    - 25
+  - - trance
+    - 4
+  - - psychedelic
+    - 4
+  - - House
+    - 2
+  - - psytrance
+    - 2
+  - - electronic
+    - 2
+  - - Goa Trance
+    - 1
+  faixa_tags: []
+  bpm: 137.8
+- id: asylom-no-time-to-die
+  faixa: Asylom, Kaza — No Time to Die
+  referencia: https://psytranceguide.com (seção Dark Psy)
+  subgenero: darkpsy
+  artista: []
+  faixa_tags: []
+  bpm: null
+- id: sychotria-alien-fashion
+  faixa: Sychotria & Fungoloyds — Alien Fashion
+  referencia: https://psytranceguide.com (seção Dark Psy)
+  subgenero: darkpsy
+  artista:
+  - - dark psychedelic trance
+    - 100
+  - - darkpsy
+    - 100
+  - - Home collection
+    - 66
+  - - psytrance
+    - 29
+  - - psychedelic trance
+    - 15
+  - - dark psytrance
+    - 4
+  - - psychedelic
+    - 4
+  faixa_tags: []
+  bpm: 76.0
+- id: fungus-funk-duck-the-mechwarrior
+  faixa: Fungus Funk — Duck The Mechwarrior
+  referencia: https://psytranceguide.com (seção Dark Psy)
+  subgenero: darkpsy
+  artista:
+  - - psytrance
+    - 100
+  - - darkpsy
+    - 71
+  - - dark psy
+    - 12
+  - - trance
+    - 12
+  - - psychedelic trance
+    - 5
+  - - goa
+    - 5
+  - - russian
+    - 5
+  - - electronic
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: blisargon-space-invaders
+  faixa: Blisargon & Demogorgon — Space Invaders
+  referencia: https://psytranceguide.com (seção Dark Psy)
+  subgenero: darkpsy
+  artista: []
+  faixa_tags: []
+  bpm: null
+- id: helan-and-halvan-gnomen
+  faixa: Helan & Halvan — Gnomen
+  referencia: https://psytranceguide.com (seção Forest Psy)
+  subgenero: forest psy
+  artista:
+  - - psytrance
+    - 100
+  - - darkpsy
+    - 100
+  - - yggdrasil records
+    - 66
+  - - forest music
+    - 66
+  faixa_tags: []
+  bpm: 74.0
+- id: skydda-skogen-oneiro
+  faixa: Skydda Skogen — Oneiro
+  referencia: https://psytranceguide.com (seção Forest Psy)
+  subgenero: forest psy
+  artista: []
+  faixa_tags: []
+  bpm: null
+- id: egons-embrace-aleinn-a-ny
+  faixa: Egon's Embrace — Aleinn a Ny
+  referencia: https://psytranceguide.com (seção Forest Psy)
+  subgenero: forest psy
+  artista:
+  - - darkpsy
+    - 100
+  - - forest
+    - 44
+  - - foest psytrance
+    - 7
+  - - psytrance
+    - 7
+  - - dark psytrance
+    - 4
+  - - psytance
+    - 4
+  - - parvati records
+    - 4
+  - - Forest Psytrance
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: distorted-goblin-reborn
+  faixa: Distorted Goblin — Reborn
+  referencia: https://psytranceguide.com (seção Forest Psy)
+  subgenero: forest psy
+  artista:
+  - - darkpsy
+    - 100
+  - - psytrance
+    - 92
+  - - dark psytrance
+    - 45
+  - - forest music
+    - 20
+  - - forest dark psytrance
+    - 7
+  - - psychedelic trance
+    - 7
+  - - psychedelic
+    - 4
+  - - Goa Trance
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: oforia-oasis
+  faixa: Oforia — Oasis
+  referencia: https://psytranceguide.com (seção Goa Trance)
+  subgenero: goa trance
+  artista:
+  - - psytrance
+    - 100
+  - - goa
+    - 48
+  - - psychedelic trance
+    - 31
+  - - psychedelic
+    - 30
+  - - trance
+    - 12
+  - - electronic
+    - 5
+  - - israeli
+    - 2
+  - - oforia
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: artifact303-feelings
+  faixa: Artifact303 — Feelings
+  referencia: https://psytranceguide.com (seção Goa Trance)
+  subgenero: goa trance
+  artista:
+  - - Goa Trance
+    - 100
+  - - goa
+    - 87
+  - - psytrance
+    - 32
+  - - psychedelic
+    - 21
+  - - psychedelic trance
+    - 5
+  - - trance
+    - 2
+  - - goatrance
+    - 1
+  - - Romanian
+    - 1
+  faixa_tags: []
+  bpm: 144.1
+- id: radical-distortion-psychedelic-dreams
+  faixa: Radical Distortion — Psychedelic Dreams
+  referencia: https://psytranceguide.com (seção Goa Trance)
+  subgenero: goa trance
+  artista:
+  - - goa
+    - 100
+  - - Goa Trance
+    - 79
+  - - psytrance
+    - 47
+  - - psychedelic trance
+    - 27
+  - - psychedelic
+    - 11
+  - - trance
+    - 1
+  - - electronic
+    - 1
+  - - NEWSCHOOL GOA
+    - 1
+  faixa_tags: []
+  bpm: 137.8
+- id: filteria-ultimator
+  faixa: Filteria — Ultimator!
+  referencia: https://psytranceguide.com (seção Goa Trance)
+  subgenero: goa trance
+  artista:
+  - - goa
+    - 100
+  - - psytrance
+    - 89
+  - - Goa Trance
+    - 55
+  - - psychedelic
+    - 28
+  - - psychedelic trance
+    - 12
+  - - trance
+    - 7
+  - - electronic
+    - 4
+  - - goatrance
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: goa-experience-ekinoxe
+  faixa: Goa Experience — Ekinoxe
+  referencia: https://www.beatport.com/track/ekinoxe/14665339
+  subgenero: goa trance
+  artista:
+  - - electronic
+    - 100
+  - - goa
+    - 100
+  - - Goa Trance
+    - 66
+  - - goatrance
+    - 66
+  - - classic goa
+    - 33
+  - - oldschool goa
+    - 33
+  faixa_tags: []
+  bpm: null
+- id: yuxibu-new-civilization
+  faixa: Yuxibu — New Civilization
+  referencia: https://psytranceguide.com (seção Hi-Tech)
+  subgenero: hitech
+  artista: []
+  faixa_tags: []
+  bpm: null
+- id: acajou-deez-nuts
+  faixa: Acajou — Deez Nuts
+  referencia: https://psytranceguide.com (seção Hi-Tech)
+  subgenero: hitech
+  artista:
+  - - Psychedelic Rock
+    - 100
+  - - Stoner Rock
+    - 100
+  - - stoner
+    - 66
+  - - Italy
+    - 37
+  - - psychedelic
+    - 8
+  - - space rock
+    - 2
+  - - psytrance
+    - 2
+  - - italian
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: gotalien-diwali
+  faixa: Gotalien — Diwali
+  referencia: https://psytranceguide.com (seção Hi-Tech)
+  subgenero: hitech
+  artista:
+  - - darkpsy
+    - 100
+  - - goa
+    - 44
+  - - dark psytrance
+    - 29
+  - - Psycore
+    - 29
+  - - hi-tech
+    - 15
+  - - psytrance
+    - 4
+  - - psychedelic
+    - 4
+  - - Goa Trance
+    - 1
+  faixa_tags: []
+  bpm: null
+- id: ixotul-sonic-singularity
+  faixa: Ixotul & Flowrest — Sonic Singularity
+  referencia: https://psytranceguide.com (seção Hi-Tech)
+  subgenero: hitech
+  artista: []
+  faixa_tags: []
+  bpm: null
+- id: astronaut-ape-high-above-the-clouds
+  faixa: Astronaut Ape — High Above The Clouds
+  referencia: https://psytranceguide.com (seção Psychill)
+  subgenero: psychill
+  artista:
+  - - psychill
+    - 100
+  - - ambient
+    - 95
+  - - chillout
+    - 30
+  - - electronic
+    - 24
+  - - lounge
+    - 10
+  - - psybient
+    - 7
+  - - psychedelic
+    - 5
+  - - downtempo
+    - 2
+  faixa_tags: []
+  bpm: null
+- id: flucturion-pro-temporo
+  faixa: Flucturion 2.0 — Pro Temporo
+  referencia: https://psytranceguide.com (seção Psychill)
+  subgenero: psychill
+  artista:
+  - - psytrance
+    - 100
+  - - psychedelic trance
+    - 100
+  - - chillout
+    - 17
+  - - goa
+    - 17
+  - - Russia
+    - 8
+  - - progressive trance
+    - 8
+  - - russian
+    - 8
+  - - Ariana Grande
+    - 3
+  faixa_tags: []
+  bpm: null
+- id: man-with-no-name-azymuth
+  faixa: Man With No Name — Azymuth
+  referencia: https://psytranceguide.com (seção Psychill)
+  subgenero: psychill
+  artista:
+  - - psytrance
+    - 100
+  - - goa
+    - 84
+  - - trance
+    - 29
+  - - Goa Trance
+    - 25
+  - - psychedelic
+    - 11
+  - - electronic
+    - 10
+  - - psychedelic trance
+    - 4
+  - - british
+    - 1
+  faixa_tags: []
+  bpm: 195.9
+- id: gyrro-from-metariel
+  faixa: Gyrro — From Metariel
+  referencia: https://psytranceguide.com (seção Psychill)
+  subgenero: psychill
+  artista: []
+  faixa_tags: []
+  bpm: null

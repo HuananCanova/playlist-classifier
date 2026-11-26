@@ -11,10 +11,10 @@ from collections import Counter
 
 import httpx
 
-from . import analysis_store, enrichment_store, profile_store, taxonomy
+from . import analysis_store, enrichment_store, evidence_store, profile_store, reclassify, subgenre, taxonomy
 from .cache import playlist_analysis_cache
 from .deezer_client import get_many as get_deezer_many
-from .lastfm_client import get_artist_tags, get_track_tags
+from .lastfm_client import NoAnswer, get_artist_tags, get_track_tags
 from .models import GenreCount, PlaylistAnalysis, PlaylistSummary, TrackGenreInfo
 from .spotify_client import SpotifyClient, gather_with_concurrency
 
@@ -132,7 +132,13 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         playlist_id, len(tracks), len(artist_names), spotify_seconds, lastfm_seconds,
     )
 
+    # BPM de uma enriquecida anterior serve quando o Deezer não deu o seu agora.
+    stored_evidence = await _stored_evidence([t["id"] for t in tracks])
+    artists_without_answer = {n for n, tags in artist_genres.items() if isinstance(tags, NoAnswer)}
+    evidence_to_store: list[evidence_store.TrackEvidence] = []
+
     track_infos: list[TrackGenreInfo] = []
+    bars: dict[str, list[float]] = {}  # rótulo -> [confiante, incerta]
     genre_counter: Counter = Counter()
     subgenre_counter: Counter = Counter()
     artist_counter: Counter = Counter()
@@ -143,10 +149,10 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
             a["name"] for a in (track.get("artists") or []) if a and a.get("name")
         ]
         # Tags de todos os artistas creditados, com peso. A mesma tag vinda de
-        # dois artistas soma — numa colaboração, isso é o que se quer.
-        artist_tags: list[taxonomy.Tag] = []
-        for name in track_artist_names:
-            artist_tags.extend(artist_genres.get(name, []))
+        # dois artistas fica com o maior peso (`taxonomy.merge_tags`), a mesma
+        # regra do job de enriquecimento — senão a evidência guardada por um e
+        # pelo outro classificaria a mesma faixa de jeitos diferentes.
+        artist_tags = taxonomy.merge_tags(*(artist_genres.get(name, []) for name in track_artist_names))
 
         classification = taxonomy.classify(artist_tags=artist_tags, track_tags=lastfm_tags)
         subgenre_tags = _display_tags(lastfm_tags, artist_tags)
@@ -158,11 +164,22 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
             # um voto: uma faixa com três artistas deixava até nove, e "rock"
             # liderava por ser contado junto com "classic rock" e "hard rock".
             genre_counter[classification.genre] += 1
-            if classification.subgenre:
-                subgenre_counter[classification.subgenre] += 1
 
         for name in track_artist_names:
             artist_counter[name] += 1
+
+        bpm = deezer["bpm"]
+        if bpm is None and track["id"] in stored_evidence:
+            bpm = stored_evidence[track["id"]].bpm
+        result = subgenre.blend(
+            classification.genre, artist_tags=artist_tags, track_tags=taxonomy.as_tags(lastfm_tags), bpm=bpm
+        )
+        if result.lean:
+            subgenre_counter[result.lean] += 1
+        subgenre.add_to_bars(bars, result.blend, result.unsure)
+        evidence_to_store.append(
+            _evidence_of(track, track_artist_names, artists_without_answer, artist_tags, lastfm_tags, deezer, include_audio)
+        )
 
         album = track.get("album") or {}
         images = album.get("images") or []
@@ -180,9 +197,10 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
                 genres=classification.genres,
                 subgenre_tags=subgenre_tags,
                 genre=classification.genre,
-                subgenre=classification.subgenre,
+                subgenre=result.subgenre,
                 genre_confidence=classification.confidence or None,
                 genre_evidence=classification.evidence,
+                **subgenre.subgenre_fields(result),
                 bpm=deezer["bpm"],
                 preview_url=deezer["preview_url"],
                 deezer_url=deezer["deezer_url"],
@@ -219,6 +237,7 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         tracks=track_infos,
         genre_distribution=top_counts(genre_counter),
         subgenre_distribution=top_counts(subgenre_counter),
+        subgenre_bars=subgenre.bars_from(bars),
         top_artists=top_counts(artist_counter, limit=15),
         tracks_missing_genre=missing_genre,
         genre_taxonomy=taxonomy.load().version,
@@ -228,7 +247,50 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         playlist_analysis_cache[playlist_id] = analysis
 
     await _persist(analysis, has_audio=include_audio, spotify_tracks=tracks)
+    await _persist_evidence(evidence_to_store)
     return analysis
+
+
+async def _stored_evidence(track_ids: list[str]) -> dict[str, evidence_store.TrackEvidence]:
+    try:
+        return await asyncio.to_thread(evidence_store.get_many, track_ids)
+    except Exception:
+        logger.exception("Não consegui ler a evidência guardada")
+        return {}
+
+
+def _evidence_of(
+    track: dict,
+    artist_names: list[str],
+    artists_without_answer: set[str],
+    artist_tags: list[taxonomy.Tag],
+    lastfm_tags: list,
+    deezer: dict,
+    include_audio: bool,
+) -> evidence_store.TrackEvidence:
+    """O que desta faixa foi de fato respondido agora; o resto fica None.
+
+    Falha do Last.fm chega como `NoAnswer` e não vira "sem tags". Do Deezer,
+    `evidence_store.deezer_fields` grava o match e o `NotFound`, nunca a falha."""
+    artists_ok = bool(artist_names) and not any(n in artists_without_answer for n in artist_names)
+    deezer_fields = (evidence_store.deezer_fields(deezer) if include_audio else None) or {}
+    return evidence_store.TrackEvidence(
+        track_id=track["id"],
+        artist_tags=artist_tags if artists_ok else None,
+        track_tags=None if isinstance(lastfm_tags, NoAnswer) else taxonomy.as_tags(lastfm_tags),
+        **deezer_fields,
+    )
+
+
+async def _persist_evidence(items: list[evidence_store.TrackEvidence]) -> None:
+    def save() -> None:
+        for ev in items:
+            evidence_store.put(ev)
+
+    try:
+        await asyncio.to_thread(save)
+    except Exception:
+        logger.exception("Não consegui guardar a evidência das faixas")
 
 
 async def _persist(analysis: PlaylistAnalysis, *, has_audio: bool, spotify_tracks: list[dict] | None = None) -> None:
@@ -271,7 +333,9 @@ async def add_audio(analysis: PlaylistAnalysis) -> PlaylistAnalysis:
 
     A varredura do perfil e da busca analisa sem Deezer. Quando uma dessas
     playlists é aberta, não há por que reler tudo no Spotify: as faixas e as
-    tags já estão na análise guardada, e só falta o Deezer."""
+    tags já estão na análise guardada, e só falta o Deezer. Com o BPM novo, o
+    blend de subgênero de cada faixa e as barras da playlist são refeitos, e a
+    resposta do Deezer vira evidência guardada (match e "não tem"; falha não)."""
     playlist_id = analysis.playlist.id
     task = _audio_in_flight.get(playlist_id)
     if task is None:
@@ -292,20 +356,51 @@ async def _add_audio(analysis: PlaylistAnalysis) -> PlaylistAnalysis:
     async with httpx.AsyncClient(timeout=20.0, limits=HTTP_LIMITS) as client:
         audio = await get_deezer_many(client, pairs)
 
-    tracks = [
-        t.model_copy(
-            update={
-                "bpm": a["bpm"],
-                "preview_url": a["preview_url"],
-                "deezer_url": a["deezer_url"],
-                "deezer_id": a.get("deezer_id"),
-            }
+    stored = await _stored_evidence([t.track_id for t in analysis.tracks])
+    tracks: list[TrackGenreInfo] = []
+    bars: dict[str, list[float]] = {}  # rótulo -> [confiante, incerta]
+    subgenre_counter: Counter = Counter()
+    evidence_to_store: list[evidence_store.TrackEvidence] = []
+    for t, a in zip(analysis.tracks, audio):
+        evidence = stored.get(t.track_id)
+        bpm = a["bpm"]
+        if bpm is None and evidence is not None:
+            bpm = evidence.bpm
+        # Tags da evidência guardada quando há; senão as da análise, como a
+        # reclassificação faz. O gênero não muda: o BPM só mexe no subgênero.
+        result = reclassify.subgenre_of(t, evidence, bpm)
+        if result.lean:
+            subgenre_counter[result.lean] += 1
+        subgenre.add_to_bars(bars, result.blend, result.unsure)
+        tracks.append(
+            t.model_copy(
+                update={
+                    "bpm": a["bpm"],
+                    "preview_url": a["preview_url"],
+                    "deezer_url": a["deezer_url"],
+                    "deezer_id": a.get("deezer_id"),
+                    "subgenre": result.subgenre,
+                    **subgenre.subgenre_fields(result),
+                }
+            )
         )
-        for t, a in zip(analysis.tracks, audio)
-    ]
-    completed = analysis.model_copy(update={"tracks": tracks, **_bpm_fields(tracks)})
+        fields = evidence_store.deezer_fields(a)
+        if fields:
+            evidence_to_store.append(evidence_store.TrackEvidence(track_id=t.track_id, **fields))
+
+    completed = analysis.model_copy(
+        update={
+            "tracks": tracks,
+            "subgenre_distribution": [
+                GenreCount(label=label, count=count) for label, count in subgenre_counter.most_common(25)
+            ],
+            "subgenre_bars": subgenre.bars_from(bars),
+            **_bpm_fields(tracks),
+        }
+    )
     playlist_analysis_cache[analysis.playlist.id] = completed
     await _persist(completed, has_audio=True)
+    await _persist_evidence(evidence_to_store)
     return completed
 
 
@@ -326,19 +421,9 @@ def _display_tags(*fontes: list[taxonomy.Tag]) -> list[str]:
     descreve a faixa, e é ela que aparece quando a tabela corta a lista.
     """
     tabela = taxonomy.load()
-    melhor: dict[str, taxonomy.Tag] = {}
-    for fonte in fontes:
-        # `as_tags` aceita tag sem peso: é a forma que o banco guardava antes.
-        for tag in taxonomy.as_tags(fonte or []):
-            if tabela.discarded(tag.name):
-                continue
-            chave = tag.name.strip().lower()
-            if not chave:
-                continue
-            atual = melhor.get(chave)
-            if atual is None or tag.weight > atual.weight:
-                melhor[chave] = tag
-    ordenadas = sorted(melhor.values(), key=lambda t: (-t.weight, t.name.lower()))
+    # `merge_tags` aceita tag sem peso (a forma que o banco guardava antes) e
+    # ordena por peso, nome como desempate — a mesma ordem da reclassificação.
+    ordenadas = [t for t in taxonomy.merge_tags(*fontes) if not tabela.discarded(t.name)]
     return [t.name for t in ordenadas[:MAX_DISPLAY_TAGS]]
 
 

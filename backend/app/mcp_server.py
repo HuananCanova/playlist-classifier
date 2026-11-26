@@ -77,7 +77,8 @@ async def list_tools() -> list[types.Tool]:
             description=(
                 "Analisa uma playlist: distribuição de gêneros e subgêneros "
                 "(tags do Last.fm), artistas mais frequentes e uma amostra das "
-                "faixas com suas tags."
+                "faixas com suas tags. Cada subgênero traz faixas confiantes "
+                "(afirmadas) e incertas (só pendem para ele), que não são fato."
             ),
             inputSchema={
                 "type": "object",

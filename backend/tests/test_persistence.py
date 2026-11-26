@@ -13,7 +13,7 @@ import pytest
 
 from app import analysis_store, db, deezer_client, enrichment_store, genre_analysis, lastfm_client, playlists, profile_store
 from app.cache import artist_tags_cache, deezer_track_cache, playlist_analysis_cache, user_playlists_cache
-from app.models import PlaylistAnalysis, PlaylistSummary, TrackGenreInfo
+from app.models import PlaylistAnalysis, PlaylistSummary, SubgenreShare, TrackGenreInfo
 from app.taxonomy import Tag
 
 
@@ -316,3 +316,28 @@ async def test_faixas_da_conta_saem_so_das_playlists_dela():
 
     assert await playlists.account_track_ids(minha) == ["t1"]
     assert await playlists.account_track_ids(outra) == ["t-privada"]
+
+
+def test_old_analysis_json_without_new_fields_loads():
+    old = _analysis().model_dump()
+    for t in old["tracks"]:
+        for key in ("subgenre_blend", "subgenre_lean", "subgenre_confidence", "subgenre_unsure", "subgenre_evidence"):
+            t.pop(key, None)
+    old.pop("subgenre_bars", None)
+    loaded = PlaylistAnalysis.model_validate(old)
+    t = loaded.tracks[0]
+    assert (t.subgenre_blend, t.subgenre_lean, t.subgenre_confidence, t.subgenre_unsure, t.subgenre_evidence) == (
+        [], None, None, False, [])
+    assert loaded.subgenre_bars == []
+
+
+def test_digest_has_subgenre_fields():
+    analysis = _analysis()
+    analysis.tracks[0] = analysis.tracks[0].model_copy(update={
+        "subgenre_lean": "goa", "subgenre_unsure": True,
+        "subgenre_blend": [SubgenreShare(label="goa", share=0.61234), SubgenreShare(label="full-on", share=0.38766)],
+    })
+    track = profile_store.digest_from_analysis(analysis, has_audio=False)["tracks"][0]
+    assert track["subgenre_lean"] == "goa"
+    assert track["subgenre_unsure"] is True
+    assert track["subgenre_blend"] == [["goa", 0.612], ["full-on", 0.388]]

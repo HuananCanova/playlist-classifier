@@ -16,8 +16,12 @@ já estão dentro de cada análise e de cada resumo. Este script relê o que est
 disco, reclassifica e grava. **Não chama Spotify, Last.fm, Deezer nem modelo
 nenhum** — dá para rodar com a internet desligada.
 
-É idempotente: rodar duas vezes não muda nada na segunda. E só toca gênero
-(`genres`, `tags`, as distribuições e a contagem de faixas sem gênero); BPM,
+Usa também a evidência por faixa guardada (`track_evidence`: tags de artista e de
+faixa separadas, e BPM) para preencher o blend de subgêneros; faixa sem evidência
+fica só com as tags guardadas, e portanto incerta.
+
+É idempotente: rodar duas vezes não muda nada na segunda. E só toca gênero e
+subgênero (`genres`, `tags`, o blend, as distribuições e a contagem de faixas sem gênero); BPM,
 prévia, data de adição, popularidade e tudo o que vem do Spotify ficam como
 estão.
 """
@@ -31,7 +35,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import analysis_store, db, profile_store, reclassify  # noqa: E402
+from app import analysis_store, db, evidence_store, profile_store, reclassify, taxonomy  # noqa: E402
 from app.models import PlaylistAnalysis  # noqa: E402
 
 logging.basicConfig(level=logging.WARNING, format="%(message)s")
@@ -47,6 +51,35 @@ def _topo_dos_resumos(resumos: list[dict]) -> Counter:
             for genero in faixa.get("genres") or []:
                 contador[genero.strip().lower()] += 1
     return contador
+
+
+def _psy_leans(resumos: list[dict]) -> tuple[Counter, int, int]:
+    """Para as faixas de psytrance dos resumos: contagem por subgênero em que pendem,
+    quantas são incertas e quantas já têm o campo de subgênero."""
+    nomes = {s.name for s in taxonomy.subgenres_of("psytrance")}
+    leans: Counter = Counter()
+    incertas = com_campo = 0
+    for resumo in resumos:
+        for faixa in resumo.get("tracks") or []:
+            if "psytrance" not in [g.strip().lower() for g in faixa.get("genres") or []]:
+                continue
+            if "subgenre_blend" not in faixa:
+                continue
+            com_campo += 1
+            incertas += bool(faixa.get("subgenre_unsure"))
+            if faixa.get("subgenre_lean") in nomes:
+                leans[faixa["subgenre_lean"]] += 1
+    return leans, incertas, com_campo
+
+
+def _subgeneros(antes: list[dict], depois: list[dict]) -> None:
+    """O que o blend de subgêneros mudou nas faixas de psytrance."""
+    print("\nSubgêneros de psytrance (lean por faixa)")
+    la, ia, ca = _psy_leans(antes)
+    ld, idd, cd = _psy_leans(depois)
+    _tabela(la, ld)
+    taxa = lambda i, c: f"{i}/{c} ({100 * i / c:.0f}%)" if c else "sem dados"  # noqa: E731
+    print(f"  faixas psy incertas: {taxa(ia, ca)} -> {taxa(idd, cd)}")
 
 
 def _tabela(antes: Counter, depois: Counter) -> None:
@@ -92,6 +125,8 @@ def main() -> int:
         novo, mudadas = reclassify.digest(resumo)
         faixas_mudadas += mudadas
         novos.append((playlist_id, novo))
+    ids = [f["id"] for _, r in resumos for f in r.get("tracks") or [] if f.get("id")]
+    com_evidencia = len(evidence_store.get_many(ids))
     # A distribuição "depois" considera também os resumos que não precisam mudar.
     por_id = dict(novos)
     depois = _topo_dos_resumos([por_id.get(pid, r) for pid, r in resumos])
@@ -103,6 +138,8 @@ def main() -> int:
     print(f"  rótulos distintos no gráfico: {len(antes)} -> {len(depois)}")
     print(f"  votos de gênero: {sum(antes.values())} -> {sum(depois.values())}")
     _tabela(antes, depois)
+    print(f"  faixas distintas com evidência guardada: {com_evidencia} de {len(set(ids))}")
+    _subgeneros([r for _, r in resumos], [por_id.get(pid, r) for pid, r in resumos])
 
     # ── análises completas ──────────────────────────────────────────────────
     linhas = db.query(

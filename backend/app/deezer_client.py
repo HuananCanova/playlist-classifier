@@ -154,6 +154,7 @@ async def buscar_faixa(
 
     bpm = d.get("bpm")
     resultado = {
+        "deezer_id": candidato.get("id"),
         # 0 significa "o Deezer não sabe", não "zero batidas por minuto".
         "bpm": round(bpm, 1) if isinstance(bpm, (int, float)) and bpm > 0 else None,
         "preview_url": candidato.get("preview") or None,
@@ -193,6 +194,19 @@ _NOISE_PATTERNS = [
     # coisa entre o traço e a palavra de edição também cai.
     rf"-\s*[^-]*(?:{_EDITION_WORDS})\b.*$",
 ]
+
+
+class NotFound(dict):
+    """O dict vazio de "o Deezer respondeu e não tem esta faixa".
+
+    É igual ao dict vazio comum (quem só lê os campos não percebe), mas quem
+    guarda evidência a distingue de uma falha: "não achei" vale registrar,
+    "não consegui perguntar" não."""
+
+
+class Incomplete(dict):
+    """Achou a faixa, mas o detalhe (de onde vem o BPM) falhou: BPM desconhecido
+    por falha, não por ausência. Quem guarda evidência não deve gravar isto."""
 
 
 def _strip_edition(text: str) -> str:
@@ -279,6 +293,8 @@ async def get_track_info(client: httpx.AsyncClient, artist: str, track: str) -> 
     stored = await asyncio.to_thread(enrichment_store.get_deezer_match, cache_key)
     if stored is not None:
         info = {**stored, "preview_url": None}
+        if stored["deezer_id"] is None:
+            info = NotFound(info)
         deezer_track_cache[cache_key] = info
         return info
 
@@ -288,16 +304,21 @@ async def get_track_info(client: httpx.AsyncClient, artist: str, track: str) -> 
 
     strict = await _search(client, f'artist:"{artist}" track:"{clean_track}"')
     candidates = strict
+    fallback_failed = False
     if not candidates:
         candidates = await _search(client, f"{artist} {clean_track}")
-    if strict is None and candidates is None:
-        return empty  # o Deezer não respondeu: nada a guardar
+        fallback_failed = candidates is None
 
     match = _pick_best(candidates or [], artist, track)
-    if not match:
-        deezer_track_cache[cache_key] = empty
-        await asyncio.to_thread(enrichment_store.put_deezer_match, cache_key, None, None, None)
+    if not match and (strict is None or fallback_failed):
+        # Uma das buscas não respondeu: "não achei" seria palpite, e ficaria
+        # guardado por dias. Vale como falha — nada a guardar.
         return empty
+    if not match:
+        achou_nada = NotFound(empty)
+        deezer_track_cache[cache_key] = achou_nada
+        await asyncio.to_thread(enrichment_store.put_deezer_match, cache_key, None, None, None)
+        return achou_nada
 
     info = {
         "deezer_id": match.get("id"),
@@ -323,10 +344,13 @@ async def get_track_info(client: httpx.AsyncClient, artist: str, track: str) -> 
     except (httpx.HTTPError, ValueError, KeyError):
         pass  # fica só com o que a busca já deu (prévia e link)
 
-    deezer_track_cache[cache_key] = info
     # Sem o detalhe, o BPM ficou desconhecido por falha, não por ausência:
-    # guardar isso esconderia o BPM por semanas. A próxima análise tenta de novo.
-    if detail_ok:
+    # guardar isso (no banco ou na memória) esconderia o BPM e impediria a
+    # próxima tentativa. Só o resultado completo entra nos caches.
+    if not detail_ok:
+        info = Incomplete(info)
+    else:
+        deezer_track_cache[cache_key] = info
         await asyncio.to_thread(
             enrichment_store.put_deezer_match, cache_key, info["deezer_id"], info["bpm"], info["deezer_url"]
         )
@@ -366,3 +390,33 @@ async def get_many(client: httpx.AsyncClient, pairs: list[tuple[str, str]]) -> l
             return await get_track_info(client, artist, track)
 
     return await asyncio.gather(*(one(a, t) for a, t in pairs))
+
+
+ALBUM_URL = "https://api.deezer.com/album"
+
+
+async def get_track_label(client: httpx.AsyncClient, deezer_id: int) -> str | None:
+    """Selo (gravadora) do lançamento de uma faixa do Deezer, pelo id da faixa.
+
+    O selo só aparece no detalhe do álbum, então custa duas chamadas: a faixa
+    (para achar o álbum) e o álbum. Devolve "" quando o álbum não tem selo
+    — ausência de dado é resposta — e None quando alguma chamada falhou, para
+    que quem guarda não confunda falha com "sem selo".
+    """
+    try:
+        resp = await client.get(f"{TRACK_URL}/{deezer_id}", timeout=10.0)
+        resp.raise_for_status()
+        detail = resp.json()
+        if not isinstance(detail, dict) or "error" in detail:
+            return None
+        album_id = (detail.get("album") or {}).get("id")
+        if not album_id:
+            return ""
+        resp = await client.get(f"{ALBUM_URL}/{album_id}", timeout=10.0)
+        resp.raise_for_status()
+        album = resp.json()
+    except (httpx.HTTPError, ValueError, AttributeError):
+        return None
+    if not isinstance(album, dict) or "error" in album:
+        return None
+    return (album.get("label") or "").strip()

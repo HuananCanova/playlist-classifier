@@ -14,6 +14,17 @@ class PlaylistSummary(BaseModel):
     snapshot_id: str | None = None
 
 
+class SubgenreShare(BaseModel):
+    label: str
+    share: float
+
+
+class EvidenceLine(BaseModel):
+    source: str
+    says: str | None = None
+    detail: str
+
+
 class TrackGenreInfo(BaseModel):
     track_id: str
     name: str
@@ -34,6 +45,13 @@ class TrackGenreInfo(BaseModel):
     subgenre: str | None = None
     genre_confidence: float | None = None
     genre_evidence: list[str] = []
+    # Subgênero como mistura explicada (app/subgenre.py), não só o vencedor.
+    # Todos opcionais: análises guardadas antes não os têm.
+    subgenre_blend: list[SubgenreShare] = []
+    subgenre_lean: str | None = None
+    subgenre_confidence: float | None = None
+    subgenre_unsure: bool = False
+    subgenre_evidence: list[EvidenceLine] = []
     # BPM e prévia vêm do Deezer: o Spotify cortou audio-features e preview_url
     # para apps criados depois de 27/11/2024. None = o Deezer não sabe.
     bpm: float | None = None
@@ -65,6 +83,16 @@ class TrackDetail(BaseModel):
     subgenre: str | None = None
     genre_confidence: float | None = None
     genre_evidence: list[str] = []
+    # Subgênero como mistura explicada (app/subgenre.py), não só o vencedor.
+    # Todos opcionais: análises guardadas antes não os têm.
+    subgenre_blend: list[SubgenreShare] = []
+    subgenre_lean: str | None = None
+    subgenre_confidence: float | None = None
+    subgenre_unsure: bool = False
+    subgenre_evidence: list[EvidenceLine] = []
+    # Referência do subgênero em que a faixa pende ({name, bpm, about, source}),
+    # para o cartão da faixa dispensar outra chamada. None sem lean ou fora do YAML.
+    subgenre_reference: dict | None = None
     # Vêm do Deezer e podem faltar: BPM só existe em ~43% das faixas, e o
     # preview em ~93%.
     bpm: float | None = None
@@ -153,6 +181,12 @@ class GenreCount(BaseModel):
     count: int
 
 
+class SubgenreBar(BaseModel):
+    label: str
+    confident: float
+    unsure: float
+
+
 class PlaylistAnalysis(BaseModel):
     playlist: PlaylistSummary
     tracks: list[TrackGenreInfo]
@@ -168,3 +202,5 @@ class PlaylistAnalysis(BaseModel):
     # reclassificar o que está no banco sem rede e sem refazer o que já está
     # em dia — ver `scripts/reclassificar_generos.py`.
     genre_taxonomy: int | None = None
+    # Barras de subgênero da playlist: parte firme e parte incerta de cada um.
+    subgenre_bars: list[SubgenreBar] = []

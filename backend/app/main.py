@@ -13,6 +13,7 @@ from .config import get_settings
 from .playlists import router as playlists_router
 from .profile import router as profile_router
 from .search import router as search_router
+from .subgenres import router as subgenres_router
 from .tracks import router as tracks_router
 from .spotify_client import throttle_state
 
@@ -59,6 +60,7 @@ app.include_router(playlists_router)
 app.include_router(profile_router)
 app.include_router(tracks_router)
 app.include_router(search_router)
+app.include_router(subgenres_router)
 app.include_router(chat_router)
 
 

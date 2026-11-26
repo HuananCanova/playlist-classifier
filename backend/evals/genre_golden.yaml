@@ -33,6 +33,16 @@
 #   subgenero   opcional; quando presente, também é cobrado
 #   nota        por que este caso existe, quando não é óbvio
 #   unresolved  tags que devem aparecer como "sem casa no YAML" (opcional)
+#
+# Subgênero de psytrance NÃO é cobrado aqui. Os quatro casos de psytrance que
+# tinham `subgenero` (ace-ventura-pranava, porat-ac21, neelix-all-around-us e
+# blazy-interlude) perderam a linha: o rótulo era julgamento humano, e o dono
+# do acervo não confia no próprio ouvido para isso. Subgênero de psy agora é
+# medido em `subgenre_golden.yaml`, só com rótulos de referência externa (Guia
+# de Psytrance e Beatport) — nenhuma dessas quatro faixas tem referência
+# encontrada, então nenhum caso foi movido. Os casos continuam cobrando
+# `genero: psytrance`. Subgêneros de rock, techno etc. seguem aqui, com o
+# limiar `subgenero` de sempre.
 
 limiares:
   # Abaixo disto, `run_genre_evals.py` sai com erro — o CI reprova a mudança.
@@ -47,19 +57,16 @@ casos:
     artista: [[psytrance, 100], [trance, 70], [psychedelic, 60], [progressive trance, 50]]
     faixa_tags: [[progressive psytrance, 100]]
     genero: psytrance
-    subgenero: progressive psytrance
 
   - id: porat-ac21
     faixa: Porat — Ac21
     artista: [[psytrance, 100], [psychedelic, 80], [progressive psytrance, 70]]
     genero: psytrance
-    subgenero: progressive psytrance
 
   - id: neelix-all-around-us
     faixa: Neelix, Durs — All Around Us
     artista: [[psytrance, 100], [progressive psytrance, 90], [progressive trance, 60], [trance, 50]]
     genero: psytrance
-    subgenero: progressive psytrance
 
   - id: groundbass-we-are-thoughts
     faixa: Groundbass, Tijah, Perception — We Are Thoughts
@@ -80,7 +87,6 @@ casos:
     faixa: Blazy, Aura Vortex, Sighter — Interlude (Sighter Remix)
     artista: [[psytrance, 100], [goa, 80], [progressive trance, 60], [electronic, 40], [classic, 20]]
     genero: psytrance
-    subgenero: goa trance
 
   # ── techno e house ────────────────────────────────────────────────────────
   - id: stephan-bodzin-singularity

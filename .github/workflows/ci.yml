@@ -59,6 +59,19 @@ jobs:
           SESSION_SECRET: ci-nao-usar-em-producao
         run: python -m evals.run_genre_evals
 
+      # Subgênero medido contra rótulos de referência externa (Guia de
+      # Psytrance e Beatport), com as entradas congeladas em YAML: também é
+      # função pura, sem rede, e reprova a mudança que derruba a precisão
+      # dos casos confiantes ou aumenta a taxa de incerto além do declarado.
+      - name: Conjunto dourado de subgênero
+        working-directory: backend
+        env:
+          SPOTIFY_CLIENT_ID: ci
+          SPOTIFY_CLIENT_SECRET: ci
+          LASTFM_API_KEY: ci
+          SESSION_SECRET: ci-nao-usar-em-producao
+        run: python -m evals.run_subgenre_evals
+
   frontend:
     name: Frontend — build
     runs-on: ubuntu-latest

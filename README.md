@@ -5,9 +5,11 @@ gênero, subgênero e andamento — por playlist, por música e da conta inteira
 
 - **Spotify Web API**: autenticação OAuth, suas playlists e as faixas de cada uma.
 - **Last.fm API**: as tags da comunidade, que são a fonte de gênero do projeto —
-  tags do **artista** dão o gênero amplo (`techno`, `mpb`), tags da **faixa** dão o
-  subgênero (`minimal techno`, `bossa nova`), com granularidade por música.
-- **Deezer API**: BPM e prévia de 30s de cada faixa (o Spotify cortou os dois).
+  tags do **artista** dão o gênero amplo (`techno`, `mpb`); tags da **faixa** e do
+  artista alimentam o subgênero (`minimal techno`, `bossa nova`) como evidência,
+  junto com o andamento (veja [Subgêneros](#subgêneros)).
+- **Deezer API**: BPM e prévia de 30s de cada faixa (o Spotify cortou os dois). O
+  BPM também é evidência de subgênero, comparado com as faixas de referência.
 - **Claude ou Groq**: um chat que responde perguntas sobre uma playlist ou uma
   faixa consultando os dados reais por meio de ferramentas (opcional).
 
@@ -17,7 +19,9 @@ O que dá para fazer no app:
   gêneros e subgêneros, andamento (BPM), artistas frequentes, grupos de clima e
   a tabela de faixas com prévia.
 - **Faixa**: onda sonora e espectro ao vivo, métricas do áudio medidas no
-  navegador, tags e faixas parecidas.
+  navegador, tags, faixas parecidas e **por que** ela tem aquele subgênero.
+- **Subgênero**: uma página por subgênero com a descrição, a faixa de BPM e as
+  faixas do acervo que são ou "puxam para" ele.
 - **Busca**: busca semântica ("melancholic guitar") sobre tudo que já foi analisado.
 - **Perfil**: o retrato da conta inteira, montado sem chamar o Spotify ao abrir.
 - **MCP**: as mesmas ferramentas do chat, para Claude Desktop/Code.
@@ -33,7 +37,7 @@ O que dá para fazer no app:
 | Agente de IA | Anthropic Claude (`claude-opus-5`, tool use, streaming SSE) | Chat com escopo de playlist/faixa, sem dados soltos no prompt |
 | Agente de IA (alternativo) | Groq (`openai/gpt-oss-120b`, API compatível com OpenAI) | Testar o agente sem custo, mesmo contrato de ferramentas |
 | Protocolo de agente | [MCP](https://modelcontextprotocol.io) | As mesmas ferramentas do chat, expostas a Claude Desktop/Code |
-| Classificação | Taxonomia própria em YAML + voto ponderado (`app/taxonomy.py`) | Transforma tag livre de ouvinte em gênero canônico, com subgênero, confiança e evidência — sem rede e sem modelo |
+| Classificação | Taxonomia própria em YAML + voto ponderado (`app/taxonomy.py`) e blend de evidências (`app/subgenre.py`) | Transforma tag livre de ouvinte em gênero canônico; o subgênero vira uma mistura por faixa, explicada e com "incerto" — sem rede e sem modelo |
 | Busca semântica | ChromaDB (embarcado) + `all-MiniLM-L6-v2` via ONNX | Índice vetorial local, sem chave de API nem rate limit |
 | Agrupamento | scikit-learn (TF-IDF + k-means) | Separa faixas de uma playlist em "climas", `k` pela silhueta |
 | APIs externas | Spotify Web API (OAuth 2.0 + PKCE), Last.fm API, Deezer API | Playlists/faixas, tags de gênero, BPM e prévia de áudio |
@@ -69,7 +73,13 @@ playlist-classifier/
 │   │   │
 │   │   ├── taxonomy.py       # tag do Last.fm -> gênero canônico (+ confiança)
 │   │   ├── taxonomy.yaml     # o vocabulário: gêneros, subgêneros e descartes
+│   │   ├── subgenre.py        # blend de subgêneros por evidência (tags, andamento) — puro
 │   │   ├── genre_analysis.py  # combina as fontes e agrega distribuições
+│   │   ├── evidence_store.py  # tags separadas e BPM por faixa, sem validade
+│   │   ├── enrichment_job.py  # "Buscar evidência": Last.fm + Deezer, retomável
+│   │   ├── reclassify.py      # reclassifica o que está em disco, offline
+│   │   ├── subgenres.py       # rotas /api/subgenres — acervo por subgênero e o job
+│   │   ├── subgenre_library.py # contagens e faixas por subgênero (funções puras)
 │   │   ├── clustering.py      # grupos de clima (TF-IDF + k-means)
 │   │   ├── vector_store.py    # índice vetorial (ChromaDB)
 │   │   ├── indexer.py         # a varredura da conta, com ritmo e teto
@@ -82,8 +92,8 @@ playlist-classifier/
 │   │   ├── metrics.py         # tokens e latência por turno
 │   │   └── mcp_server.py      # servidor MCP (stdio)
 │   ├── tests/                 # suíte sem rede
-│   ├── evals/                 # conjunto dourado contra o modelo real
-│   └── scripts/               # gerar o SPOTIFY_REFRESH_TOKEN
+│   ├── evals/                 # conjuntos dourados (gênero, subgênero, chat)
+│   └── scripts/               # SPOTIFY_REFRESH_TOKEN, reclassificar, medir fontes do psy
 ├── frontend/                  React + Vite
 │   └── src/
 │       ├── App.jsx            # rotas e navegação
@@ -91,7 +101,7 @@ playlist-classifier/
 │       ├── AuthContext.jsx    # usuário logado
 │       ├── PlayerContext.jsx  # o único <audio> do app + analisador Web Audio
 │       ├── audioAnalysis.js   # picos e métricas espectrais da prévia
-│       ├── pages/             # Login, PlaylistList, PlaylistDetail, TrackDetail, Search, Profile
+│       ├── pages/             # Login, PlaylistList, PlaylistDetail, TrackDetail, Subgenre, Search, Profile
 │       ├── components/        # gráficos, tabela de faixas, player, chat
 │       └── charts/            # chartKit (paleta, hooks, curvas), tooltip, fluxo de gêneros
 ├── docs/CODEBASE_MAP.md       # mapa detalhado do código
@@ -105,6 +115,7 @@ playlist-classifier/
 | `/playlists` | Suas playlists |
 | `/playlists/:id` | Análise de uma playlist + chat |
 | `/faixa/:id` | Detalhe de uma faixa + chat |
+| `/subgenero/:name` | Um subgênero: referência e faixas do acervo |
 | `/busca` | Busca semântica e varredura |
 | `/perfil` | Perfil da conta |
 
@@ -135,6 +146,12 @@ O classificador (`app/taxonomy.py` + `app/taxonomy.yaml`) resolve em três etapa
    nada. `minimal techno` resolve para (techno, minimal techno); `brasil` não
    resolve, porque está na lista de descarte, agrupada por motivo (geografia,
    comportamento de quem escuta, instrumentação, juízo de valor, ambíguo demais).
+   Um subgênero pode ser só uma lista de aliases ou um mapeamento com dados de
+   referência: `aliases`, `weak` (aliases que valem só 30% do voto), `bpm` (faixa
+   mínimo–máximo), `about` (uma linha nossa) e `source` (de onde veio o BPM). No
+   psytrance, `goa` sozinho é alias **fraco** de `goa trance`: no Last.fm a tag é
+   um balaio e dizia mais do que sabia (`goa trance` por extenso vale o peso
+   inteiro).
 3. **Pontuar** — cada faixa distribui **um** voto entre os gêneros que as suas
    tags resolveram, proporcional ao `count` que o Last.fm dá a cada tag — um peso
    de 0 a 100 que o app antes descartava, fazendo `rock` com 100 e `chillwave`
@@ -150,9 +167,11 @@ só vale, como tag solta, quando nada mais classificou a faixa — mas os
 subgêneros dele (`dubstep`, `ambient`, `progressive trance`) pontuam sempre,
 porque esses dizem o que a faixa é.
 
-Cada faixa sai com `genre`, `subgenre`, `genre_confidence` e `genre_evidence` —
-as tags que elegeram o gênero, para a interface poder explicar a decisão em vez
-de só afirmá-la.
+Cada faixa sai com `genre`, `genre_confidence` e `genre_evidence` — as tags que
+elegeram o gênero, para a interface poder explicar a decisão em vez de só
+afirmá-la. O **subgênero** tem modelo próprio, descrito em
+[Subgêneros](#subgêneros): o gênero sai do voto de tags (acima) e o subgênero é
+decidido depois, dentro dele, por um blend de evidências.
 
 O efeito no acervo de teste, medido depois de aplicar:
 
@@ -231,9 +250,14 @@ python -m evals.run_genre_evals --cobertura   # o que falta na taxonomia
 
 ```
 gênero    : 45/45 = 1.000   (limiar 0.90)
-subgênero : 33/33 = 1.000   (limiar 0.75)
+subgênero : 29/29 = 1.000   (limiar 0.75)
 confiança : média 0.89, mínima 0.50, máxima 1.00
 ```
+
+O subgênero deste conjunto cobre só o que fica fora do psytrance (resolver tag →
+subgênero na taxonomia). Os casos de subgênero do psytrance saíram daqui: pelas
+regras novas muitos deles deveriam virar "incerto", e quem os mede é o conjunto
+de [Subgêneros](#subgêneros).
 
 O conjunto é pequeno e o limiar (0,90) existe para o CI reprovar regressão, não
 para comemorar o 1,0 — com 45 casos, um acerto a mais ou a menos move 2 pontos.
@@ -245,6 +269,174 @@ vale gastar os próximos cinco minutos.
 
 Nada disso chama rede: é função pura sobre tags, roda em CI em menos de um
 segundo e não gasta uma requisição do Spotify.
+
+## Subgêneros
+
+O projeto nasceu para descobrir de que subgêneros uma playlist ou faixa é feita,
+principalmente em música eletrônica e, dentro dela, psytrance. "Psytrance" sozinho
+diz pouco: o que interessa é se é progressive, full-on, offbeat, darkpsy, forest.
+E quem usa o app está **aprendendo** — o próprio ouvido não serve de gabarito, e o
+app não deve decretar um rótulo como fato. Por isso o subgênero é:
+
+- uma **mistura por faixa** (`subgenre_blend`: fatias que somam 1 entre os
+  subgêneros do gênero vencedor), com o rótulo que lidera (`subgenre_lean`);
+- **explicado**: cada fonte de evidência diz o que apontou e por quê;
+- **"incerto"** quando a evidência é fina ou as fontes discordam, em vez de chute.
+  Uma faixa incerta mantém o blend e o `subgenre_lean`, mas o `subgenre`
+  afirmado fica vazio — e as telas mostram essa parte mais clara.
+
+Sem aprendizado de máquina: é uma função pura (`app/subgenre.py`) sobre tags e
+BPM, testável em CI e refeita offline sobre o que está guardado.
+
+### Fontes de evidência
+
+Cada fonte devolve uma distribuição sobre os subgêneros do gênero da faixa, ou
+se abstém (fonte sem dado não puxa o blend para o meio). Elas são somadas,
+ponderadas:
+
+| Fonte | Entrada | Peso | O que diz |
+| --- | --- | --- | --- |
+| Tags da faixa | Last.fm, com o peso de cada tag | 1,0 | voto das tags que resolvem para um subgênero |
+| Andamento | BPM do Deezer | 0,8 | 1 dentro da faixa de referência do subgênero, decaindo linearmente até 0 a 6 BPM de distância; onde as faixas se sobrepõem, o voto se divide |
+| Tags do artista | Last.fm | 0,4 | o mesmo voto, mas pesa menos: é o artista, não a faixa |
+
+A faixa de BPM de cada subgênero psy vem do [Guia de Psytrance](https://psytranceguide.com)
+(18 estilos, v1.2, de 2017 — uma opinião curada, registrada por subgênero em
+`source` no `taxonomy.yaml` para poder trocar ou somar outra referência; as
+descrições são nossas, a fonte só é citada e linkada). Três detalhes do
+andamento: **empate entre dois subgêneros conta como concordância** (um BPM
+costuma cair onde duas faixas se sobrepõem); um BPM que cabe em **três ou mais**
+subgêneros ao mesmo tempo (146 BPM cabe em seis) **não estreita nada** — entra
+no blend, mas não confirma nem contraria outra fonte; e um BPM que não cabe em
+nenhuma faixa é **relido como o dobro** (72 por 144, o erro de meio-tempo comum
+em detectores de BPM).
+
+Os pesos ficam em `SOURCE_WEIGHTS`, no topo de `app/subgenre.py`. Uma fonte nova
+(o áudio, no Estágio B) entra como mais uma dessas distribuições, sem mexer no
+resto.
+
+### O que é "incerto"
+
+A faixa fica incerta (`subgenre_unsure`) quando acontece qualquer um destes:
+
+- **só o artista falou** — tags de artista sozinhas nunca decidem, nem com um
+  andamento que cabe em três ou mais subgêneros ao lado;
+- **o vencedor tem pouca fatia** — abaixo de `UNSURE_MIN_SHARE` (0,4);
+- **as duas fontes mais pesadas discordam** — os rótulos de topo não se tocam.
+
+Por isso **a maioria das faixas de psytrance começa incerta**: o Last.fm quase
+não tem tags por faixa de psy (só do artista) e o Deezer tem BPM para poucas
+(veja os limites abaixo). Sem tag de faixa nem andamento, só resta o artista — e
+o artista sozinho não afirma nada. É o comportamento pretendido: um "full-on"
+errado mostrado como fato é pior do que "incerto".
+
+### Buscar evidência (o job de enriquecimento)
+
+As análises guardadas antes não têm o que o modelo precisa: as tags estavam
+misturadas (faixa e artista, sem peso) e a varredura da conta pulava o Deezer. O
+botão **"Buscar evidência"** (no Perfil e na página do subgênero) resolve isso:
+
+- busca, por faixa do acervo, as tags do Last.fm **separadas** (artista e faixa,
+  com peso) e o BPM do Deezer, e grava em `track_evidence` (sem validade, para
+  reclassificar offline depois);
+- **não chama o Spotify**: as faixas vêm dos resumos já guardados — a regra do
+  projeto depois da suspensão de 18 horas;
+- só roda por pedido, mostra quantas faixas faltam, roda em segundo plano com
+  progresso, pode ser interrompido e é **retomável**: refazer depois de uma falha
+  busca só o que falta. Falha de rede não vira dado (fica sem valor e conta como
+  erro); "o Deezer respondeu que não tem" é registrado à parte;
+- começa pelas faixas de psytrance, onde há faixa de BPM e a evidência muda a
+  resposta;
+- ao terminar, **reclassifica o que está em disco**, offline (`app/reclassify.py`).
+  O mesmo vale rodando `python -m scripts.reclassificar_generos`.
+
+Análises feitas depois da mudança já gravam as tags separadas e com peso, então
+não precisam do job.
+
+### As telas
+
+- **Playlist**: o gráfico de subgêneros soma as fatias do blend de cada faixa;
+  na barra, a parte sólida vem de faixas afirmadas e a clara de incertas, então
+  "quanto disso é palpite" fica visível. Clicar num subgênero filtra a tabela
+  (as que ele lidera, afirmadas primeiro, depois as que "puxam para" ele). Numa
+  playlist de um gênero só, o caminho ao longo da ordem das faixas aparece no
+  nível de subgênero, quando há ao menos dois.
+- **Faixa**: "Por que este subgênero" mostra o blend, uma linha por fonte de
+  evidência e a referência ("full-on: 140–148 BPM, segundo psytranceguide.com").
+  Quando está incerta, diz o que falta.
+- **`/subgenero/:name`**: a descrição, a faixa de BPM e o link da fonte, e as
+  faixas do acervo em dois grupos — "classificadas como X" e "puxam para X" —,
+  cada um ordenado pela fatia, com prévia e as playlists onde aparece. Ouvir o
+  segundo grupo faz parte de aprender. A lista de subgêneros do acervo fica no
+  Perfil.
+
+### Como isso é medido
+
+```bash
+cd backend
+python -m evals.run_subgenre_evals            # resumo e tabela por subgênero
+python -m evals.run_subgenre_evals --verboso  # com a evidência de cada faixa
+```
+
+O conjunto (`evals/subgenre_golden.yaml`) não usa o ouvido de quem mantém o app:
+cada rótulo vem de **fora** — os exemplos que o Guia de Psytrance lista para cada
+estilo e o gênero/subgênero que a **página da faixa no Beatport** exibe (olhada
+à mão, com a URL registrada por caso em `evals/subgenre_refs.yaml`). Faixa que o
+Beatport marca só como "Psy-Trance", ou de forma ambígua, ficou de fora em vez de
+completar a cota por palpite. As entradas (tags do Last.fm, BPM do Deezer) são
+**congeladas** por `evals/congelar_subgeneros.py`, então o runner roda offline e
+dá sempre o mesmo número.
+
+Os números de hoje, sem enfeite:
+
+```
+35 casos
+precisão confiante : 0/0 = indefinida   (piso 0.65)
+taxa de incerto    : 35/35 = 1.000   (teto 1.00)
+top-2              : 16/35 = 0.457
+```
+
+A leitura honesta: hoje o app **não afirma nenhum** dos 35 casos. "Incerto"
+nunca conta como acerto. Numa primeira medição ele afirmava 7 (5 certos, 2
+errados), mas os 7 eram "tag do artista + um BPM que cabe em três ou mais
+subgêneros" — o andamento não estreitava nada e o artista decidia sozinho, que
+é justamente o que o app promete não fazer. Sem tag de faixa no conjunto, sobra
+o top-2 (16 de 35) como sinal de que o blend aponta na direção certa. O piso de
+precisão (0,65, da primeira medição) só se aplica quando houver caso confiante —
+o primeiro errado reprova; o teto de incerto fica em 1,0 porque não há folga
+acima de 35/35. Existem para reprovar regressão, não para comemorar.
+
+### Limites medidos
+
+- **BPM do Deezer para psytrance: ~8%.** Na amostra de 150 faixas psy do acervo
+  (354 distintas), o Deezer achou 80, mas só **12 têm BPM** (8%); numa primeira
+  amostra de 50 foram 8 (16%). A cobertura de ~43% medida em música comercial não
+  vale para psy. O andamento fica no desenho (é barato), mas a maioria do psy
+  seguirá incerta até haver outra fonte de andamento.
+- **O Last.fm não devolveu tag de faixa nenhuma** para as faixas de referência.
+  Resultado: a fonte mais pesada (tags da faixa) **não foi testada** no conjunto
+  dourado — e o BPM sozinho quase sempre cabe em vários subgêneros, então nenhum
+  caso sai afirmado.
+- **`UNSURE_MIN_SHARE = 0.4` e os pesos das fontes são provisórios.** O limiar
+  foi escolhido com aqueles 7 casos confiantes da primeira medição, que já não
+  saem confiantes — hoje nenhum caso o testa. Os pesos (`SOURCE_WEIGHTS`) são
+  valores iniciais, escolhidos à mão, nunca ajustados no conjunto. O comentário
+  no código marca isso. Refazer a medição quando houver tags de faixa reais ou
+  andamento medido no áudio.
+- **O Discogs foi avaliado e descartado.** Os estilos de lançamento que ele devolve
+  para o psy do acervo são só `Psy-Trance`, `Progressive Trance` e `Goa Trance` —
+  nada mais fino (o darkpsy do Klipsun volta como Psy-Trance / Progressive
+  Trance). Não separam subgêneros, então a fonte de lançamento não foi construída;
+  o cliente e o token ficam, sem uso, caso uma referência futura precise. A
+  medição está em `scripts/medir_fontes_psy.py`.
+- A faixa de BPM de cada subgênero é uma única referência, de 2017, e as faixas se
+  sobrepõem (progressive e offbeat, por exemplo).
+
+**Próximo passo — Estágio B:** medir o **andamento no áudio**, a partir das
+prévias de 30s do Deezer (as mesmas que o player já toca), para preencher os ~92%
+do psy sem BPM, e depois comparar o áudio com faixas de referência como mais uma
+fonte de evidência. O BPM detectado no navegador foi tentado e removido (60% de
+acerto); o modelo de áudio teria de superar isso no conjunto dourado.
 
 ## O chat com IA
 
@@ -651,6 +843,8 @@ Abra **`http://127.0.0.1:5173`** e clique em **Entrar com Spotify**.
 - **Cobertura de gênero**: artistas independentes ou pouco conhecidos podem não
   ter tags no Last.fm — isso aparece no contador de "músicas sem gênero
   identificado".
+- **Subgênero do psytrance**: a maior parte das faixas fica "incerta" até haver
+  BPM e tags de faixa — veja os [limites medidos](#limites-medidos).
 - **Chat**: o histórico vive no estado do React; recarregar a página ou mudar de
   playlist/faixa zera a conversa. Não há persistência entre sessões.
 - **Métricas do chat**: ficam em memória e zeram quando o backend reinicia.
@@ -659,7 +853,8 @@ Abra **`http://127.0.0.1:5173`** e clique em **Entrar com Spotify**.
 - **Faixas parecidas** só encontram faixas já indexadas — não é recomendação sobre
   o catálogo inteiro.
 - **Frontend sem testes nem lint**: a garantia hoje é o `npm run build` no CI.
-- **Ideias de evolução**: classificação por IA para as faixas que o Last.fm não
+- **Ideias de evolução**: andamento medido no áudio (Estágio B, veja
+  [Subgêneros](#subgêneros)); classificação por IA para as faixas que o Last.fm não
   cobre; um modelo de embeddings multilíngue; exportar a análise.
 
 ## Testando rapidamente
@@ -668,6 +863,7 @@ Abra **`http://127.0.0.1:5173`** e clique em **Entrar com Spotify**.
 # backend
 cd backend && python -m pytest                 # suíte sem rede
 cd backend && python -m evals.run_genre_evals  # precisão da classificação de gênero
+cd backend && python -m evals.run_subgenre_evals  # subgênero contra referências externas
 
 # frontend
 cd frontend && npm run build                   # garante que o build de produção funciona
