@@ -39,9 +39,13 @@ class Fontes:
         self.falha_faixa: set[str] = set()
         self.espera: asyncio.Event | None = None
         self.deezer_resposta = {"deezer_id": 7, "bpm": 145.0, "preview_url": None, "deezer_url": "u"}
+        self.selos: list[int] = []
+        # str = resposta do Deezer ("" = álbum sem selo); None = falha.
+        self.selo_resposta: str | None = "Iboga Records"
         monkeypatch.setattr(lastfm_client, "get_artist_tags", self._artist)
         monkeypatch.setattr(lastfm_client, "get_track_tags", self._track)
         monkeypatch.setattr(deezer_client, "get_many", self._deezer)
+        monkeypatch.setattr(deezer_client, "get_label_for_track", self._selo)
 
     async def _artist(self, client, artist, limit=8):
         self.artistas.append(artist)
@@ -58,6 +62,10 @@ class Fontes:
     async def _deezer(self, client, pairs):
         self.deezer.extend(pairs)
         return [self.deezer_resposta for _ in pairs]
+
+    async def _selo(self, client, deezer_id):
+        self.selos.append(deezer_id)
+        return self.selo_resposta
 
 
 @pytest.fixture
@@ -183,6 +191,70 @@ async def test_no_spotify_calls(fontes, monkeypatch):
         monkeypatch.setattr(modulo, "SpotifyClient", proibido)
     await _rodar(_digests(_t("a")))
     assert enrichment_job.progress_dict(CONTA)["errors"] == []
+    assert evidence_store.missing(["a"]) == []
+
+
+# ── selo (Deezer) ────────────────────────────────────────────────────────────
+
+
+async def test_job_fills_label(fontes):
+    await _rodar(_digests(_t("a", ["psytrance"])))
+    ev = evidence_store.get_many(["a"])["a"]
+    # O selo é pedido pelo deezer_id que a busca acabou de achar.
+    assert fontes.selos == [7]
+    assert ev.label == "Iboga Records" and ev.label_checked_at is not None
+    assert evidence_store.missing(["a"]) == []
+
+
+async def test_album_without_label_is_recorded(fontes):
+    fontes.selo_resposta = ""
+    await _rodar(_digests(_t("a")))
+    ev = evidence_store.get_many(["a"])["a"]
+    assert ev.label == "" and ev.label_checked_at is not None
+    assert evidence_store.missing(["a"]) == []
+
+
+async def test_failed_label_not_stored_and_retried_next_run(fontes):
+    digests = _digests(_t("a"))
+    fontes.selo_resposta = None
+    await _rodar(digests)
+
+    ev = evidence_store.get_many(["a"])["a"]
+    assert ev.label is None and ev.label_checked_at is None
+    assert ev.deezer_id == 7  # o resto da evidência foi guardado
+    assert enrichment_job.progress_dict(CONTA)["errors"] == ["Faixa a: selo (Deezer)"]
+    assert evidence_store.missing(["a"]) == ["a"]
+
+    fontes.selo_resposta = "Iboga Records"
+    fontes.artistas.clear()
+    fontes.faixas.clear()
+    fontes.deezer.clear()
+    fontes.selos.clear()
+    await _rodar(digests)
+    assert (fontes.artistas, fontes.faixas, fontes.deezer) == ([], [], [])
+    assert fontes.selos == [7]
+    assert evidence_store.get_many(["a"])["a"].label == "Iboga Records"
+    assert evidence_store.missing(["a"]) == []
+
+
+async def test_stored_match_without_label_gets_only_the_label_call(fontes):
+    # Evidência anterior ao selo: tags e Deezer completos, selo nunca perguntado.
+    evidence_store.put(
+        evidence_store.TrackEvidence(
+            "a", [Tag("x", 1.0)], [Tag("y", 1.0)], bpm=146.0, deezer_id=99, deezer_checked_at=1.0
+        )
+    )
+    await _rodar(_digests(_t("a")))
+    assert (fontes.artistas, fontes.faixas, fontes.deezer) == ([], [], [])
+    assert fontes.selos == [99]
+    ev = evidence_store.get_many(["a"])["a"]
+    assert (ev.label, ev.bpm, ev.deezer_id) == ("Iboga Records", 146.0, 99)
+
+
+async def test_no_label_call_without_deezer_match(fontes):
+    fontes.deezer_resposta = NotFound(SEM_MATCH)
+    await _rodar(_digests(_t("a")))
+    assert fontes.selos == []
     assert evidence_store.missing(["a"]) == []
 
 

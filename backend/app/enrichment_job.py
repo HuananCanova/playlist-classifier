@@ -1,7 +1,7 @@
-"""Enriquecimento do acervo: tags separadas (Last.fm) e BPM (Deezer) por faixa.
+"""Enriquecimento do acervo: tags separadas (Last.fm), BPM e selo (Deezer) por faixa.
 
 O que está guardado das análises antigas não tem evidência por faixa — tags de
-artista e de faixa separadas e com peso, nem o andamento —, e sem ela a
+artista e de faixa separadas e com peso, nem o andamento, nem o selo —, e sem ela a
 classificação de subgênero não consegue se explicar. Este job busca isso para as
 faixas da biblioteca da conta e, no fim, reclassifica o que está em disco.
 
@@ -11,10 +11,13 @@ Regras:
 - **Zero Spotify.** As faixas vêm dos resumos já guardados; só Last.fm e Deezer
   são consultados (cada um com o cache e o ritmo que o seu cliente já tem).
 - **Só o que falta.** Last.fm só para o campo de tags ainda vazio; Deezer só
-  para quem nunca foi consultado. Refazer depois de uma falha busca só ela.
+  para quem nunca foi consultado; selo só para quem já tem `deezer_id` (achado
+  agora ou antes) e nunca teve o selo perguntado. Refazer depois de uma falha
+  busca só ela.
 - **Falha não vira dado.** Uma consulta que falhou fica `None` (e conta como
   erro): guardar `[]` esconderia a faixa por semanas. "Deezer respondeu que não
-  tem" é diferente, e é registrado (`deezer_checked_at` com bpm/id vazios).
+  tem" é diferente, e é registrado (`deezer_checked_at` com bpm/id vazios); o
+  mesmo vale para o selo ("" = álbum sem selo, com `label_checked_at`).
 """
 import asyncio
 import contextlib
@@ -34,9 +37,12 @@ logger = logging.getLogger(__name__)
 # Faixas por rodada: entre uma e outra o job pode ser cancelado e o progresso anda.
 LOTE = 48
 
-# Estimativa de tempo: ~3 faixas/s no pior caso (Deezer, o mais lento, aceita
-# ~50 requisições por 5s e cada faixa custa até duas) = 180 faixas por minuto.
-TRACKS_PER_MINUTE = 180
+# Estimativa de tempo: o Deezer, o mais lento, aceita ~50 requisições por 5s.
+# Cada faixa custa até duas na busca (BPM) e até duas no selo (a faixa, para
+# achar o álbum, e o álbum) — no pior caso quatro, ~2,5 faixas/s = 150 por
+# minuto. Na prática o selo sai mais barato: o álbum fica guardado e as outras
+# faixas do mesmo lançamento pagam só uma chamada.
+TRACKS_PER_MINUTE = 150
 
 # Quantas mensagens de erro o progresso guarda (as mais recentes); o total fica
 # em `error_count`, para um acervo grande sem rede não encher a memória.
@@ -175,9 +181,33 @@ async def _lote(client: httpx.AsyncClient, lote: list[dict], progress: EnrichPro
             else:
                 campos[t["id"]].update(achado)
 
+    async def selos() -> None:
+        # Depois do Deezer: o selo precisa do deezer_id, guardado ou achado agora.
+        await deezer()
+        com_id = []
+        for t in lote:
+            antes = have.get(t["id"])
+            if antes is not None and antes.label_checked_at is not None:
+                continue
+            deezer_id = campos[t["id"]].get("deezer_id") or (antes.deezer_id if antes else None)
+            if deezer_id is not None:
+                com_id.append((t, deezer_id))
+
+        async def selo(t: dict, deezer_id: int) -> None:
+            try:
+                label = await deezer_client.get_label_for_track(client, deezer_id)
+            except Exception:
+                label = None
+            if label is None:
+                progress.error(f"{t['name'] or t['id']}: selo (Deezer)")
+            else:
+                campos[t["id"]].update(label=label, label_checked_at=time.time())
+
+        await gather_with_concurrency(deezer_client.DEEZER_CONCURRENCY, *(selo(t, i) for t, i in com_id))
+
     await asyncio.gather(
         gather_with_concurrency(LASTFM_CONCURRENCY, *(tags(t) for t in lote)),
-        deezer(),
+        selos(),
     )
 
     for t in lote:
