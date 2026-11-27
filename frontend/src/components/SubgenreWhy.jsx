@@ -6,6 +6,7 @@ const FONTES = {
   track_tags: "Tags da faixa (Last.fm)",
   artist_tags: "Tags do artista (Last.fm)",
   tempo: "Andamento (Deezer)",
+  label: "Selo (Deezer)",
 };
 
 // Os quatro maiores ganham cor; o resto vira "outros", em cinza.
@@ -24,17 +25,34 @@ function segmentos(blend) {
 // como acordo. Ex.: artist_tags {full-on, darkpsy} sozinha não discorda; com
 // tempo {goa}, sim. O andamento empatado vem com `says` nulo (o backend não
 // escolhe um dos empatados), então não entra na comparação.
-export function motivosIncerteza(evidence) {
+// O selo entra como as outras fontes. Quando ele reparte entre subgêneros,
+// também vem com `says` nulo — mas aí sabemos entre quais: as fatias do mapa
+// (`label_info.shares`) que estão na mistura, isto é, as deste gênero. O
+// conjunto do selo são essas fatias, e sobreposição com outra fonte é acordo.
+export function motivosIncerteza(evidence, { label = null, label_info = null, subgenre_blend = [] } = {}) {
   const fontes = new Set(evidence.map((e) => e.source));
   const itens = [];
   if (!fontes.has("tempo")) itens.push("sem BPM conhecido");
   else if (evidence.some((e) => e.source === "tempo" && !e.says)) itens.push("o BPM cabe em mais de um subgênero");
   if (!fontes.has("track_tags")) itens.push("o Last.fm só marca o artista, não a faixa");
+  if (!fontes.has("label")) {
+    // Sem voto do selo: ou não há selo, ou ele não está no mapa, ou está no
+    // mapa só com subgêneros de outro gênero (aí ele se abstém).
+    if (!label) itens.push("sem selo conhecido");
+    else if (!label_info) itens.push("selo fora do mapa");
+    else itens.push("o selo lança outros estilos, não este gênero");
+  }
+  const naMistura = new Set(subgenre_blend.map((b) => b.label));
   const porFonte = new Map();
+  const juntar = (fonte, says) => {
+    if (!porFonte.has(fonte)) porFonte.set(fonte, new Set());
+    porFonte.get(fonte).add(says);
+  };
   for (const e of evidence) {
-    if (!e.says) continue;
-    if (!porFonte.has(e.source)) porFonte.set(e.source, new Set());
-    porFonte.get(e.source).add(e.says);
+    if (e.says) juntar(e.source, e.says);
+    else if (e.source === "label" && label_info) {
+      for (const s of label_info.shares || []) if (naMistura.has(s.label)) juntar("label", s.label);
+    }
   }
   const conjuntos = [...porFonte.values()];
   const discordam = conjuntos.some((a, i) =>
@@ -42,6 +60,30 @@ export function motivosIncerteza(evidence) {
   );
   if (discordam) itens.push("as fontes discordam");
   return itens;
+}
+
+// O selo segundo o nosso mapa: nome, nota, fatias em palavras e a fonte.
+// As fatias não são filtradas pelo gênero da faixa — é o catálogo do selo.
+function Selo({ info, comoVeio }) {
+  const fatias = (info.shares || []).map((s) => `${s.label} ${pct(s.share, 1)}`).join(", ");
+  const fonte = info.fonte ? (
+    <a href={info.fonte} target="_blank" rel="noopener noreferrer">
+      {hostDe(info.fonte)}
+    </a>
+  ) : null;
+  // O Deezer pode grafar o selo de outro jeito; mostramos a grafia dele também.
+  const outraGrafia = comoVeio && comoVeio.toLowerCase() !== info.name.toLowerCase() ? comoVeio : null;
+  return (
+    <div className="subgenre-ref">
+      <p>
+        <span className="muted">Selo</span> <strong>{info.name}</strong>
+        {outraGrafia && <span className="muted"> (no Deezer: {outraGrafia})</span>}
+        {fatias ? `: ${fatias}` : ""}
+        {fonte ? <>, segundo {fonte}</> : null}
+      </p>
+      {info.nota && <p className="muted">{info.nota}</p>}
+    </div>
+  );
 }
 
 function Referencia({ ref_ }) {
@@ -78,7 +120,7 @@ export default function SubgenreWhy({ track }) {
   if (blend.length === 0) return null;
   const evidence = track.subgenre_evidence || [];
   const segs = segmentos(blend);
-  const falta = track.subgenre_unsure ? motivosIncerteza(evidence) : [];
+  const falta = track.subgenre_unsure ? motivosIncerteza(evidence, track) : [];
 
   return (
     <section className="panel">
@@ -121,6 +163,8 @@ export default function SubgenreWhy({ track }) {
           ))}
         </ul>
       )}
+
+      {track.label_info && <Selo info={track.label_info} comoVeio={track.label} />}
 
       {track.subgenre_reference && <Referencia ref_={track.subgenre_reference} />}
     </section>
