@@ -11,7 +11,7 @@ from collections import Counter
 
 import httpx
 
-from . import analysis_store, enrichment_store, evidence_store, profile_store, reclassify, subgenre, taxonomy
+from . import analysis_store, enrichment_store, evidence_store, labels, profile_store, reclassify, subgenre, taxonomy
 from .cache import playlist_analysis_cache
 from .deezer_client import get_many as get_deezer_many
 from .lastfm_client import NoAnswer, get_artist_tags, get_track_tags
@@ -132,7 +132,8 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         playlist_id, len(tracks), len(artist_names), spotify_seconds, lastfm_seconds,
     )
 
-    # BPM de uma enriquecida anterior serve quando o Deezer não deu o seu agora.
+    # BPM de uma enriquecida anterior serve quando o Deezer não deu o seu agora;
+    # o selo guardado entra sempre.
     stored_evidence = await _stored_evidence([t["id"] for t in tracks])
     artists_without_answer = {n for n, tags in artist_genres.items() if isinstance(tags, NoAnswer)}
     evidence_to_store: list[evidence_store.TrackEvidence] = []
@@ -168,11 +169,18 @@ async def _build(access_token: str, playlist_id: str, include_audio: bool) -> Pl
         for name in track_artist_names:
             artist_counter[name] += 1
 
+        stored = stored_evidence.get(track["id"])
         bpm = deezer["bpm"]
-        if bpm is None and track["id"] in stored_evidence:
-            bpm = stored_evidence[track["id"]].bpm
-        result = subgenre.blend(
-            classification.genre, artist_tags=artist_tags, track_tags=taxonomy.as_tags(lastfm_tags), bpm=bpm
+        if bpm is None and stored is not None:
+            bpm = stored.bpm
+        # O selo só entra se já estiver guardado (job de enriquecimento ou página
+        # da faixa): pedi-lo aqui custaria até duas chamadas ao Deezer por faixa.
+        result = labels.blend_with_label(
+            classification.genre,
+            artist_tags=artist_tags,
+            track_tags=taxonomy.as_tags(lastfm_tags),
+            bpm=bpm,
+            label=stored.label if stored is not None else None,
         )
         if result.lean:
             subgenre_counter[result.lean] += 1

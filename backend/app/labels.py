@@ -22,7 +22,9 @@ from typing import NamedTuple
 import yaml
 
 from . import taxonomy
-from .subgenre import Evidence, SourceResult, _normalized
+from . import subgenre
+from .subgenre import Evidence, SourceResult, SubgenreResult, _normalized
+from .taxonomy import Tag
 
 logger = logging.getLogger(__name__)
 
@@ -130,3 +132,24 @@ def label_source(genre: str | None, label: str | None) -> SourceResult | None:
         detail = f"{detail} — {info.nota.rstrip('.')}"
 
     return SourceResult("label", distribution, [Evidence("label", says, detail)])
+
+
+def blend_with_label(
+    genre: str | None,
+    *,
+    artist_tags: list[Tag],
+    track_tags: list[Tag],
+    bpm: float | None,
+    label: str | None,
+) -> SubgenreResult:
+    """`subgenre.blend` com o voto do selo, quando ele tem voto.
+
+    Todo caminho que classifica subgênero passa por aqui, para o selo pesar do
+    mesmo jeito na análise nova, na reclassificação e na página da faixa. Selo
+    que se abstém (ausente, fora do mapa, de outro gênero) deixa o resultado
+    idêntico ao blend sem selo.
+    """
+    fonte = label_source(genre, label)
+    return subgenre.blend(
+        genre, artist_tags=artist_tags, track_tags=track_tags, bpm=bpm, extra=[fonte] if fonte else []
+    )

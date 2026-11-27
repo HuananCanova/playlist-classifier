@@ -32,7 +32,7 @@ import logging
 import time
 from collections import Counter
 
-from . import analysis_store, db, evidence_store, profile_store, subgenre, taxonomy
+from . import analysis_store, db, evidence_store, labels, profile_store, subgenre, taxonomy
 from .evidence_store import TrackEvidence
 from .models import GenreCount, PlaylistAnalysis, TrackGenreInfo
 from .taxonomy import Tag
@@ -100,19 +100,27 @@ def _tags_da_faixa(guardadas: list[str], evidencia: TrackEvidence | None) -> lis
 
 def _blend(genero, artista, faixa, evidencia, bpm_guardado):
     bpm = evidencia.bpm if evidencia is not None and evidencia.bpm is not None else bpm_guardado
-    return subgenre.blend(genero, artist_tags=artista, track_tags=faixa, bpm=bpm)
+    return labels.blend_with_label(genero, artist_tags=artista, track_tags=faixa, bpm=bpm, label=_selo(evidencia))
+
+
+def _selo(evidencia: TrackEvidence | None) -> str | None:
+    """O selo guardado na evidência (só o job e a página da faixa o buscam)."""
+    return evidencia.label if evidencia is not None else None
 
 
 def subgenre_of(faixa: TrackGenreInfo, evidence: TrackEvidence | None, bpm: float | None) -> subgenre.SubgenreResult:
     """O blend de subgênero da faixa no gênero que ela já tem, com este BPM.
 
     As tags saem da evidência quando ela tem; senão do que a análise guardou,
-    num balaio que entra como tags de artista (a mesma regra de `track`)."""
+    num balaio que entra como tags de artista (a mesma regra de `track`). O selo,
+    quando guardado, vem da evidência."""
     if _tem_tags(evidence):
         artista, da_faixa = evidence.artist_tags or [], evidence.track_tags or []
     else:
         artista, da_faixa = taxonomy.as_tags(_balaio(faixa.genres, faixa.subgenre_tags)), []
-    return subgenre.blend(faixa.genre, artist_tags=artista, track_tags=da_faixa, bpm=bpm)
+    return labels.blend_with_label(
+        faixa.genre, artist_tags=artista, track_tags=da_faixa, bpm=bpm, label=_selo(evidence)
+    )
 
 
 def track(faixa: TrackGenreInfo, evidence: TrackEvidence | None = None) -> TrackGenreInfo:

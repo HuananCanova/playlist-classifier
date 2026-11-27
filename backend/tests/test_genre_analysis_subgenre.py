@@ -299,3 +299,129 @@ async def test_ai_tool_separates_confident_from_unsure(monkeypatch):
 
     payload = json.loads(await ai_tools.analisar_playlist_json("tok", "p-ia"))
     assert payload["subgeneros"] == [{"subgenero": "full-on", "faixas_confiantes": 1, "faixas_incertas": 2}]
+
+
+# ── selo: a análise nova usa o guardado, sem pedir à rede ──────────────────
+
+
+def _sem_rede_de_selo(monkeypatch):
+    from app import deezer_client
+
+    async def proibido(*args, **kwargs):
+        raise AssertionError("análise nova não pede selo à rede")
+
+    monkeypatch.setattr(deezer_client, "get_label_for_track", proibido)
+    monkeypatch.setattr(deezer_client, "get_track_label", proibido)
+    monkeypatch.setattr(deezer_client, "_album_label", proibido)
+
+
+async def test_new_analysis_uses_stored_label_without_network(monkeypatch):
+    _install(monkeypatch, track=[Tag("forest psy", 80.0)])
+    _sem_rede_de_selo(monkeypatch)
+    evidence_store.put(evidence_store.TrackEvidence("t1", deezer_id=7, label="Parvati Records", label_checked_at=1.0))
+
+    analysis = await genre_analysis.build_playlist_analysis("tok", "p1")
+
+    track = analysis.tracks[0]
+    assert track.subgenre == "forest psy"
+    assert any(e.source == "label" for e in track.subgenre_evidence)
+    # Guardar a evidência nova não apaga o selo.
+    assert evidence_store.get_many(["t1"])["t1"].label == "Parvati Records"
+
+
+async def test_new_analysis_label_alone_is_unsure_lean(monkeypatch):
+    _install(monkeypatch)  # artista só "psytrance"
+    _sem_rede_de_selo(monkeypatch)
+    evidence_store.put(evidence_store.TrackEvidence("t1", label="Suntrip Records", label_checked_at=1.0))
+
+    analysis = await genre_analysis.build_playlist_analysis("tok", "p1", include_audio=False)
+
+    track = analysis.tracks[0]
+    assert track.subgenre_lean == "goa trance" and track.subgenre_unsure is True
+
+
+async def test_add_audio_keeps_stored_label(monkeypatch):
+    _install(monkeypatch)  # artista só "psytrance": sem voto de subgênero
+    _sem_rede_de_selo(monkeypatch)
+    analysis = await genre_analysis.build_playlist_analysis("tok", "p1", include_audio=False)
+    assert analysis.tracks[0].subgenre_blend == []
+    # O job de enriquecimento guardou o selo enquanto isso.
+    evidence_store.put(evidence_store.TrackEvidence("t1", label="Suntrip Records", label_checked_at=1.0))
+
+    async def deezer_many(client, pairs):
+        return [{"deezer_id": 9, "bpm": None, "preview_url": None, "deezer_url": "u"} for _ in pairs]
+
+    monkeypatch.setattr(genre_analysis, "get_deezer_many", deezer_many)
+    completed = await genre_analysis.add_audio(analysis)
+    assert completed.tracks[0].subgenre_lean == "goa trance"
+    assert any(e.source == "label" for e in completed.tracks[0].subgenre_evidence)
+
+
+# ── página da faixa: o selo ─────────────────────────────────────────────────
+
+
+async def _detalhe_com_selo(monkeypatch, track_id, deezer, selo_da_rede, chamadas):
+    from app import enrichment_store, tracks
+    from app.cache import track_detail_cache
+
+    async def fake_parallel(client, artist, title, duration):
+        return deezer, [Tag("forest psy", 80.0)], [Tag("psytrance", 100.0)]
+
+    async def fake_label(client, deezer_id):
+        chamadas.append(deezer_id)
+        return selo_da_rede
+
+    monkeypatch.setattr(tracks, "_buscar_em_paralelo", fake_parallel)
+    monkeypatch.setattr(tracks, "get_label_for_track", fake_label)
+    enrichment_store.put_spotify_tracks(
+        [{"id": track_id, "name": "X", "duration_ms": 1, "album": {}, "artists": [{"name": "A"}]}]
+    )
+    track_detail_cache.pop(track_id, None)
+    return await tracks.build_track_detail("tok", track_id)
+
+
+async def test_track_detail_fetches_missing_label_once_and_exposes_info(monkeypatch):
+    evidence_store.put(evidence_store.TrackEvidence("t30", deezer_id=11, deezer_checked_at=1.0))
+    chamadas: list = []
+
+    detail = await _detalhe_com_selo(monkeypatch, "t30", None, "Parvati Records", chamadas)
+
+    assert chamadas == [11]
+    assert detail.label == "Parvati Records"
+    assert detail.label_info.name == "Parvati Records"
+    assert detail.label_info.nota and detail.label_info.fonte.startswith("http")
+    assert [(s.label, s.share) for s in detail.label_info.shares] == [("forest psy", 1.0)]
+    assert any(e.source == "label" for e in detail.subgenre_evidence)
+    ev = evidence_store.get_many(["t30"])["t30"]
+    assert ev.label == "Parvati Records" and ev.label_checked_at is not None
+
+    # Segunda visita (sem cache em memória): o selo já está guardado.
+    await _detalhe_com_selo(monkeypatch, "t30", None, "Parvati Records", chamadas)
+    assert chamadas == [11]
+
+
+async def test_track_detail_uses_fresh_deezer_id_for_label(monkeypatch):
+    deezer = {"deezer_id": 42, "bpm": None, "preview_url": None, "deezer_url": None, "confianca": "alta"}
+    chamadas: list = []
+    detail = await _detalhe_com_selo(monkeypatch, "t31", deezer, "Kontor Records", chamadas)
+
+    assert chamadas == [42]
+    assert detail.label == "Kontor Records" and detail.label_info is None
+    assert evidence_store.get_many(["t31"])["t31"].label == "Kontor Records"
+
+
+async def test_track_detail_label_failure_stores_nothing(monkeypatch):
+    evidence_store.put(evidence_store.TrackEvidence("t32", deezer_id=12, deezer_checked_at=1.0))
+    chamadas: list = []
+    detail = await _detalhe_com_selo(monkeypatch, "t32", None, None, chamadas)
+
+    assert chamadas == [12] and detail.label is None and detail.label_info is None
+    ev = evidence_store.get_many(["t32"])["t32"]
+    assert ev.label is None and ev.label_checked_at is None
+
+
+async def test_track_detail_without_deezer_match_does_not_ask_label(monkeypatch):
+    deezer = {"deezer_id": 5, "bpm": None, "preview_url": None, "deezer_url": None, "confianca": "aproximada"}
+    chamadas: list = []
+    await _detalhe_com_selo(monkeypatch, "t33", deezer, "Parvati Records", chamadas)
+    assert chamadas == []

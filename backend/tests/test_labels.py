@@ -181,3 +181,23 @@ def test_todo_selo_tem_fonte_e_nota():
         assert info.fonte.startswith("http"), info.name
         assert info.nota, info.name
         assert info.estilos, info.name
+
+
+# ── blend_with_label: o atalho que todo caminho de classificação usa ─────────
+
+
+def test_blend_with_label_inclui_o_voto_do_selo():
+    r = labels.blend_with_label(
+        "psytrance", artist_tags=[], track_tags=[Tag("forest psy", 100)], bpm=None, label="Parvati Records"
+    )
+    assert r.subgenre == "forest psy"
+    assert any(e.source == "label" for e in r.evidence)
+
+
+@pytest.mark.parametrize("selo", [None, "", "Kontor Records"])
+def test_blend_with_label_sem_selo_util_e_o_blend_puro(selo):
+    sem = subgenre.blend("psytrance", artist_tags=[Tag("full-on", 100)], track_tags=[], bpm=146.0)
+    com = labels.blend_with_label(
+        "psytrance", artist_tags=[Tag("full-on", 100)], track_tags=[], bpm=146.0, label=selo
+    )
+    assert com == sem

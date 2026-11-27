@@ -179,3 +179,45 @@ def test_reclassify_with_evidence_orders_tags_by_weight():
 def test_reclassify_without_evidence_keeps_alphabetical_tags():
     nova = reclassify.track(_faixa(genres=["psytrance"], subgenre_tags=["zebra", "darkpsy"]), None)
     assert nova.subgenre_tags == ["darkpsy", "psytrance", "zebra"]
+
+
+# ── selo guardado na evidência ───────────────────────────────────────────────
+
+
+def _ev_psy(**extra):
+    return TrackEvidence("t1", artist_tags=[Tag("psytrance", 100)], track_tags=[], **extra)
+
+
+def test_reclassify_mapped_label_agreeing_with_track_tags_is_confident():
+    ev = TrackEvidence(
+        "t1", artist_tags=[Tag("psytrance", 100)], track_tags=[Tag("full-on", 80)],
+        label="Dacru Records", label_checked_at=1.0,
+    )
+    nova = reclassify.track(_faixa(), ev)
+
+    assert nova.subgenre == "full-on" and nova.subgenre_unsure is False
+    assert any(e.source == "label" and e.says == "full-on" for e in nova.subgenre_evidence)
+
+
+def test_reclassify_label_alone_leans_but_stays_unsure():
+    nova = reclassify.track(_faixa(), _ev_psy(label="Parvati Records", label_checked_at=1.0))
+
+    assert nova.subgenre_lean == "forest psy"
+    assert nova.subgenre_unsure is True and nova.subgenre is None
+
+
+def test_reclassify_unknown_label_is_same_as_no_label():
+    com = reclassify.track(_faixa(), _ev_psy(label="Kontor Records", label_checked_at=1.0))
+    sem = reclassify.track(_faixa(), _ev_psy())
+    assert com == sem
+
+
+def test_subgenre_of_uses_stored_label():
+    r = reclassify.subgenre_of(_faixa(genre="psytrance"), _ev_psy(label="Suntrip Records", label_checked_at=1.0), None)
+    assert r.lean == "goa trance"
+
+
+def test_digest_uses_stored_label():
+    evidence_store.put(_ev_psy(label="Parvati Records", label_checked_at=1.0))
+    novo, _ = reclassify.digest({"tracks": [{"id": "t1", "genres": ["psytrance"], "tags": ["psytrance"]}]})
+    assert novo["tracks"][0]["subgenre_lean"] == "forest psy"

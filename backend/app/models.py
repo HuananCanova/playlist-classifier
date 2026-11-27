@@ -68,6 +68,15 @@ class TrackGenreInfo(BaseModel):
     explicit: bool | None = None
 
 
+class LabelRef(BaseModel):
+    """O que o mapa de selos (app/labels.yaml) diz do selo de uma faixa."""
+
+    name: str
+    nota: str
+    fonte: str
+    shares: list[SubgenreShare] = []
+
+
 class TrackDetail(BaseModel):
     track_id: str
     name: str
@@ -93,6 +102,10 @@ class TrackDetail(BaseModel):
     # Referência do subgênero em que a faixa pende ({name, bpm, about, source}),
     # para o cartão da faixa dispensar outra chamada. None sem lean ou fora do YAML.
     subgenre_reference: dict | None = None
+    # Selo do lançamento no Deezer (None sem selo conhecido) e, quando o selo
+    # está no mapa, o que sabemos dele — nome canônico, nota, fonte e fatias.
+    label: str | None = None
+    label_info: LabelRef | None = None
     # Vêm do Deezer e podem faltar: BPM só existe em ~43% das faixas, e o
     # preview em ~93%.
     bpm: float | None = None
