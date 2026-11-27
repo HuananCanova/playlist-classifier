@@ -57,3 +57,36 @@ def test_subgenre_fields_maps_result():
     # Serve de kwargs do modelo.
     info = TrackGenreInfo(track_id="t", name="n", artists=[], duration_ms=1, genres=[], subgenre_tags=[], **fields)
     assert info.subgenre_blend[0].label == "goa"
+
+
+def test_label_roundtrip():
+    evidence_store.put(TrackEvidence("t1", deezer_id=7, deezer_checked_at=1.0, label="Iboga Records",
+                                     label_checked_at=2.0))
+    ev = evidence_store.get_many(["t1"])["t1"]
+    assert (ev.label, ev.label_checked_at) == ("Iboga Records", 2.0)
+
+
+def test_put_without_label_keeps_stored_label():
+    evidence_store.put(TrackEvidence("t1", deezer_id=7, deezer_checked_at=1.0, label="Iboga Records",
+                                     label_checked_at=2.0))
+    evidence_store.put(TrackEvidence("t1", artist_tags=[Tag("psytrance", 80)]))
+    ev = evidence_store.get_many(["t1"])["t1"]
+    assert (ev.label, ev.label_checked_at) == ("Iboga Records", 2.0)
+
+
+def test_empty_label_is_an_answer():
+    # Álbum sem selo: "" com data de consulta, não ausência.
+    evidence_store.put(TrackEvidence("t1", deezer_id=7, deezer_checked_at=1.0, label="", label_checked_at=2.0))
+    ev = evidence_store.get_many(["t1"])["t1"]
+    assert (ev.label, ev.label_checked_at) == ("", 2.0)
+
+
+def test_missing_includes_matched_rows_without_label():
+    full = dict(artist_tags=[], track_tags=[], deezer_checked_at=1.0)
+    evidence_store.put(TrackEvidence("com_selo", deezer_id=7, label="X", label_checked_at=1.0, **full))
+    evidence_store.put(TrackEvidence("sem_selo_vazio", deezer_id=8, label="", label_checked_at=1.0, **full))
+    evidence_store.put(TrackEvidence("selo_nao_buscado", deezer_id=9, **full))
+    # Sem correspondência no Deezer não há como perguntar o selo: não falta nada.
+    evidence_store.put(TrackEvidence("sem_match", **full))
+    ids = ["com_selo", "sem_selo_vazio", "selo_nao_buscado", "sem_match"]
+    assert evidence_store.missing(ids) == ["selo_nao_buscado"]

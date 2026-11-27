@@ -395,6 +395,34 @@ async def get_many(client: httpx.AsyncClient, pairs: list[tuple[str, str]]) -> l
 ALBUM_URL = "https://api.deezer.com/album"
 
 
+async def _album_id_of(client: httpx.AsyncClient, deezer_id: int) -> int | None:
+    """Id do álbum de uma faixa; 0 quando a faixa não tem álbum; None se falhou."""
+    try:
+        resp = await client.get(f"{TRACK_URL}/{deezer_id}", timeout=10.0)
+        resp.raise_for_status()
+        detail = resp.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    if not isinstance(detail, dict) or "error" in detail:
+        return None
+    album = detail.get("album")
+    album_id = album.get("id") if isinstance(album, dict) else None
+    return album_id or 0
+
+
+async def _album_label(client: httpx.AsyncClient, album_id: int) -> str | None:
+    """Selo de um álbum ("" se não tem), ou None se a chamada falhou."""
+    try:
+        resp = await client.get(f"{ALBUM_URL}/{album_id}", timeout=10.0)
+        resp.raise_for_status()
+        album = resp.json()
+    except (httpx.HTTPError, ValueError):
+        return None
+    if not isinstance(album, dict) or "error" in album:
+        return None
+    return (album.get("label") or "").strip()
+
+
 async def get_track_label(client: httpx.AsyncClient, deezer_id: int) -> str | None:
     """Selo (gravadora) do lançamento de uma faixa do Deezer, pelo id da faixa.
 
@@ -402,21 +430,37 @@ async def get_track_label(client: httpx.AsyncClient, deezer_id: int) -> str | No
     (para achar o álbum) e o álbum. Devolve "" quando o álbum não tem selo
     — ausência de dado é resposta — e None quando alguma chamada falhou, para
     que quem guarda não confunda falha com "sem selo".
+
+    Não toca no banco (o script de medição usa assim); o app usa
+    `get_label_for_track`, que guarda o selo por álbum.
     """
-    try:
-        resp = await client.get(f"{TRACK_URL}/{deezer_id}", timeout=10.0)
-        resp.raise_for_status()
-        detail = resp.json()
-        if not isinstance(detail, dict) or "error" in detail:
-            return None
-        album_id = (detail.get("album") or {}).get("id")
-        if not album_id:
-            return ""
-        resp = await client.get(f"{ALBUM_URL}/{album_id}", timeout=10.0)
-        resp.raise_for_status()
-        album = resp.json()
-    except (httpx.HTTPError, ValueError, AttributeError):
+    album_id = await _album_id_of(client, deezer_id)
+    if album_id is None:
         return None
-    if not isinstance(album, dict) or "error" in album:
+    if not album_id:
+        return ""
+    return await _album_label(client, album_id)
+
+
+async def get_label_for_track(client: httpx.AsyncClient, deezer_id: int) -> str | None:
+    """Como `get_track_label`, mas com o selo guardado por álbum no banco.
+
+    A faixa ainda custa uma chamada (é ela que diz o álbum), mas o álbum só é
+    pedido uma vez: um EP de seis faixas paga sete chamadas em vez de doze, e
+    o resto do acervo do mesmo lançamento sai de graça. Sem validade, porque o
+    selo de um lançamento não muda. Só resposta entra no banco — "" (álbum sem
+    selo) é resposta; None (falha) não, para a próxima tentativa perguntar de
+    novo.
+    """
+    album_id = await _album_id_of(client, deezer_id)
+    if album_id is None:
         return None
-    return (album.get("label") or "").strip()
+    if not album_id:
+        return ""
+    stored = await asyncio.to_thread(enrichment_store.get_album_label, album_id)
+    if stored is not None:
+        return stored
+    label = await _album_label(client, album_id)
+    if label is not None:
+        await asyncio.to_thread(enrichment_store.put_album_label, album_id, label)
+    return label

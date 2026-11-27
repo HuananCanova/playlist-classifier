@@ -127,6 +127,21 @@ MIGRATIONS: list[str] = [
         updated_at        REAL NOT NULL
     );
     """,
+    # 4 — selo (gravadora) do lançamento, vindo do Deezer.
+    # Em track_evidence: label NULL = não consultado; "" = o álbum não tem selo
+    # (resposta de verdade, com label_checked_at preenchido).
+    # deezer_album_labels: cache por álbum, sem validade — o selo de um
+    # lançamento não muda, e um álbum buscado serve todas as faixas dele.
+    """
+    ALTER TABLE track_evidence ADD COLUMN label TEXT;
+    ALTER TABLE track_evidence ADD COLUMN label_checked_at REAL;
+
+    CREATE TABLE deezer_album_labels (
+        album_id   INTEGER PRIMARY KEY,
+        label      TEXT NOT NULL,
+        fetched_at REAL NOT NULL
+    );
+    """,
 ]
 
 _lock = threading.RLock()

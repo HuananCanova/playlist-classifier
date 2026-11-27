@@ -116,6 +116,23 @@ def put_deezer_match(track_key: str, deezer_id: int | None, bpm: float | None, d
     )
 
 
+def get_album_label(album_id: int) -> str | None:
+    """Selo guardado de um álbum do Deezer ("" = o álbum não tem selo).
+
+    Sem validade: o selo de um lançamento não muda. None quer dizer "não sei,
+    pergunte ao Deezer"."""
+    row = db.query_one("SELECT label FROM deezer_album_labels WHERE album_id = ?", (album_id,))
+    return None if row is None else row["label"]
+
+
+def put_album_label(album_id: int, label: str) -> None:
+    """Só para resposta de verdade — falha de rede não chega aqui."""
+    db.execute(
+        "INSERT OR REPLACE INTO deezer_album_labels (album_id, label, fetched_at) VALUES (?, ?, ?)",
+        (album_id, label, time.time()),
+    )
+
+
 # ── Spotify ─────────────────────────────────────────────────────────────────
 
 

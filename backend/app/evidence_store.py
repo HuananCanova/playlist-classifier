@@ -24,6 +24,10 @@ class TrackEvidence:
     deezer_id: int | None = None
     # None = Deezer nunca consultado. Com bpm/deezer_id None: consultado, sem match.
     deezer_checked_at: float | None = None
+    # Selo do lançamento (Deezer). None = não consultado; "" = o álbum não tem
+    # selo. Só pode ser perguntado depois que existe `deezer_id`.
+    label: str | None = None
+    label_checked_at: float | None = None
 
 
 def _from_row(row) -> TrackEvidence:
@@ -34,6 +38,8 @@ def _from_row(row) -> TrackEvidence:
         bpm=row["bpm"],
         deezer_id=row["deezer_id"],
         deezer_checked_at=row["deezer_checked_at"],
+        label=row["label"],
+        label_checked_at=row["label_checked_at"],
     )
 
 
@@ -62,8 +68,8 @@ def put(ev: TrackEvidence) -> None:
         track_tags = pick(ev.track_tags, old.track_tags)
         conn.execute(
             "INSERT OR REPLACE INTO track_evidence "
-            "(track_id, artist_tags, track_tags, bpm, deezer_id, deezer_checked_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "(track_id, artist_tags, track_tags, bpm, deezer_id, deezer_checked_at, label, label_checked_at, "
+            "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 ev.track_id,
                 None if artist_tags is None else encode_tags(artist_tags),
@@ -71,6 +77,8 @@ def put(ev: TrackEvidence) -> None:
                 pick(ev.bpm, old.bpm),
                 pick(ev.deezer_id, old.deezer_id),
                 pick(ev.deezer_checked_at, old.deezer_checked_at),
+                pick(ev.label, old.label),
+                pick(ev.label_checked_at, old.label_checked_at),
                 time.time(),
             ),
         )
@@ -89,11 +97,20 @@ def deezer_fields(info: dict) -> dict | None:
 
 
 def missing(track_ids: list[str]) -> list[str]:
-    """Ids sem linha ou com alguma fonte ainda não consultada (na ordem dada)."""
+    """Ids sem linha ou com alguma fonte ainda não consultada (na ordem dada).
+
+    O selo só conta quando há `deezer_id`: sem correspondência no Deezer não há
+    álbum a perguntar, e a faixa não pode ficar eternamente "faltando"."""
     have = get_many(track_ids)
     out = []
     for tid in dict.fromkeys(track_ids):
         ev = have.get(tid)
-        if ev is None or ev.artist_tags is None or ev.track_tags is None or ev.deezer_checked_at is None:
+        if (
+            ev is None
+            or ev.artist_tags is None
+            or ev.track_tags is None
+            or ev.deezer_checked_at is None
+            or (ev.deezer_id is not None and ev.label_checked_at is None)
+        ):
             out.append(tid)
     return out
