@@ -5,9 +5,10 @@
 
 O conjunto (`subgenre_golden.yaml`) são faixas cujo subgênero vem de uma fonte
 de fora — os exemplos do Guia de Psytrance e as páginas do Beatport —, com as
-entradas (tags do Last.fm e BPM do Deezer) CONGELADAS por
+entradas (tags do Last.fm, BPM e selo do Deezer) CONGELADAS por
 `congelar_subgeneros.py`. Aqui nada toca a rede: cada faixa passa por
-`taxonomy.classify` e `subgenre.blend`, como em produção.
+`taxonomy.classify` e `subgenre.blend`, com o voto do selo
+(`labels.label_source`) como fonte extra, como em produção.
 
 Números:
   precisão confiante  dos casos em que o app AFIRMOU um subgênero, quantos batem
@@ -31,7 +32,7 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app import subgenre, taxonomy  # noqa: E402
+from app import labels, subgenre, taxonomy  # noqa: E402
 
 GOLDEN_PATH = Path(__file__).resolve().parent / "subgenre_golden.yaml"
 
@@ -40,14 +41,21 @@ def _rodar_caso(caso: dict) -> dict:
     artista = taxonomy.as_tags(caso.get("artista") or [])
     faixa = taxonomy.as_tags(caso.get("faixa_tags") or [])
     classificacao = taxonomy.classify(artist_tags=artista, track_tags=faixa)
+    # Selo fora do mapa (ou "", ou não capturado) se abstém: label_source dá None.
+    voto_selo = labels.label_source(classificacao.genre, caso.get("selo"))
     resultado = subgenre.blend(
-        classificacao.genre, artist_tags=artista, track_tags=faixa, bpm=caso.get("bpm")
+        classificacao.genre,
+        artist_tags=artista,
+        track_tags=faixa,
+        bpm=caso.get("bpm"),
+        extra=[voto_selo] if voto_selo else [],
     )
     esperado = caso["subgenero"]
     afirmou = resultado.subgenre is not None
     return {
         "id": caso["id"],
         "faixa": caso.get("faixa", ""),
+        "selo": caso.get("selo"),
         "esperado": esperado,
         "genero": classificacao.genre,
         "resultado": resultado,
@@ -81,7 +89,7 @@ def golden(verboso: bool) -> int:
             veredito = "inc "
         if verboso or veredito == "ERRO ":
             print(f"[{veredito}] {r['id']}  (esperado: {r['esperado']})")
-            print(f"         {r['faixa']}")
+            print(f"         {r['faixa']}" + (f"   [selo: {r['selo']}]" if r["selo"] else ""))
             print(f"         -> {res.subgenre or '—'}  inclinação {res.lean or '—'}  confiança {res.confidence:.2f}"
                   f"{'  INCERTO' if res.unsure else ''}")
             if verboso:

@@ -8,7 +8,11 @@
 #
 # Formato: id, faixa, referencia, subgenero, artista (tags do artista),
 # faixa_tags (tags da faixa), bpm (null = Deezer sem BPM ou sem a faixa),
+# selo (gravadora do lançamento no Deezer; "" = o álbum não tem selo, null =
+# não capturado: faixa fora do Deezer ou consulta que falhou),
 # incompleto (true = alguma fonte não respondeu no congelamento).
+#
+# `--so-selo` refaz só o `selo` e deixa tags e BPM como estavam congelados.
 #
 # `limiares` são os pisos/tetos que `run_subgenre_evals.py` cobra.
 
@@ -22,6 +26,21 @@ limiares:
   # caso confiante: o primeiro que aparecer errado reprova. O teto de incerto
   # fica em 1,0 porque não há folga acima de 35/35; volta a ter função quando
   # houver tags de faixa reais ou andamento medido no áudio (Estágio B).
+  #
+  # Com o selo do Deezer (`--so-selo`, 2026-11-27; 29/35 com selo, 6 fora do
+  # Deezer): continua 0 confiante de 35, incerto 35/35 = 1,000; top-2 sobe de
+  # 16/35 = 0,457 para 17/35 = 0,486 (offbeat 0→1); a inclinação bate com a
+  # referência em 16/35, contra 15/35 sem selo. O selo votou em 9 casos e
+  # concordou com a referência em 7 (Suntrip ×2, Avatar em goa, Spin Twist,
+  # Parvati, Bhooteshwara, Dacru em full-on); errou em 2: Dacru numa faixa que
+  # a referência chama de progressive (Bitkit) e Avatar numa de darkpsy (Fungus
+  # Funk, cuja inclinação passou de darkpsy certo para goa). Nenhum vira
+  # confiante porque selo e tag do artista precisam de companhia
+  # (`SOURCES_THAT_NEED_COMPANY`) e o conjunto não tem tag de faixa nem BPM que
+  # estreite — é o desenho, não falha. Três selos do mapa se abstêm porque o
+  # gênero não sai psytrance (Spin Twist em DJ Fabio & Moon, que sai trance;
+  # Hekwapi e Black Out, sem tag nenhuma do artista). Limiares mantidos pelas
+  # mesmas regras de cima.
   precisao_confiante: 0.65
   max_incerto: 1.0
 casos:
@@ -48,6 +67,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: Dacru Records
 - id: porat-undipresia
   faixa: Porat — Undipresia
   referencia: https://psytranceguide.com (seção Progressive Psy)
@@ -61,6 +81,7 @@ casos:
     - 66
   faixa_tags: []
   bpm: null
+  selo: Shamanic Tales
 - id: ticon-you-can-have-my-fraggies
   faixa: Ticon — You Can Have My Fraggies
   referencia: https://psytranceguide.com (seção Progressive Psy)
@@ -84,6 +105,7 @@ casos:
     - 2
   faixa_tags: []
   bpm: null
+  selo: null
 - id: vibrasphere-morning-breeze
   faixa: Vibrasphere — Morning Breeze
   referencia: https://psytranceguide.com (seção Progressive Psy)
@@ -107,6 +129,7 @@ casos:
     - 2
   faixa_tags: []
   bpm: 137.8
+  selo: Tribal Vision Records
 - id: paracozm-time
   faixa: Paracozm — Time
   referencia: https://www.beatport.com/track/time/16088721
@@ -130,6 +153,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: Padang Records
 - id: ebony-willis-exoskeleton
   faixa: Ebony Willis — Exoskeleton
   referencia: https://www.beatport.com/track/exoskeleton/20712047
@@ -137,6 +161,7 @@ casos:
   artista: []
   faixa_tags: []
   bpm: null
+  selo: Monstera
 - id: digicult-cosmic-company
   faixa: DigiCult — Cosmic Company
   referencia: https://psytranceguide.com (seção Full-on)
@@ -160,6 +185,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: 146.1
+  selo: Dacru Records
 - id: electro-sun-we-can-dance
   faixa: Electro Sun & System Nipel — We Can Dance
   referencia: https://psytranceguide.com (seção Full-on)
@@ -183,6 +209,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: NOGA Records
 - id: alternative-control-haarp
   faixa: Alternative Control — HAARP
   referencia: https://psytranceguide.com (seção Full-on)
@@ -206,6 +233,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: Proton Brazil
 - id: sundose-in-the-music
   faixa: Sundose — In The Music
   referencia: https://psytranceguide.com (seção Full-on)
@@ -229,6 +257,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: HOT-Q
 - id: vaishiyas-axon-and-john
   faixa: Vaishiyas — Axon & John
   referencia: https://psytranceguide.com (seção Offbeat)
@@ -252,6 +281,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: Spin Twist Records
 - id: interactive-noise-temptation
   faixa: Interactive Noise — Temptation
   referencia: https://psytranceguide.com (seção Offbeat)
@@ -275,6 +305,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: null
 - id: symphonix-hit-and-run
   faixa: Symphonix — Hit And Run (Ticon Remix)
   referencia: https://psytranceguide.com (seção Offbeat)
@@ -298,6 +329,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: 135.1
+  selo: Blue Tunes Records
 - id: dj-fabio-and-moon-emotionally-unplugged
   faixa: Dj Fabio & Moon — Emotionally Unplugged
   referencia: https://psytranceguide.com (seção Offbeat)
@@ -321,6 +353,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: 137.8
+  selo: Spin Twist Records
 - id: asylom-no-time-to-die
   faixa: Asylom, Kaza — No Time to Die
   referencia: https://psytranceguide.com (seção Dark Psy)
@@ -328,6 +361,7 @@ casos:
   artista: []
   faixa_tags: []
   bpm: null
+  selo: Hekwapi Records
 - id: sychotria-alien-fashion
   faixa: Sychotria & Fungoloyds — Alien Fashion
   referencia: https://psytranceguide.com (seção Dark Psy)
@@ -349,6 +383,7 @@ casos:
     - 4
   faixa_tags: []
   bpm: 76.0
+  selo: Bhooteshwara Records
 - id: fungus-funk-duck-the-mechwarrior
   faixa: Fungus Funk — Duck The Mechwarrior
   referencia: https://psytranceguide.com (seção Dark Psy)
@@ -372,6 +407,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: Avatar Records
 - id: blisargon-space-invaders
   faixa: Blisargon & Demogorgon — Space Invaders
   referencia: https://psytranceguide.com (seção Dark Psy)
@@ -379,6 +415,7 @@ casos:
   artista: []
   faixa_tags: []
   bpm: null
+  selo: Another Dimension Music
 - id: helan-and-halvan-gnomen
   faixa: Helan & Halvan — Gnomen
   referencia: https://psytranceguide.com (seção Forest Psy)
@@ -394,6 +431,7 @@ casos:
     - 66
   faixa_tags: []
   bpm: 74.0
+  selo: Beatspace
 - id: skydda-skogen-oneiro
   faixa: Skydda Skogen — Oneiro
   referencia: https://psytranceguide.com (seção Forest Psy)
@@ -401,6 +439,7 @@ casos:
   artista: []
   faixa_tags: []
   bpm: null
+  selo: null
 - id: egons-embrace-aleinn-a-ny
   faixa: Egon's Embrace — Aleinn a Ny
   referencia: https://psytranceguide.com (seção Forest Psy)
@@ -424,6 +463,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: Parvati Records
 - id: distorted-goblin-reborn
   faixa: Distorted Goblin — Reborn
   referencia: https://psytranceguide.com (seção Forest Psy)
@@ -447,6 +487,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: null
 - id: oforia-oasis
   faixa: Oforia — Oasis
   referencia: https://psytranceguide.com (seção Goa Trance)
@@ -470,6 +511,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: Oforia Music
 - id: artifact303-feelings
   faixa: Artifact303 — Feelings
   referencia: https://psytranceguide.com (seção Goa Trance)
@@ -493,6 +535,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: 144.1
+  selo: Suntrip Records
 - id: radical-distortion-psychedelic-dreams
   faixa: Radical Distortion — Psychedelic Dreams
   referencia: https://psytranceguide.com (seção Goa Trance)
@@ -516,6 +559,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: 137.8
+  selo: Suntrip Records
 - id: filteria-ultimator
   faixa: Filteria — Ultimator!
   referencia: https://psytranceguide.com (seção Goa Trance)
@@ -539,6 +583,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: Skruv Records
 - id: goa-experience-ekinoxe
   faixa: Goa Experience — Ekinoxe
   referencia: https://www.beatport.com/track/ekinoxe/14665339
@@ -558,6 +603,7 @@ casos:
     - 33
   faixa_tags: []
   bpm: null
+  selo: Avatar Records
 - id: yuxibu-new-civilization
   faixa: Yuxibu — New Civilization
   referencia: https://psytranceguide.com (seção Hi-Tech)
@@ -565,6 +611,7 @@ casos:
   artista: []
   faixa_tags: []
   bpm: null
+  selo: null
 - id: acajou-deez-nuts
   faixa: Acajou — Deez Nuts
   referencia: https://psytranceguide.com (seção Hi-Tech)
@@ -588,6 +635,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: Alwarda Records
 - id: gotalien-diwali
   faixa: Gotalien — Diwali
   referencia: https://psytranceguide.com (seção Hi-Tech)
@@ -611,6 +659,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: null
+  selo: Enterrec
 - id: ixotul-sonic-singularity
   faixa: Ixotul & Flowrest — Sonic Singularity
   referencia: https://psytranceguide.com (seção Hi-Tech)
@@ -618,6 +667,7 @@ casos:
   artista: []
   faixa_tags: []
   bpm: null
+  selo: Black Out Records
 - id: astronaut-ape-high-above-the-clouds
   faixa: Astronaut Ape — High Above The Clouds
   referencia: https://psytranceguide.com (seção Psychill)
@@ -641,6 +691,7 @@ casos:
     - 2
   faixa_tags: []
   bpm: null
+  selo: Cosmonautica
 - id: flucturion-pro-temporo
   faixa: Flucturion 2.0 — Pro Temporo
   referencia: https://psytranceguide.com (seção Psychill)
@@ -664,6 +715,7 @@ casos:
     - 3
   faixa_tags: []
   bpm: null
+  selo: Mystic Sound Records
 - id: man-with-no-name-azymuth
   faixa: Man With No Name — Azymuth
   referencia: https://psytranceguide.com (seção Psychill)
@@ -687,6 +739,7 @@ casos:
     - 1
   faixa_tags: []
   bpm: 195.9
+  selo: XL Recordings
 - id: gyrro-from-metariel
   faixa: Gyrro — From Metariel
   referencia: https://psytranceguide.com (seção Psychill)
@@ -694,3 +747,4 @@ casos:
   artista: []
   faixa_tags: []
   bpm: null
+  selo: null

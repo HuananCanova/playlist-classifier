@@ -1,0 +1,86 @@
+"""`congelar_subgeneros --so-selo`: só o selo muda. Sem rede — MockTransport."""
+import httpx
+import pytest
+
+from evals import congelar_subgeneros as congelar
+
+REF = {"id": "x", "artista": "Artifact303", "titulo": "Feelings"}
+ANTIGO = {
+    "id": "x",
+    "faixa": "Artifact303 — Feelings",
+    "referencia": "https://psytranceguide.com",
+    "subgenero": "goa trance",
+    "artista": [["goa", 100]],
+    "faixa_tags": [],
+    "bpm": 144.1,
+    "incompleto": True,
+}
+ACHADA = {"data": [{"id": 7, "title": "Feelings", "artist": {"name": "Artifact303"}}]}
+
+
+@pytest.fixture(autouse=True)
+def sem_pausa(monkeypatch):
+    monkeypatch.setattr(congelar, "PAUSA_S", 0)
+
+
+def _client(rotas: dict[str, httpx.Response]) -> httpx.AsyncClient:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return rotas.get(request.url.path, httpx.Response(500))
+
+    return httpx.AsyncClient(transport=httpx.MockTransport(handler))
+
+
+@pytest.mark.asyncio
+async def test_preenche_so_o_selo_e_mantem_o_resto():
+    rotas = {
+        "/search": httpx.Response(200, json=ACHADA),
+        "/track/7": httpx.Response(200, json={"id": 7, "bpm": 0, "album": {"id": 70}}),
+        "/album/70": httpx.Response(200, json={"id": 70, "label": "Suntrip Records"}),
+    }
+    async with _client(rotas) as client:
+        caso = await congelar.so_selo_caso(client, REF, ANTIGO)
+
+    # O Deezer agora diz bpm 0, mas o BPM congelado fica; `incompleto` também.
+    assert caso == {**ANTIGO, "selo": "Suntrip Records"}
+    assert list(caso).index("selo") == list(caso).index("bpm") + 1
+
+
+@pytest.mark.asyncio
+async def test_falha_mantem_o_selo_anterior():
+    rotas = {"/search": httpx.Response(200, json=ACHADA)}  # detalhe e álbum falham
+    async with _client(rotas) as client:
+        caso = await congelar.so_selo_caso(client, REF, {**ANTIGO, "selo": "Suntrip Records"})
+    assert caso["selo"] == "Suntrip Records"
+
+
+@pytest.mark.asyncio
+async def test_falha_sem_selo_anterior_fica_null():
+    async with _client({}) as client:  # nem a busca responde
+        caso = await congelar.so_selo_caso(client, REF, ANTIGO)
+    assert caso["selo"] is None
+    assert {k: v for k, v in caso.items() if k != "selo"} == ANTIGO
+
+
+@pytest.mark.asyncio
+async def test_faixa_fora_do_deezer_e_resposta():
+    rotas = {"/search": httpx.Response(200, json={"data": []})}
+    async with _client(rotas) as client:
+        caso = await congelar.so_selo_caso(client, REF, {**ANTIGO, "selo": "Velho"})
+    assert caso["selo"] is None
+
+
+@pytest.mark.asyncio
+async def test_album_sem_selo_vira_string_vazia():
+    rotas = {
+        "/search": httpx.Response(200, json=ACHADA),
+        "/track/7": httpx.Response(200, json={"id": 7, "album": {"id": 70}}),
+        "/album/70": httpx.Response(200, json={"id": 70}),
+    }
+    async with _client(rotas) as client:
+        caso = await congelar.so_selo_caso(client, REF, ANTIGO)
+    assert caso["selo"] == ""
+
+
+def test_comentario_dos_limiares_sobrevive():
+    texto = "# cabeçalho\n\nlimiares:\n  # corrida de ontem\n  # e a de hoje\n  max_incerto: 1.0\ncasos: []\n"
+    assert congelar._comentario_dos_limiares(texto) == "  # corrida de ontem\n  # e a de hoje\n"
