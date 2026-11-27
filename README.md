@@ -298,6 +298,7 @@ ponderadas:
 | --- | --- | --- | --- |
 | Tags da faixa | Last.fm, com o peso de cada tag | 1,0 | voto das tags que resolvem para um subgênero |
 | Andamento | BPM do Deezer | 0,8 | 1 dentro da faixa de referência do subgênero, decaindo linearmente até 0 a 6 BPM de distância; onde as faixas se sobrepõem, o voto se divide |
+| Selo | detalhe do álbum no Deezer + `app/labels.yaml` | 0,7 | as fatias que o mapa dá ao selo (veja [O selo](#o-selo)) |
 | Tags do artista | Last.fm | 0,4 | o mesmo voto, mas pesa menos: é o artista, não a faixa |
 
 A faixa de BPM de cada subgênero psy vem do [Guia de Psytrance](https://psytranceguide.com)
@@ -315,12 +316,40 @@ Os pesos ficam em `SOURCE_WEIGHTS`, no topo de `app/subgenre.py`. Uma fonte nova
 (o áudio, no Estágio B) entra como mais uma dessas distribuições, sem mexer no
 resto.
 
+### O selo
+
+No psytrance o selo do lançamento é uma pista forte: um disco da Suntrip é goa,
+um da Iboga é progressive. O selo vem do **detalhe do álbum no Deezer** (uma
+chamada por álbum, sem chave, guardada por álbum em `deezer_album_labels`) e
+vira subgênero pelo mapa escrito à mão em `app/labels.yaml`, tirado das listas
+"Notable labels" de cada estilo no [Guia de Psytrance](https://psytranceguide.com)
+— a mesma referência das faixas de BPM. Selo fora do mapa **se abstém**, e o
+selo, como o artista, descreve algo maior que a faixa: sozinho ele dá direção,
+nunca uma faixa afirmada (`SOURCES_THAT_NEED_COMPANY`). A página da faixa mostra
+o selo com a nota e o link da fonte, e o chat recebe o mesmo para explicar.
+
+Para **pôr um selo no mapa**, siga o formato descrito no topo do
+`labels.yaml`: precisa de uma **fonte citável** (sem fonte, fica na lista de
+lacunas de lá); as fatias somam 1 e selo misto divide, não escolhe. **Nunca**
+ajuste o mapa olhando o conjunto dourado — ele só mede. Medir:
+
+```bash
+cd backend
+python -m scripts.medir_selos_psy --golden           # o mapa no conjunto dourado
+python -m scripts.medir_selos_psy --faixas 400       # cobertura no acervo
+python -m evals.congelar_subgeneros --so-selo        # recongela só o selo dos casos
+```
+
+Os números e as lacunas estão na
+[spec](docs/superpowers/specs/2026-11-25-subgenre-evidence-design.md#record-label-evidence-added-2026-11-26-replaces-stage-b-for-now).
+
 ### O que é "incerto"
 
 A faixa fica incerta (`subgenre_unsure`) quando acontece qualquer um destes:
 
-- **só o artista falou** — tags de artista sozinhas nunca decidem, nem com um
-  andamento que cabe em três ou mais subgêneros ao lado;
+- **só o artista ou o selo falaram** — tags de artista e selo, juntos ou
+  separados, nunca decidem, nem com um andamento que cabe em três ou mais
+  subgêneros ao lado;
 - **o vencedor tem pouca fatia** — abaixo de `UNSURE_MIN_SHARE` (0,4);
 - **as duas fontes mais pesadas discordam** — os rótulos de topo não se tocam.
 
@@ -337,8 +366,8 @@ misturadas (faixa e artista, sem peso) e a varredura da conta pulava o Deezer. O
 botão **"Buscar evidência"** (no Perfil e na página do subgênero) resolve isso:
 
 - busca, por faixa do acervo, as tags do Last.fm **separadas** (artista e faixa,
-  com peso) e o BPM do Deezer, e grava em `track_evidence` (sem validade, para
-  reclassificar offline depois);
+  com peso), o BPM do Deezer e o **selo** (um pedido por álbum, guardado), e
+  grava em `track_evidence` (sem validade, para reclassificar offline depois);
 - **não chama o Spotify**: as faixas vêm dos resumos já guardados — a regra do
   projeto depois da suspensão de 18 horas;
 - só roda por pedido, mostra quantas faixas faltam, roda em segundo plano com
@@ -351,7 +380,8 @@ botão **"Buscar evidência"** (no Perfil e na página do subgênero) resolve is
   O mesmo vale rodando `python -m scripts.reclassificar_generos`.
 
 Análises feitas depois da mudança já gravam as tags separadas e com peso, então
-não precisam do job.
+não precisam do job para isso. O selo é diferente: a análise de playlist só usa
+o selo já guardado (sem rede); quem busca é o job e a página da faixa.
 
 ### As telas
 
@@ -362,8 +392,9 @@ não precisam do job.
   playlist de um gênero só, o caminho ao longo da ordem das faixas aparece no
   nível de subgênero, quando há ao menos dois.
 - **Faixa**: "Por que este subgênero" mostra o blend, uma linha por fonte de
-  evidência e a referência ("full-on: 140–148 BPM, segundo psytranceguide.com").
-  Quando está incerta, diz o que falta.
+  evidência e a referência ("full-on: 140–148 BPM, segundo psytranceguide.com"),
+  e o selo com a nota e a fonte quando ele está no mapa. Quando está incerta, diz
+  o que falta.
 - **`/subgenero/:name`**: a descrição, a faixa de BPM e o link da fonte, e as
   faixas do acervo em dois grupos — "classificadas como X" e "puxam para X" —,
   cada um ordenado pela fatia, com prévia e as playlists onde aparece. Ouvir o
@@ -393,7 +424,7 @@ Os números de hoje, sem enfeite:
 35 casos
 precisão confiante : 0/0 = indefinida   (piso 0.65)
 taxa de incerto    : 35/35 = 1.000   (teto 1.00)
-top-2              : 16/35 = 0.457
+top-2              : 17/35 = 0.486
 ```
 
 A leitura honesta: hoje o app **não afirma nenhum** dos 35 casos. "Incerto"
@@ -401,7 +432,9 @@ nunca conta como acerto. Numa primeira medição ele afirmava 7 (5 certos, 2
 errados), mas os 7 eram "tag do artista + um BPM que cabe em três ou mais
 subgêneros" — o andamento não estreitava nada e o artista decidia sozinho, que
 é justamente o que o app promete não fazer. Sem tag de faixa no conjunto, sobra
-o top-2 (16 de 35) como sinal de que o blend aponta na direção certa. O piso de
+o top-2 (17 de 35) como sinal de que o blend aponta na direção certa. O selo
+votou em 9 casos e concordou com a referência em 7 (top-2 subiu de 16 para 17),
+mas não afirma nada sozinho, por desenho. O piso de
 precisão (0,65, da primeira medição) só se aplica quando houver caso confiante —
 o primeiro errado reprova; o teto de incerto fica em 1,0 porque não há folga
 acima de 35/35. Existem para reprovar regressão, não para comemorar.

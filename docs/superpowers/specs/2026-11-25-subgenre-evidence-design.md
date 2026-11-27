@@ -382,8 +382,10 @@ each.
 
 **Design rules:**
 - A hand-written `labels.yaml`: label name (plus aliases) → subgenre shares,
-  a one-line description in our own words, and a source link (Discogs label
-  page or the label's site). Mixed labels get split shares, not one answer.
+  a one-line description in our own words, and the guide styles it came from;
+  the source is psytranceguide.com's "Notable labels" lists (`fonte_padrao`),
+  with a per-entry `fonte` URL when a label is sourced elsewhere. Mixed labels
+  get split shares, not one answer.
 - The map is **not** built from the golden set (that would grade our own
   homework); the golden set only measures it.
 - An unknown label abstains. A known label is one source among the others in
@@ -393,6 +395,33 @@ each.
 - The track page's "why" card shows the label line; the AI chat tools receive
   the label and its description so the model can explain it, but the label
   never reaches the classifier through the model — classification stays pure.
+
+**Built (2026-11-27).** Labels are stored per Deezer album
+(`deezer_album_labels`, no expiry) and per track in `track_evidence`; the
+enrichment job fetches missing labels after the Deezer step; every
+classification path (new analysis, offline reclassify, the track page) passes
+the label vote into `subgenre.blend` via `labels.blend_with_label`; the track
+page's "why" card shows the label with its shares, note and source; the AI chat
+receives the label and is told it describes the catalogue, not the track.
+
+Golden set after refreezing the labels (`evals.congelar_subgeneros --so-selo`):
+29/35 tracks have a Deezer label; the label voted in **9 cases and agreed with
+the reference in 7**; top-2 went from 16/35 to **17/35**; confident cases stay
+at **0**, by design. The two misses: Dacru Records on a Bitkit track the
+reference calls progressive (the guide lists Dacru under Full-on), and Avatar
+Records on a Fungus Funk track the reference calls darkpsy (the map has Avatar
+as goa only). Neither was tuned on the golden set. Library: 207/390 psy tracks
+have a label, and the top four labels cover 45% of them.
+
+Known gaps:
+- The label only votes inside psytrance: when the genre isn't classified psy,
+  it can't vote (Spin Twist on a track the tags call trance; Hekwapi and Black
+  Out tracks whose artists have no tags).
+- A new playlist analysis uses only stored labels, with no network; the
+  enrichment job and the track page are what fetch them.
+- A label alone never makes a track confident (`SOURCES_THAT_NEED_COMPANY`,
+  shared with artist tags), so confident results still need track tags or a
+  BPM that narrows to at most two subgenres.
 
 ## Stage B (later, its own spec)
 
