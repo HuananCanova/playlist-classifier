@@ -95,6 +95,23 @@ async def analisar_playlist_json(access_token: str, playlist_id: str) -> str:
     )
 
 
+def _selo_json(detail) -> dict | None:
+    """O selo do lançamento e o que o mapa (app/labels.yaml) diz dele.
+
+    Fora do mapa só vai o nome: o modelo não pode inventar o estilo do selo."""
+    if not detail.label:
+        return None
+    info = detail.label_info
+    return {
+        "nome": detail.label,
+        "no_mapa": info is not None,
+        "nome_no_mapa": info.name if info else None,
+        "subgeneros": [{"subgenero": s.label, "fatia": s.share} for s in info.shares] if info else [],
+        "nota": info.nota if info else None,
+        "fonte": info.fonte if info else None,
+    }
+
+
 async def analisar_faixa_json(access_token: str, track_id: str) -> str:
     """Detalhe de uma faixa, serializado para o modelo."""
     try:
@@ -124,9 +141,22 @@ async def analisar_faixa_json(access_token: str, track_id: str) -> str:
             "tem_previa": bool(detail.preview_url),
             "correspondencia_deezer": detail.match_confidence,
             "titulo_deezer": detail.matched_title,
+            "genero": detail.genre,
+            "subgenero": detail.subgenre,
+            "inclinacao": detail.subgenre_lean,
+            "incerto": detail.subgenre_unsure,
+            "mistura": [{"subgenero": s.label, "fatia": s.share} for s in detail.subgenre_blend],
+            "evidencia": [
+                {"fonte": e.source, "aponta": e.says, "detalhe": e.detail}
+                for e in detail.subgenre_evidence
+            ],
+            "selo": _selo_json(detail),
             "observacao": (
-                "Tags vêm do Last.fm (aproximadas). BPM e prévia vêm do Deezer "
-                "e podem faltar ou ser de uma gravação parecida, não idêntica."
+                "Tags vêm do Last.fm (aproximadas). BPM, prévia e selo vêm do "
+                "Deezer e podem faltar ou ser de uma gravação parecida, não "
+                "idêntica. `subgenero` só vem preenchido quando a evidência "
+                "basta; `inclinacao` é para onde a faixa pende, e com "
+                "`incerto` verdadeiro não é fato."
             ),
         },
         ensure_ascii=False,
@@ -350,7 +380,8 @@ def build_tools(
             name="analisar_esta_faixa",
             description=(
                 "Busca os dados desta faixa: tags do Last.fm, tags do artista, "
-                "BPM e metadados. Chame antes de responder qualquer pergunta sobre ela."
+                "BPM, selo, subgênero com a evidência e metadados. Chame antes "
+                "de responder qualquer pergunta sobre ela."
             ),
             parameters={"type": "object", "properties": {}, "required": []},
             run=analisar_esta_faixa,
@@ -408,5 +439,7 @@ Como trabalhar:
 - Chame `analisar_esta_faixa` antes de responder qualquer coisa sobre ela. Nunca invente tags, BPM ou metadados.
 - Tags vêm do Last.fm (aproximadas). BPM e prévia vêm do Deezer e podem faltar ou ser de uma gravação parecida — diga isso quando relevante.
 - Você não ouve o áudio nem vê espectrogramas; não descreva timbre ou produção além do que tags e BPM sugerem.
+
+Sobre o selo: `selo` descreve o catálogo do lançamento, não a faixa em si — um selo de full-on também lança faixas mais lentas. Quando o selo é a única evidência em `evidencia`, diga que o resultado é uma direção (inclinação), não um veredito. Ao explicar o que um selo costuma lançar, cite o link em `fonte`. Se `no_mapa` for falso, não invente o estilo do selo: diga que ele não está no mapa de selos do app.
 
 Sobre o tom: pode comentar o clima ou estilo sugerido pelos dados, mas fundamente no que a ferramenta retornou."""
