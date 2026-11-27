@@ -83,10 +83,36 @@ def test_empty_label_is_an_answer():
 
 def test_missing_includes_matched_rows_without_label():
     full = dict(artist_tags=[], track_tags=[], deezer_checked_at=1.0)
-    evidence_store.put(TrackEvidence("com_selo", deezer_id=7, label="X", label_checked_at=1.0, **full))
-    evidence_store.put(TrackEvidence("sem_selo_vazio", deezer_id=8, label="", label_checked_at=1.0, **full))
+    evidence_store.put(TrackEvidence("com_selo", deezer_id=7, label="X", label_checked_at=1.0, label_deezer_id=7, **full))
+    evidence_store.put(TrackEvidence("sem_selo_vazio", deezer_id=8, label="", label_checked_at=1.0, label_deezer_id=8,
+                                     **full))
     evidence_store.put(TrackEvidence("selo_nao_buscado", deezer_id=9, **full))
     # Sem correspondência no Deezer não há como perguntar o selo: não falta nada.
     evidence_store.put(TrackEvidence("sem_match", **full))
     ids = ["com_selo", "sem_selo_vazio", "selo_nao_buscado", "sem_match"]
     assert evidence_store.missing(ids) == ["selo_nao_buscado"]
+
+
+def test_label_deezer_id_roundtrip():
+    evidence_store.put(TrackEvidence("t1", deezer_id=7, deezer_checked_at=1.0, label="Iboga Records",
+                                     label_checked_at=2.0, label_deezer_id=7))
+    assert evidence_store.get_many(["t1"])["t1"].label_deezer_id == 7
+
+
+def test_new_label_check_replaces_old_label_even_when_unknown():
+    # Uma consulta de selo grava selo e origem juntos: "não confere" (None com
+    # data) substitui o selo de um match anterior, em vez de herdá-lo.
+    evidence_store.put(TrackEvidence("t1", deezer_id=7, label="Iboga Records", label_checked_at=1.0,
+                                     label_deezer_id=7))
+    evidence_store.put(TrackEvidence("t1", deezer_id=8, label=None, label_checked_at=2.0, label_deezer_id=8))
+    ev = evidence_store.get_many(["t1"])["t1"]
+    assert (ev.label, ev.label_checked_at, ev.label_deezer_id) == (None, 2.0, 8)
+
+
+def test_missing_includes_label_from_another_deezer_id():
+    full = {"artist_tags": [], "track_tags": [], "deezer_checked_at": 1.0, "label": "X", "label_checked_at": 1.0}
+    evidence_store.put(TrackEvidence("mesmo_id", deezer_id=7, label_deezer_id=7, **full))
+    evidence_store.put(TrackEvidence("outro_id", deezer_id=8, label_deezer_id=7, **full))
+    # Selo guardado antes de a origem existir: não se sabe de que match veio.
+    evidence_store.put(TrackEvidence("sem_origem", deezer_id=9, **full))
+    assert evidence_store.missing(["mesmo_id", "outro_id", "sem_origem"]) == ["outro_id", "sem_origem"]

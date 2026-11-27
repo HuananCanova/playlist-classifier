@@ -360,15 +360,17 @@ async def test_add_audio_keeps_stored_label(monkeypatch):
 # ── página da faixa: o selo ─────────────────────────────────────────────────
 
 
-async def _detalhe_com_selo(monkeypatch, track_id, deezer, selo_da_rede, chamadas):
+async def _detalhe_com_selo(monkeypatch, track_id, deezer, selo_da_rede, chamadas, opcoes=None):
     from app import enrichment_store, tracks
     from app.cache import track_detail_cache
 
     async def fake_parallel(client, artist, title, duration):
         return deezer, [Tag("forest psy", 80.0)], [Tag("psytrance", 100.0)]
 
-    async def fake_label(client, deezer_id):
+    async def fake_label(client, deezer_id, **kwargs):
         chamadas.append(deezer_id)
+        if opcoes is not None:
+            opcoes.append(kwargs)
         return selo_da_rede
 
     monkeypatch.setattr(tracks, "_buscar_em_paralelo", fake_parallel)
@@ -425,3 +427,71 @@ async def test_track_detail_without_deezer_match_does_not_ask_label(monkeypatch)
     chamadas: list = []
     await _detalhe_com_selo(monkeypatch, "t33", deezer, "Parvati Records", chamadas)
     assert chamadas == []
+
+
+async def test_track_detail_refetches_label_when_alta_id_differs(monkeypatch):
+    # Selo guardado de outro match: o desta visita (alta) é outra gravação.
+    evidence_store.put(evidence_store.TrackEvidence(
+        "t34", deezer_id=11, deezer_checked_at=1.0, label="Parvati Records", label_checked_at=1.0, label_deezer_id=11
+    ))
+    deezer = {"deezer_id": 42, "bpm": None, "preview_url": None, "deezer_url": None, "confianca": "alta"}
+    chamadas: list = []
+    detail = await _detalhe_com_selo(monkeypatch, "t34", deezer, "Kontor Records", chamadas)
+
+    assert chamadas == [42] and detail.label == "Kontor Records"
+    ev = evidence_store.get_many(["t34"])["t34"]
+    assert (ev.label, ev.label_deezer_id) == ("Kontor Records", 42)
+
+
+async def test_track_detail_reuses_label_of_same_deezer_id(monkeypatch):
+    evidence_store.put(evidence_store.TrackEvidence(
+        "t35", deezer_id=42, deezer_checked_at=1.0, label="Parvati Records", label_checked_at=1.0, label_deezer_id=42
+    ))
+    deezer = {"deezer_id": 42, "bpm": None, "preview_url": None, "deezer_url": None, "confianca": "alta"}
+    chamadas: list = []
+    detail = await _detalhe_com_selo(monkeypatch, "t35", deezer, "Kontor Records", chamadas)
+    assert chamadas == [] and detail.label == "Parvati Records"
+
+
+async def test_track_detail_alta_match_passes_album_and_skips_check(monkeypatch):
+    deezer = {"deezer_id": 42, "album_id": 700, "bpm": None, "preview_url": None, "deezer_url": None,
+              "confianca": "alta"}
+    chamadas: list = []
+    opcoes: list = []
+    await _detalhe_com_selo(monkeypatch, "t36", deezer, "Kontor Records", chamadas, opcoes)
+    assert chamadas == [42]
+    assert opcoes == [{"album_id": 700, "conferir": None}]
+    assert evidence_store.get_many(["t36"])["t36"].label_deezer_id == 42
+
+
+async def test_track_detail_stored_id_is_checked_before_label(monkeypatch):
+    from app import deezer_client
+
+    # Sem match alta agora: o id guardado pode ter vindo de um match aproximado
+    # (análise de playlist), então o selo só vale se a faixa conferir.
+    evidence_store.put(evidence_store.TrackEvidence("t37", deezer_id=11, deezer_checked_at=1.0))
+    chamadas: list = []
+    opcoes: list = []
+    detail = await _detalhe_com_selo(monkeypatch, "t37", None, deezer_client.NaoConfere(), chamadas, opcoes)
+
+    assert chamadas == [11]
+    assert opcoes == [{"album_id": None, "conferir": ("A", "X", 1)}]
+    assert detail.label is None and detail.label_info is None
+    ev = evidence_store.get_many(["t37"])["t37"]
+    assert (ev.label, ev.label_deezer_id) == (None, 11) and ev.label_checked_at is not None
+
+    # Já conferido: a próxima visita não pergunta de novo.
+    await _detalhe_com_selo(monkeypatch, "t37", None, "Parvati Records", chamadas)
+    assert chamadas == [11]
+
+
+async def test_track_detail_not_cached_when_label_lookup_fails(monkeypatch):
+    from app.cache import track_detail_cache
+
+    evidence_store.put(evidence_store.TrackEvidence("t38", deezer_id=12, deezer_checked_at=1.0))
+    await _detalhe_com_selo(monkeypatch, "t38", None, None, [])
+    # Falha temporária: a próxima visita tenta o selo de novo.
+    assert "t38" not in track_detail_cache
+
+    await _detalhe_com_selo(monkeypatch, "t38", None, "Parvati Records", [])
+    assert "t38" in track_detail_cache

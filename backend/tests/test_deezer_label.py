@@ -109,3 +109,85 @@ async def test_label_for_track_none_when_track_call_fails():
     async with client:
         assert await deezer_client.get_label_for_track(client, 7) is None
     assert chamadas == ["/track/7"]
+
+
+# ── só selo de match confiável ───────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_label_for_track_checks_match_with_track_page_rule():
+    # O detalhe da faixa (que já é pedido para achar o álbum) confere o match
+    # com a mesma regra `alta` da página da faixa: título, artista e duração.
+    rotas = {
+        "/track/7": httpx.Response(
+            200, json={"id": 7, "title": "Raro", "artist": {"name": "Zeta"}, "duration": 400, "album": {"id": 70}}
+        ),
+        "/album/70": httpx.Response(200, json={"id": 70, "label": "Iboga Records"}),
+    }
+    client, chamadas = _client_contando(rotas)
+    async with client:
+        selo = await deezer_client.get_label_for_track(client, 7, conferir=("Zeta", "Raro", 401_000))
+    assert selo == "Iboga Records"
+    assert chamadas == ["/track/7", "/album/70"]
+
+
+@pytest.mark.parametrize(
+    "detalhe",
+    [
+        # Outro artista: o título bate, mas é outra gravação (outro lançamento).
+        {"title": "Raro", "artist": {"name": "Outro"}, "duration": 400},
+        # Remix contra a original.
+        {"title": "Raro (Remix)", "artist": {"name": "Zeta"}, "duration": 400},
+        # Duração longe demais.
+        {"title": "Raro", "artist": {"name": "Zeta"}, "duration": 200},
+    ],
+)
+@pytest.mark.asyncio
+async def test_label_for_track_refuses_approximate_match(detalhe):
+    rotas = {
+        "/track/7": httpx.Response(200, json={"id": 7, "album": {"id": 70}, **detalhe}),
+        "/album/70": httpx.Response(200, json={"id": 70, "label": "Iboga Records"}),
+    }
+    client, chamadas = _client_contando(rotas)
+    async with client:
+        selo = await deezer_client.get_label_for_track(client, 7, conferir=("Zeta", "Raro", 400_000))
+    # Resposta (não falha), mas sem selo: o álbum nem é pedido.
+    assert isinstance(selo, deezer_client.NaoConfere) and selo == ""
+    assert chamadas == ["/track/7"]
+    assert enrichment_store.get_album_label(70) is None
+
+
+@pytest.mark.asyncio
+async def test_label_for_track_with_known_album_skips_track_call():
+    rotas = {"/album/70": httpx.Response(200, json={"id": 70, "label": "Iboga Records"})}
+    client, chamadas = _client_contando(rotas)
+    async with client:
+        assert await deezer_client.get_label_for_track(client, 7, album_id=70) == "Iboga Records"
+    assert chamadas == ["/album/70"]
+
+
+@pytest.mark.asyncio
+async def test_buscar_faixa_returns_album_id():
+    def handler(request):
+        if request.url.path.endswith("/search"):
+            return httpx.Response(200, json={"data": [{"id": 77, "title": "Raro", "artist": {"name": "Zeta"}}]})
+        return httpx.Response(200, json={"id": 77, "bpm": 145, "album": {"id": 700}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        info = await deezer_client.buscar_faixa(client, "Zeta", "Raro")
+    assert info["album_id"] == 700
+
+
+@pytest.mark.asyncio
+async def test_label_quota_error_is_failure_and_not_cached():
+    # Estouro de cota: HTTP 200 com `error` código 4 — falha, nunca "sem selo".
+    cota = httpx.Response(200, json={"error": {"type": "Exception", "message": "Quota limit exceeded", "code": 4}})
+    rotas = {"/track/7": httpx.Response(200, json={"id": 7, "album": {"id": 70}}), "/album/70": cota}
+    client, _ = _client_contando(rotas)
+    async with client:
+        assert await deezer_client.get_label_for_track(client, 7) is None
+    assert enrichment_store.get_album_label(70) is None
+
+    client, _ = _client_contando({"/track/7": cota})
+    async with client:
+        assert await deezer_client.get_label_for_track(client, 7, conferir=("Zeta", "Raro", None)) is None

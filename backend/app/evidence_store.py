@@ -25,9 +25,13 @@ class TrackEvidence:
     # None = Deezer nunca consultado. Com bpm/deezer_id None: consultado, sem match.
     deezer_checked_at: float | None = None
     # Selo do lançamento (Deezer). None = não consultado; "" = o álbum não tem
-    # selo. Só pode ser perguntado depois que existe `deezer_id`.
+    # selo. Só pode ser perguntado depois que existe `deezer_id`. Com
+    # `label_checked_at` e label None: consultado, mas o match não conferiu.
     label: str | None = None
     label_checked_at: float | None = None
+    # O deezer_id de onde o selo veio: diferente do atual, o selo é de outro
+    # lançamento e precisa ser perguntado de novo.
+    label_deezer_id: int | None = None
 
 
 def _from_row(row) -> TrackEvidence:
@@ -40,6 +44,7 @@ def _from_row(row) -> TrackEvidence:
         deezer_checked_at=row["deezer_checked_at"],
         label=row["label"],
         label_checked_at=row["label_checked_at"],
+        label_deezer_id=row["label_deezer_id"],
     )
 
 
@@ -66,10 +71,16 @@ def put(ev: TrackEvidence) -> None:
 
         artist_tags = pick(ev.artist_tags, old.artist_tags)
         track_tags = pick(ev.track_tags, old.track_tags)
+        # Uma consulta de selo grava selo e origem juntos, como estão: "não
+        # conferiu" (label None) substitui o selo de um match anterior.
+        if ev.label_checked_at is not None:
+            label, label_deezer_id = ev.label, ev.label_deezer_id
+        else:
+            label, label_deezer_id = pick(ev.label, old.label), pick(ev.label_deezer_id, old.label_deezer_id)
         conn.execute(
             "INSERT OR REPLACE INTO track_evidence "
             "(track_id, artist_tags, track_tags, bpm, deezer_id, deezer_checked_at, label, label_checked_at, "
-            "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "label_deezer_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 ev.track_id,
                 None if artist_tags is None else encode_tags(artist_tags),
@@ -77,8 +88,9 @@ def put(ev: TrackEvidence) -> None:
                 pick(ev.bpm, old.bpm),
                 pick(ev.deezer_id, old.deezer_id),
                 pick(ev.deezer_checked_at, old.deezer_checked_at),
-                pick(ev.label, old.label),
+                label,
                 pick(ev.label_checked_at, old.label_checked_at),
+                label_deezer_id,
                 time.time(),
             ),
         )
@@ -100,7 +112,9 @@ def missing(track_ids: list[str]) -> list[str]:
     """Ids sem linha ou com alguma fonte ainda não consultada (na ordem dada).
 
     O selo só conta quando há `deezer_id`: sem correspondência no Deezer não há
-    álbum a perguntar, e a faixa não pode ficar eternamente "faltando"."""
+    álbum a perguntar, e a faixa não pode ficar eternamente "faltando". Selo de
+    outra correspondência (ou de origem desconhecida, guardado antes de ela ser
+    registrada) também falta: pode ser de outro lançamento."""
     have = get_many(track_ids)
     out = []
     for tid in dict.fromkeys(track_ids):
@@ -110,7 +124,7 @@ def missing(track_ids: list[str]) -> list[str]:
             or ev.artist_tags is None
             or ev.track_tags is None
             or ev.deezer_checked_at is None
-            or (ev.deezer_id is not None and ev.label_checked_at is None)
+            or (ev.deezer_id is not None and (ev.label_checked_at is None or ev.label_deezer_id != ev.deezer_id))
         ):
             out.append(tid)
     return out

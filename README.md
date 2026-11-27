@@ -328,6 +328,13 @@ selo, como o artista, descreve algo maior que a faixa: sozinho ele dá direção
 nunca uma faixa afirmada (`SOURCES_THAT_NEED_COMPANY`). A página da faixa mostra
 o selo com a nota e o link da fonte, e o chat recebe o mesmo para explicar.
 
+O selo é de um lançamento, então só vale de uma correspondência **confiável**
+no Deezer: a faixa de lá precisa bater título, artista e duração com a do
+Spotify (a regra `alta` da página da faixa), senão pode ser outra gravação, de
+outro disco. O job confere isso no detalhe da faixa, que pede de qualquer jeito
+para achar o álbum. Cada selo guardado lembra de que `deezer_id` veio
+(`label_deezer_id`): se a correspondência da faixa mudar, ele é perguntado de novo.
+
 Para **pôr um selo no mapa**, siga o formato descrito no topo do
 `labels.yaml`: precisa de uma **fonte citável** (sem fonte, fica na lista de
 lacunas de lá); as fatias somam 1 e selo misto divide, não escolhe. **Nunca**

@@ -28,7 +28,16 @@ function segmentos(blend) {
 // O selo entra como as outras fontes. Quando ele reparte entre subgêneros,
 // também vem com `says` nulo — mas aí sabemos entre quais: as fatias do mapa
 // (`label_info.shares`) que estão na mistura, isto é, as deste gênero. O
-// conjunto do selo são essas fatias, e sobreposição com outra fonte é acordo.
+// conjunto do selo são as empatadas no topo entre elas (como o
+// `subgenre._tied_top` do backend), e sobreposição com outra fonte é acordo.
+// Fatias empatadas no topo (≥ 0.999 da maior) entre as que estão na mistura.
+function empatadosNoTopo(shares, naMistura) {
+  const deste = shares.filter((s) => naMistura.has(s.label));
+  if (deste.length === 0) return [];
+  const piso = Math.max(...deste.map((s) => s.share)) * 0.999;
+  return deste.filter((s) => s.share >= piso).map((s) => s.label);
+}
+
 export function motivosIncerteza(evidence, { label = null, label_info = null, subgenre_blend = [] } = {}) {
   const fontes = new Set(evidence.map((e) => e.source));
   const itens = [];
@@ -51,7 +60,7 @@ export function motivosIncerteza(evidence, { label = null, label_info = null, su
   for (const e of evidence) {
     if (e.says) juntar(e.source, e.says);
     else if (e.source === "label" && label_info) {
-      for (const s of label_info.shares || []) if (naMistura.has(s.label)) juntar("label", s.label);
+      for (const sub of empatadosNoTopo(label_info.shares || [], naMistura)) juntar("label", sub);
     }
   }
   const conjuntos = [...porFonte.values()];

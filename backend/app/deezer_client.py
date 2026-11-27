@@ -163,6 +163,8 @@ async def buscar_faixa(
         "artista_encontrado": (candidato.get("artist") or {}).get("name"),
         "duracao_s": candidato.get("duration"),
         "confianca": confianca,
+        # O detalhe já diz o álbum: quem busca o selo não precisa pedir a faixa de novo.
+        "album_id": _album_id_in(d) or None,
     }
     deezer_cache[chave] = resultado
     return resultado
@@ -395,8 +397,18 @@ async def get_many(client: httpx.AsyncClient, pairs: list[tuple[str, str]]) -> l
 ALBUM_URL = "https://api.deezer.com/album"
 
 
-async def _album_id_of(client: httpx.AsyncClient, deezer_id: int) -> int | None:
-    """Id do álbum de uma faixa; 0 quando a faixa não tem álbum; None se falhou."""
+class NaoConfere(str):
+    """O "" de "a faixa do Deezer não confere com a do usuário".
+
+    Para quem só lê é igual a "" (sem selo), mas quem guarda distingue: é
+    resposta — o match daquele `deezer_id` não passou na regra `alta` da página
+    da faixa (`_confianca`), então o álbum dele pode ser outro lançamento, com
+    outro selo — e não "o álbum não tem selo"."""
+
+
+async def _track_detail(client: httpx.AsyncClient, deezer_id: int) -> dict | None:
+    """O detalhe de uma faixa do Deezer, ou None se a chamada falhou (inclusive
+    o estouro de cota, que vem com HTTP 200 e um `error` no corpo)."""
     try:
         resp = await client.get(f"{TRACK_URL}/{deezer_id}", timeout=10.0)
         resp.raise_for_status()
@@ -405,9 +417,20 @@ async def _album_id_of(client: httpx.AsyncClient, deezer_id: int) -> int | None:
         return None
     if not isinstance(detail, dict) or "error" in detail:
         return None
+    return detail
+
+
+def _album_id_in(detail: dict) -> int:
+    """Id do álbum no detalhe de uma faixa; 0 quando a faixa não tem álbum."""
     album = detail.get("album")
     album_id = album.get("id") if isinstance(album, dict) else None
     return album_id or 0
+
+
+async def _album_id_of(client: httpx.AsyncClient, deezer_id: int) -> int | None:
+    """Id do álbum de uma faixa; 0 quando a faixa não tem álbum; None se falhou."""
+    detail = await _track_detail(client, deezer_id)
+    return None if detail is None else _album_id_in(detail)
 
 
 async def _album_label(client: httpx.AsyncClient, album_id: int) -> str | None:
@@ -442,7 +465,13 @@ async def get_track_label(client: httpx.AsyncClient, deezer_id: int) -> str | No
     return await _album_label(client, album_id)
 
 
-async def get_label_for_track(client: httpx.AsyncClient, deezer_id: int) -> str | None:
+async def get_label_for_track(
+    client: httpx.AsyncClient,
+    deezer_id: int,
+    *,
+    conferir: tuple[str, str, int | None] | None = None,
+    album_id: int | None = None,
+) -> str | None:
     """Como `get_track_label`, mas com o selo guardado por álbum no banco.
 
     A faixa ainda custa uma chamada (é ela que diz o álbum), mas o álbum só é
@@ -451,10 +480,25 @@ async def get_label_for_track(client: httpx.AsyncClient, deezer_id: int) -> str 
     selo de um lançamento não muda. Só resposta entra no banco — "" (álbum sem
     selo) é resposta; None (falha) não, para a próxima tentativa perguntar de
     novo.
+
+    `conferir` = (artista, título, duração em ms) da faixa do usuário: quando o
+    `deezer_id` não veio de um match `alta` (o de `get_track_info` pode ser
+    aproximado; o guardado no banco tem confiança desconhecida), o detalhe da
+    faixa — que já é pedido para achar o álbum — passa pela mesma regra da
+    página da faixa. Não conferiu → `NaoConfere` (resposta, sem selo), e o
+    álbum nem é pedido. `album_id` = o álbum já conhecido (o detalhe que
+    `buscar_faixa` leu), para pular a chamada da faixa.
     """
-    album_id = await _album_id_of(client, deezer_id)
-    if album_id is None:
-        return None
+    if album_id is None or conferir is not None:
+        detail = await _track_detail(client, deezer_id)
+        if detail is None:
+            return None
+        if conferir is not None:
+            artista, titulo, duracao_ms = conferir
+            duracao_s = round(duracao_ms / 1000) if duracao_ms else None
+            if _confianca(detail, titulo, artista, duracao_s) != "alta":
+                return NaoConfere()
+        album_id = _album_id_in(detail)
     if not album_id:
         return ""
     stored = await asyncio.to_thread(enrichment_store.get_album_label, album_id)

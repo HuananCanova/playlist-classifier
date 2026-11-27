@@ -12,8 +12,12 @@ Regras:
   são consultados (cada um com o cache e o ritmo que o seu cliente já tem).
 - **Só o que falta.** Last.fm só para o campo de tags ainda vazio; Deezer só
   para quem nunca foi consultado; selo só para quem já tem `deezer_id` (achado
-  agora ou antes) e nunca teve o selo perguntado. Refazer depois de uma falha
-  busca só ela.
+  agora ou antes) e nunca teve o selo perguntado para esse mesmo `deezer_id`.
+  Refazer depois de uma falha busca só ela.
+- **Selo só de match confiável.** O match do Deezer daqui pode ser aproximado
+  (outra gravação, outro lançamento), então o detalhe da faixa — pedido de
+  qualquer jeito para achar o álbum — é conferido com a regra `alta` da página
+  da faixa antes de o álbum ser perguntado.
 - **Falha não vira dado.** Uma consulta que falhou fica `None` (e conta como
   erro): guardar `[]` esconderia a faixa por semanas. "Deezer respondeu que não
   tem" é diferente, e é registrado (`deezer_checked_at` com bpm/id vazios); o
@@ -111,6 +115,8 @@ def pending_tracks(digests: dict[str, dict]) -> list[dict]:
                     "artists": list(t.get("artists") or []),
                     "album": t.get("album"),
                     "genres": list(t.get("genres") or []),
+                    # Para conferir o match do Deezer antes de confiar no selo.
+                    "duration_ms": t.get("duration_ms"),
                 }
     faltam = set(evidence_store.missing(list(unicas)))
     fila = [unicas[tid] for tid in unicas if tid in faltam]
@@ -187,21 +193,34 @@ async def _lote(client: httpx.AsyncClient, lote: list[dict], progress: EnrichPro
         com_id = []
         for t in lote:
             antes = have.get(t["id"])
-            if antes is not None and antes.label_checked_at is not None:
-                continue
             deezer_id = campos[t["id"]].get("deezer_id") or (antes.deezer_id if antes else None)
-            if deezer_id is not None:
-                com_id.append((t, deezer_id))
+            if deezer_id is None:
+                continue
+            # Selo já perguntado para este mesmo match: nada a fazer. De outro
+            # match (ou de origem desconhecida), pode ser de outro lançamento.
+            if antes is not None and antes.label_checked_at is not None and antes.label_deezer_id == deezer_id:
+                continue
+            com_id.append((t, deezer_id))
 
         async def selo(t: dict, deezer_id: int) -> None:
+            # Nem o match de agora (`get_track_info` aceita aproximado) nem o
+            # guardado (confiança desconhecida) garantem a mesma gravação: o
+            # selo só vale se a faixa conferir pela regra `alta` da página.
+            conferir = (t["artists"][0], t["name"], t.get("duration_ms"))
             try:
-                label = await deezer_client.get_label_for_track(client, deezer_id)
+                label = await deezer_client.get_label_for_track(client, deezer_id, conferir=conferir)
             except Exception:
                 label = None
             if label is None:
                 progress.error(f"{t['name'] or t['id']}: selo (Deezer)")
-            else:
-                campos[t["id"]].update(label=label, label_checked_at=time.time())
+                return
+            campos[t["id"]].update(
+                # Não conferiu: consultado, sem selo (e sem perguntar de novo
+                # enquanto o match for o mesmo).
+                label=None if isinstance(label, deezer_client.NaoConfere) else label,
+                label_checked_at=time.time(),
+                label_deezer_id=deezer_id,
+            )
 
         await gather_with_concurrency(deezer_client.DEEZER_CONCURRENCY, *(selo(t, i) for t, i in com_id))
 

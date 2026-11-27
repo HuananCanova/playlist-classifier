@@ -84,3 +84,78 @@ async def test_album_sem_selo_vira_string_vazia():
 def test_comentario_dos_limiares_sobrevive():
     texto = "# cabeçalho\n\nlimiares:\n  # corrida de ontem\n  # e a de hoje\n  max_incerto: 1.0\ncasos: []\n"
     assert congelar._comentario_dos_limiares(texto) == "  # corrida de ontem\n  # e a de hoje\n"
+
+
+# ── congelamento completo ────────────────────────────────────────────────────
+
+
+@pytest.fixture
+def lastfm_ok(monkeypatch):
+    from app.taxonomy import Tag
+
+    async def artista(client, nome, limit=8):
+        return [Tag("goa", 100.0)]
+
+    async def faixa(client, nome, titulo, limit=10):
+        return []
+
+    monkeypatch.setattr(congelar.lastfm_client, "get_artist_tags", artista)
+    monkeypatch.setattr(congelar.lastfm_client, "get_track_tags", faixa)
+
+
+REF_COMPLETA = {**REF, "referencia": "https://psytranceguide.com", "subgenero": "goa trance"}
+
+
+@pytest.mark.asyncio
+async def test_congelar_selo_que_falha_sem_selo_anterior_fica_incompleto(lastfm_ok):
+    # Caso congelado antes de existir selo: falhar agora não pode virar
+    # "sem selo" silencioso.
+    antigo = {k: v for k, v in ANTIGO.items() if k != "incompleto"}
+    rotas = {
+        "/search": httpx.Response(200, json=ACHADA),
+        "/track/7": httpx.Response(200, json={"id": 7, "bpm": 144.1, "album": {"id": 70}}),
+    }  # o álbum falha
+    async with _client(rotas) as client:
+        caso = await congelar.congelar_caso(client, REF_COMPLETA, antigo)
+    assert caso["selo"] is None and caso["incompleto"] is True
+
+
+@pytest.mark.asyncio
+async def test_congelar_selo_que_falha_mantem_o_anterior(lastfm_ok):
+    antigo = {**{k: v for k, v in ANTIGO.items() if k != "incompleto"}, "selo": "Suntrip Records"}
+    rotas = {
+        "/search": httpx.Response(200, json=ACHADA),
+        "/track/7": httpx.Response(200, json={"id": 7, "bpm": 144.1, "album": {"id": 70}}),
+    }
+    async with _client(rotas) as client:
+        caso = await congelar.congelar_caso(client, REF_COMPLETA, antigo)
+    assert caso["selo"] == "Suntrip Records" and "incompleto" not in caso
+
+
+@pytest.mark.asyncio
+async def test_congelar_reaproveita_a_busca_do_bpm_para_o_selo(lastfm_ok, monkeypatch):
+    buscas: list = []
+    original = congelar.deezer_client.get_track_info
+
+    async def contando(client, artista, titulo):
+        buscas.append(titulo)
+        return await original(client, artista, titulo)
+
+    monkeypatch.setattr(congelar.deezer_client, "get_track_info", contando)
+    rotas = {
+        "/search": httpx.Response(200, json=ACHADA),
+        "/track/7": httpx.Response(200, json={"id": 7, "bpm": 144.1, "album": {"id": 70}}),
+        "/album/70": httpx.Response(200, json={"id": 70, "label": "Suntrip Records"}),
+    }
+    async with _client(rotas) as client:
+        caso = await congelar.congelar_caso(client, REF_COMPLETA, None)
+    assert buscas == ["Feelings"]
+    assert (caso["bpm"], caso["selo"]) == (144.1, "Suntrip Records") and "incompleto" not in caso
+
+
+@pytest.mark.asyncio
+async def test_so_selo_que_falha_sem_selo_anterior_fica_incompleto():
+    antigo = {k: v for k, v in ANTIGO.items() if k != "incompleto"}
+    async with _client({}) as client:  # nem a busca responde
+        caso = await congelar.so_selo_caso(client, REF, antigo)
+    assert caso["selo"] is None and caso["incompleto"] is True

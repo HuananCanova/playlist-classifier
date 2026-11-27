@@ -40,6 +40,7 @@ class Fontes:
         self.espera: asyncio.Event | None = None
         self.deezer_resposta = {"deezer_id": 7, "bpm": 145.0, "preview_url": None, "deezer_url": "u"}
         self.selos: list[int] = []
+        self.conferidos: list = []
         # str = resposta do Deezer ("" = álbum sem selo); None = falha.
         self.selo_resposta: str | None = "Iboga Records"
         monkeypatch.setattr(lastfm_client, "get_artist_tags", self._artist)
@@ -63,8 +64,9 @@ class Fontes:
         self.deezer.extend(pairs)
         return [self.deezer_resposta for _ in pairs]
 
-    async def _selo(self, client, deezer_id):
+    async def _selo(self, client, deezer_id, *, conferir=None, album_id=None):
         self.selos.append(deezer_id)
+        self.conferidos.append(conferir)
         return self.selo_resposta
 
 
@@ -256,6 +258,37 @@ async def test_no_label_call_without_deezer_match(fontes):
     await _rodar(_digests(_t("a")))
     assert fontes.selos == []
     assert evidence_store.missing(["a"]) == []
+
+
+async def test_job_label_checks_match_and_records_origin(fontes):
+    track = {**_t("a"), "duration_ms": 401_000}
+    await _rodar(_digests(track))
+    # O selo só vale para um match `alta`: o job manda conferir com a faixa.
+    assert fontes.conferidos == [("Artista", "Faixa a", 401_000)]
+    assert evidence_store.get_many(["a"])["a"].label_deezer_id == 7
+
+
+async def test_job_unconfirmed_match_is_answer_without_label(fontes):
+    fontes.selo_resposta = deezer_client.NaoConfere()
+    await _rodar(_digests(_t("a")))
+    ev = evidence_store.get_many(["a"])["a"]
+    # Consultado (não volta à fila), mas sem selo — e sem erro.
+    assert ev.label is None and ev.label_checked_at is not None and ev.label_deezer_id == 7
+    assert evidence_store.missing(["a"]) == []
+    assert enrichment_job.progress_dict(CONTA)["errors"] == []
+
+
+async def test_label_from_another_deezer_id_is_refetched(fontes):
+    evidence_store.put(
+        evidence_store.TrackEvidence(
+            "a", [Tag("x", 1.0)], [Tag("y", 1.0)], deezer_id=99, deezer_checked_at=1.0,
+            label="Outro Selo", label_checked_at=1.0, label_deezer_id=5,
+        )
+    )
+    await _rodar(_digests(_t("a")))
+    assert (fontes.deezer, fontes.selos) == ([], [99])
+    ev = evidence_store.get_many(["a"])["a"]
+    assert (ev.label, ev.label_deezer_id) == ("Iboga Records", 99)
 
 
 # ── sinal "não achou" do Deezer ──────────────────────────────────────────────

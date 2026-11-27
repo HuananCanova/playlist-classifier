@@ -111,20 +111,29 @@ async def _com_tentativas(fabrica):
     return resultado, False
 
 
-async def _selo(client: httpx.AsyncClient, artista: str, titulo: str) -> tuple[str | None, bool]:
+def _achou(info) -> bool:
+    """A busca do Deezer respondeu: achou (com id) ou disse que não tem."""
+    return info is not None and (info.get("deezer_id") is not None or isinstance(info, deezer_client.NotFound))
+
+
+async def _selo(
+    client: httpx.AsyncClient, artista: str, titulo: str, info: dict | None = None
+) -> tuple[str | None, bool]:
     """(selo, respondeu). O selo só sai do detalhe do álbum, então a faixa
     precisa ser achada no Deezer antes.
 
     Faixa que o Deezer não tem (`NotFound`) é resposta: selo None, respondeu.
     Busca que não respondeu — dict vazio comum, sem id — ou selo None de
     `get_track_label` é falha, e quem chama reaproveita o selo anterior.
+
+    `info` = a busca que o passo do BPM já fez; se ela respondeu, não se
+    procura a faixa de novo.
     """
-    info = None
-    for i in range(TENTATIVAS):
+    for i in range(0 if _achou(info) else TENTATIVAS):
         if i:
             await asyncio.sleep(PAUSA_S * i)
         info = await deezer_client.get_track_info(client, artista, titulo)
-        if info.get("deezer_id") is not None or isinstance(info, deezer_client.NotFound):
+        if _achou(info):
             break
     deezer_id = (info or {}).get("deezer_id")
     if deezer_id is None:
@@ -154,13 +163,19 @@ def _com_selo(antigo: dict, selo: str | None) -> dict:
 
 
 async def so_selo_caso(client: httpx.AsyncClient, ref: dict | None, antigo: dict) -> dict:
-    """Refaz só o `selo` de um caso já congelado. Falha mantém o selo anterior
-    (ou null, se não havia), como o congelamento completo faz com as outras
-    fontes; tags, BPM e `incompleto` não mudam."""
+    """Refaz só o `selo` de um caso já congelado. Falha mantém o selo anterior,
+    como o congelamento completo faz com as outras fontes; sem selo anterior
+    fica null e o caso ganha `incompleto` (null sozinho leria como "a faixa
+    não está no Deezer"). Tags e BPM não mudam."""
     if ref is None:
         return _com_selo(antigo, antigo.get("selo"))
     selo, ok = await _selo(client, ref["artista"], ref["titulo"])
-    return _com_selo(antigo, selo if ok else antigo.get("selo"))
+    if ok:
+        return _com_selo(antigo, selo)
+    caso = _com_selo(antigo, antigo.get("selo"))
+    if "selo" not in antigo:
+        caso["incompleto"] = True
+    return caso
 
 
 async def congelar_caso(client: httpx.AsyncClient, ref: dict, antigo: dict | None) -> dict:
@@ -195,9 +210,9 @@ async def congelar_caso(client: httpx.AsyncClient, ref: dict, antigo: dict | Non
         incompleto = incompleto or not ok
         caso["bpm"] = (info or {}).get("bpm")
 
-    selo, ok_selo = await _selo(client, artista, titulo)
-    if not ok_selo and antigo is not None:
-        caso["selo"] = antigo.get("selo")
+    selo, ok_selo = await _selo(client, artista, titulo, info)
+    if not ok_selo and antigo is not None and "selo" in antigo:
+        caso["selo"] = antigo["selo"]
     else:
         incompleto = incompleto or not ok_selo
         caso["selo"] = selo

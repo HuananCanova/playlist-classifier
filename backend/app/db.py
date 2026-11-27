@@ -142,6 +142,14 @@ MIGRATIONS: list[str] = [
         fetched_at REAL NOT NULL
     );
     """,
+    # 5 — de que correspondência do Deezer veio o selo guardado. Um selo é de
+    # um lançamento: se o deezer_id da faixa mudar, o selo antigo não vale.
+    # label_checked_at preenchido com label NULL = consultado, mas o match não
+    # conferiu (podia ser outra gravação): sem selo, e sem perguntar de novo
+    # enquanto o deezer_id for o mesmo.
+    """
+    ALTER TABLE track_evidence ADD COLUMN label_deezer_id INTEGER;
+    """,
 ]
 
 _lock = threading.RLock()

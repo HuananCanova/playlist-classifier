@@ -9,7 +9,12 @@ from fastapi import APIRouter, HTTPException, Request
 from . import enrichment_store, evidence_store, labels, subgenre, taxonomy
 from .auth import get_valid_access_token
 from .cache import track_detail_cache
-from .deezer_client import buscar_faixa, get_label_for_track, get_preview_url
+from .deezer_client import (
+    NaoConfere,
+    buscar_faixa,
+    get_label_for_track,
+    get_preview_url,
+)
 from .lastfm_client import NoAnswer, get_artist_tags, get_track_tags
 from .models import LabelRef, SearchHit, SubgenreShare, TrackDetail
 from .playlists import _spotify_error, account_track_ids
@@ -52,7 +57,9 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
         )
 
         guardada = await _evidencia_guardada(track_id)
-        selo, selo_novo = await _selo(client, guardada, deezer)
+        selo, selo_novo, selo_falhou = await _selo(
+            client, guardada, deezer, (principal, nome, faixa.get("duration_ms"))
+        )
 
     album = faixa.get("album") or {}
     imagens = album.get("images") or []
@@ -95,7 +102,10 @@ async def build_track_detail(access_token: str, track_id: str) -> TrackDetail:
         match_confidence=(deezer or {}).get("confianca"),
         matched_title=(deezer or {}).get("titulo_encontrado"),
     )
-    track_detail_cache[track_id] = detail
+    # Selo que falhou por agora (rede, cota) não fica na memória: a próxima
+    # visita tenta de novo em vez de mostrar a faixa sem selo por horas.
+    if not selo_falhou:
+        track_detail_cache[track_id] = detail
     await _guardar_evidencia(faixa.get("id", track_id), len(artistas), artist_tags, tags, deezer, selo_novo)
     return detail
 
@@ -106,25 +116,42 @@ def _deezer_alta(deezer) -> bool:
     return bool(deezer) and deezer.get("confianca") == "alta" and deezer.get("deezer_id") is not None
 
 
-async def _selo(client, guardada, deezer) -> tuple[str | None, str | None]:
-    """O selo da faixa, e se ele acabou de ser buscado (para guardar).
+async def _selo(client, guardada, deezer, conferir) -> tuple[str | None, dict | None, bool]:
+    """O selo da faixa, o que guardar dele (None = nada novo) e se a busca falhou.
 
-    Já consultado → o guardado, sem rede. Senão, com um id do Deezer — o do
-    match `alta` de agora, ou o guardado — pede o selo desta faixa só. Falha
-    (None) não é guardada: a próxima visita ou o job perguntam de novo. "" é
-    resposta (o álbum não tem selo) e é guardada.
+    O selo vale para um `deezer_id`: o do match `alta` de agora ou, sem ele, o
+    guardado. Já consultado para esse mesmo id → o guardado, sem rede. Senão
+    pede o selo desta faixa só. O id guardado pode ter vindo de um match
+    aproximado (a análise de playlist aceita), então vai com `conferir` (a
+    faixa do Deezer precisa passar na regra `alta`); o de agora já passou, e
+    leva o álbum que `buscar_faixa` leu. Falha (None) não é guardada: a próxima
+    visita ou o job perguntam de novo. "" é resposta (o álbum não tem selo); não
+    conferir também (guardado como selo None, consultado).
     """
+    alta = _deezer_alta(deezer)
+    deezer_id = deezer["deezer_id"] if alta else (guardada.deezer_id if guardada else None)
     if guardada is not None and guardada.label_checked_at is not None:
-        return guardada.label, None
-    deezer_id = deezer["deezer_id"] if _deezer_alta(deezer) else (guardada.deezer_id if guardada else None)
+        mesma_origem = deezer_id is None or guardada.label_deezer_id == deezer_id
+        # "Não conferiu" guardado cede a um match `alta` desta visita.
+        if mesma_origem and not (alta and guardada.label is None):
+            return guardada.label, None, False
     if deezer_id is None:
-        return (guardada.label if guardada else None), None
+        return (guardada.label if guardada else None), None, False
     try:
-        selo = await get_label_for_track(client, deezer_id)
+        selo = await get_label_for_track(
+            client,
+            deezer_id,
+            conferir=None if alta else conferir,
+            album_id=deezer.get("album_id") if alta else None,
+        )
     except Exception:
         logger.exception("Não consegui buscar o selo de %s no Deezer", deezer_id)
         selo = None
-    return selo, selo
+    if selo is None:
+        return None, None, True
+    if isinstance(selo, NaoConfere):
+        selo = None
+    return selo, {"label": selo, "label_checked_at": time.time(), "label_deezer_id": deezer_id}, False
 
 
 def _selo_no_mapa(selo: str | None) -> LabelRef | None:
@@ -155,14 +182,16 @@ async def _evidencia_guardada(track_id: str):
         return None
 
 
-async def _guardar_evidencia(track_id: str, n_artistas: int, artist_tags, tags, deezer, selo=None) -> None:
+async def _guardar_evidencia(
+    track_id: str, n_artistas: int, artist_tags, tags, deezer, selo: dict | None = None
+) -> None:
     """Só o que respondeu. Daqui só se conhecem as tags do artista principal, então
     numa faixa com mais artistas elas não substituem a lista combinada que a análise
     da playlist guarda. O Deezer devolve None tanto para "não achou" quanto para
     falha, então só um match conta como consultado — e só o de confiança `alta`:
     um aproximado pode ser outra gravação, e o BPM dele ficaria como evidência
-    permanente. Fora isso, os campos do Deezer não são tocados. `selo` é o que
-    acabou de ser buscado (None = nada novo; "" = álbum sem selo, guardado)."""
+    permanente. Fora isso, os campos do Deezer não são tocados. `selo` são os
+    campos do selo que acabou de ser buscado (None = nada novo)."""
     alta = _deezer_alta(deezer)
     ev = evidence_store.TrackEvidence(
         track_id=track_id,
@@ -171,8 +200,7 @@ async def _guardar_evidencia(track_id: str, n_artistas: int, artist_tags, tags, 
         bpm=deezer.get("bpm") if alta else None,
         deezer_id=deezer["deezer_id"] if alta else None,
         deezer_checked_at=time.time() if alta else None,
-        label=selo,
-        label_checked_at=time.time() if selo is not None else None,
+        **(selo or {}),
     )
     try:
         await asyncio.to_thread(evidence_store.put, ev)
